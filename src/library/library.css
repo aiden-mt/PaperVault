@@ -1,0 +1,157 @@
+body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.brand { font-size: 15px; letter-spacing: .2px; margin-right: 4px; }
+.topbar input[type="search"] { max-width: 320px; }
+
+.layout { flex: 1; display: flex; min-height: 0; }
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+  width: 232px;
+  flex: 0 0 auto;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.side-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px 6px;
+  font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--muted);
+}
+.topic-list { list-style: none; margin: 0; padding: 0 6px; overflow-y: auto; flex: 1; }
+.topic-list li {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: 8px; cursor: pointer; font-size: 12.5px;
+}
+.topic-list li:hover { background: var(--surface-2); }
+.topic-list li.active { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+.topic-list .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.topic-list .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topic-list .count { color: var(--muted); font-size: 11px; }
+.topic-list .acts { display: none; gap: 2px; }
+.topic-list li:hover .acts { display: flex; }
+.topic-list .acts button { padding: 0 4px; font-size: 11px; border: none; background: none; color: var(--muted); }
+.side-foot { padding: 8px 12px; border-top: 1px solid var(--border); }
+
+/* ---------- Main ---------- */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.main-head { padding: 12px 16px 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.main-head h1 { font-size: 15px; margin: 0 8px 0 0; }
+.controls { margin-top: 8px; }
+.controls select { width: auto; min-width: 130px; }
+.tabs.inline { border: none; margin: 0; }
+.sm-label { font-size: 12px; color: var(--muted); gap: 4px; }
+
+.list-view, .compare-view { flex: 1; overflow: auto; padding: 12px 16px 40px; }
+
+.paper {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px;
+  cursor: pointer;
+}
+.paper:hover { border-color: var(--accent); }
+.paper .pick { margin-top: 3px; }
+.paper .body { flex: 1; min-width: 0; }
+.paper .t { font-weight: 600; font-size: 13.5px; margin-bottom: 3px; }
+.paper .meta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 5px; }
+.paper .line { font-size: 12.5px; margin-bottom: 2px; }
+.paper .line b { color: var(--muted); font-weight: 600; }
+.paper .stars { color: var(--warn); font-size: 12px; letter-spacing: 1px; }
+.empty { text-align: center; color: var(--muted); padding: 48px 12px; }
+
+/* ---------- Bảng so sánh ---------- */
+.compare-view table { width: 100%; border-collapse: collapse; font-size: 12.5px; background: var(--surface); }
+.compare-view th, .compare-view td {
+  border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top;
+}
+.compare-view th { background: var(--surface-2); position: sticky; top: 0; z-index: 1; font-size: 12px; }
+.compare-view td:first-child { font-weight: 600; width: 22%; }
+.compare-view ul { margin: 0; padding-left: 16px; }
+
+/* ---------- Modal ---------- */
+.modal {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .45);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 24px;
+}
+/* Bắt buộc: .modal{display:flex} của author stylesheet thắng [hidden] của UA stylesheet,
+   nên phải tự tắt display khi có thuộc tính hidden. */
+.modal[hidden] { display: none; }
+.modal-box {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
+  width: min(880px, 100%); max-height: 90vh; display: flex; flex-direction: column;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .3);
+}
+.modal-box.narrow { width: min(620px, 100%); }
+.modal-head { display: flex; gap: 8px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.title-input { font-size: 14px; font-weight: 600; }
+.modal-body { padding: 14px; overflow-y: auto; flex: 1; }
+.modal-foot { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border); }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.form-grid .full { grid-column: 1 / -1; }
+.sec-title {
+  grid-column: 1 / -1; font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--accent); margin: 10px 0 6px; padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.sec-title:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+
+.toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 8px 18px; font-size: 12.5px; z-index: 90; box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+}
+
+/* ---------- Vùng thả file PDF ---------- */
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 18px 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+  background: var(--surface);
+  transition: border-color .12s ease, background .12s ease;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+.dropzone:hover, .dropzone.over { border-color: var(--accent); background: var(--accent-weak); color: var(--accent); }
+.dropzone b { display: block; font-size: 13px; color: var(--text); margin-bottom: 2px; }
+.dropzone.over b { color: var(--accent); }
+.file-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--accent-weak); color: var(--accent);
+  border-radius: 8px; padding: 6px 10px; font-size: 12.5px; margin-bottom: 10px;
+}
+.file-chip button { border: none; background: none; color: inherit; padding: 0 2px; }
+
+/* ---------- Cảnh báo trùng ---------- */
+.dup-warn {
+  border: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-radius: 8px; padding: 8px 10px; font-size: 12.5px; margin-bottom: 10px;
+}
+.dup-warn .row { margin-top: 6px; }
+
+body.drag-over::after {
+  content: 'Thả file PDF vào đây để thêm paper';
+  position: fixed; inset: 12px; z-index: 200;
+  border: 3px dashed var(--accent); border-radius: 16px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 600; color: var(--accent);
+  pointer-events: none;
+}

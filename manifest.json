@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "PaperVault - Tóm tắt & phân loại paper",
+  "version": "1.1.0",
+  "description": "Trích xuất Problem / Bottleneck / Key Idea / Validation / Limitation từ paper, phân loại vào thư mục chủ đề và so sánh nhanh.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://arxiv.org/*",
+    "https://www.arxiv.org/*",
+    "https://ar5iv.labs.arxiv.org/*",
+    "https://aclanthology.org/*",
+    "https://openreview.net/*",
+    "https://api.semanticscholar.org/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "PaperVault"
+  },
+  "options_page": "src/options/options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

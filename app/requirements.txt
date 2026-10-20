@@ -1,0 +1,4 @@
+# Máy chủ (server.py) chỉ dùng thư viện chuẩn của Python, không cần cài gì.
+# Bản desktop (desktop.py) và đóng gói .exe (build_exe.bat):
+pywebview>=6.2
+pyinstaller>=6.22

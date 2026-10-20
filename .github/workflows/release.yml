@@ -1,0 +1,55 @@
+# Đóng gói PaperVault.exe trên máy Windows của GitHub và đính kèm file zip vào Release.
+# Phát hành phiên bản mới: tạo tag dạng v1.2.0 rồi push (git tag v1.2.0 && git push origin v1.2.0).
+# Chạy tay ở tab Actions → Build PaperVault → Run workflow: chỉ tạo file zip trong mục Artifacts để thử.
+name: Build PaperVault
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cài thư viện
+        run: python -m pip install -r requirements.txt
+
+      - name: Đóng gói .exe
+        run: >
+          python -m PyInstaller --noconfirm --clean --windowed --name PaperVault
+          --icon static\icons\papervault.ico
+          --add-data "static;static" --add-data "rankings;rankings"
+          --collect-all webview --collect-all clr_loader --collect-all pythonnet
+          --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms
+          desktop.py
+
+      - name: Nén thành zip
+        shell: pwsh
+        run: |
+          Copy-Item ..\LICENSE dist\PaperVault\
+          Compress-Archive -Path dist\PaperVault -DestinationPath PaperVault-windows.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PaperVault-windows
+          path: app/PaperVault-windows.zip
+
+      - name: Đính kèm vào Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/PaperVault-windows.zip
+          generate_release_notes: true

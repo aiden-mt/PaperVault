@@ -1,0 +1,20 @@
+# Dữ liệu cá nhân: thư viện paper, PDF, database (có API key), cấu hình máy
+app/data/
+app/config.json
+app/dist-data-backup/
+
+# Kết quả build (bản .exe được phát hành qua GitHub Releases, không commit)
+app/build/
+app/dist/
+app/*.spec
+
+# Python / hệ điều hành / công cụ
+__pycache__/
+*.pyc
+.claude/
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.zip

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="../common/theme.css">
+  <link rel="stylesheet" href="popup.css">
+  <title>PaperVault</title>
+</head>
+<body>
+  <header class="pv-head">
+    <strong>PaperVault</strong>
+    <span class="spacer"></span>
+    <button id="btn-library" class="ghost sm" title="Mở thư viện">Thư viện</button>
+    <button id="btn-options" class="ghost sm" title="Cài đặt">Cài đặt</button>
+  </header>
+
+  <div id="restore-box" class="restore" hidden>
+    <div>Có một kết quả trích xuất <b>chưa lưu</b>: <span id="restore-title"></span></div>
+    <div class="row">
+      <button id="restore-yes" class="sm primary">Khôi phục</button>
+      <button id="restore-no" class="sm ghost">Bỏ qua</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button data-tab="page" class="active">Trang hiện tại</button>
+    <button data-tab="paste">PDF / Dán text</button>
+  </div>
+
+  <section id="tab-page" class="tabpane">
+    <div class="card src-card">
+      <div id="src-title" class="src-title">Đang đọc trang…</div>
+      <div class="row wrap src-meta">
+        <span id="src-kind" class="badge">…</span>
+        <span id="src-len" class="badge">…</span>
+      </div>
+      <div id="src-warn" class="hint"></div>
+      <button id="btn-use-pdf" class="sm" hidden>Dùng file PDF của trang này</button>
+    </div>
+  </section>
+
+  <section id="tab-paste" class="tabpane" hidden>
+    <div id="dropzone" class="dropzone">
+      <b>Chọn file PDF</b>
+      kéo thả vào đây hoặc bấm để chọn
+    </div>
+    <input type="file" id="file-pdf" accept="application/pdf,.pdf" hidden>
+    <div id="pdf-chip" class="file-chip" hidden>
+      <span id="pdf-chip-text"></span>
+      <button id="pdf-clear" title="Bỏ file">✕</button>
+    </div>
+
+    <label class="field">
+      <span class="label-text">…hoặc dán abstract / full text</span>
+      <textarea id="paste-text" rows="6" placeholder="Dán nội dung paper vào đây…"></textarea>
+    </label>
+    <label class="field">
+      <span class="label-text">Link paper (tuỳ chọn)</span>
+      <input type="text" id="paste-url" placeholder="https://arxiv.org/abs/...">
+    </label>
+  </section>
+
+  <div class="row actions">
+    <button id="btn-extract" class="primary">Trích xuất 5 mục</button>
+      <button id="btn-to-app" class="sm" title="Đẩy nội dung trang này sang PaperVault App (ứng dụng desktop) để trích xuất bên đó" hidden>→ App</button>
+    <button id="btn-recheck" class="ghost sm" title="Đọc lại trang">Đọc lại</button>
+  </div>
+  <div id="status" class="status"></div>
+
+  <section id="result" hidden>
+    <div class="card result-card">
+      <div id="r-title" class="src-title"></div>
+      <div class="row wrap src-meta">
+        <span id="r-conf" class="badge"></span>
+        <span id="r-model" class="badge"></span>
+      </div>
+      <div id="r-oneliner" class="hint"></div>
+    </div>
+
+    <div id="dup-box" class="dup-warn" hidden>
+      <div id="dup-text"></div>
+      <div class="row">
+        <label class="row sm-label"><input type="radio" name="dupmode" value="update" checked> Cập nhật bản đã lưu</label>
+        <label class="row sm-label"><input type="radio" name="dupmode" value="new"> Lưu thành bản mới</label>
+      </div>
+    </div>
+
+    <div id="sections" class="sections"></div>
+
+    <label class="field">
+      <span class="label-text">Thư mục chủ đề</span>
+      <select id="topic-select"></select>
+      <div id="topic-why" class="hint"></div>
+    </label>
+
+    <label class="field" id="newtopic-wrap" hidden>
+      <span class="label-text">Tên thư mục mới</span>
+      <input type="text" id="newtopic-name" placeholder="Ví dụ: Video-Language Pretraining">
+    </label>
+
+    <label class="field">
+      <span class="label-text">Ghi chú cá nhân (tuỳ chọn)</span>
+      <textarea id="user-notes" rows="2" placeholder="Ý định dùng paper này cho phần nào trong bài của bạn…"></textarea>
+    </label>
+
+    <div class="row actions">
+      <button id="btn-save" class="primary">Lưu vào thư viện</button>
+        <button id="btn-result-to-app" class="sm" title="Gửi kết quả đã trích xuất sang PaperVault App (không tốn thêm token)" hidden>→ App</button>
+      <button id="btn-copy" class="ghost sm">Copy Markdown</button>
+    </div>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

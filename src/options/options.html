@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="../common/theme.css">
+  <style>
+    body { padding: 24px; }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    .card { margin-bottom: 16px; }
+    .card h2 { display: flex; align-items: center; gap: 8px; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+    .key-row { display: none; }
+    .key-row.active { display: block; }
+  </style>
+  <title>PaperVault — Cài đặt</title>
+</head>
+<body>
+<div class="wrap">
+  <h1>Cài đặt PaperVault</h1>
+  <p class="hint">API key được lưu trong IndexedDB của extension trên máy bạn, không gửi đi đâu ngoài nhà cung cấp bạn chọn.</p>
+
+  <section class="card">
+    <h2>Mô hình</h2>
+    <div class="two">
+      <label class="field">
+        <span class="label-text">Nhà cung cấp</span>
+        <select id="provider">
+          <option value="anthropic">Claude (Anthropic)</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label-text">Model</span>
+        <input type="text" id="model" placeholder="claude-opus-5">
+        <span class="hint" id="model-hint"></span>
+      </label>
+    </div>
+
+    <div class="key-row" data-p="anthropic">
+      <label class="field">
+        <span class="label-text">Anthropic API key</span>
+        <input type="password" id="key-anthropic" placeholder="sk-ant-...">
+        <span class="hint">Lấy tại <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a></span>
+      </label>
+    </div>
+    <div class="key-row" data-p="openai">
+      <label class="field">
+        <span class="label-text">OpenAI API key</span>
+        <input type="password" id="key-openai" placeholder="sk-...">
+        <span class="hint">Lấy tại <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></span>
+      </label>
+    </div>
+    <div class="key-row" data-p="gemini">
+      <label class="field">
+        <span class="label-text">Gemini API key</span>
+        <input type="password" id="key-gemini" placeholder="AIza...">
+        <span class="hint">Lấy tại <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com</a></span>
+      </label>
+    </div>
+
+    <div class="row">
+      <button id="btn-test" class="sm">Kiểm tra kết nối</button>
+      <span id="test-status" class="status"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Đề tài của bạn</h2>
+    <label class="field">
+      <span class="label-text">Mô tả ngắn đề tài / bài báo bạn đang làm</span>
+      <textarea id="my-research" rows="4" placeholder="Ví dụ: Em đang làm VQA tiếng Việt cho ảnh y tế, dùng backbone BLIP-2, vấn đề chính là thiếu dữ liệu và tốc độ inference trên GPU 8GB."></textarea>
+      <span class="hint">Đây là căn cứ để mục “Ý tưởng có thể áp dụng cho bài của mình” bám sát bài của bạn. Càng cụ thể càng hữu ích.</span>
+    </label>
+  </section>
+
+  <section class="card">
+    <h2>Trích xuất</h2>
+    <div class="two">
+      <label class="field">
+        <span class="label-text">Ngôn ngữ ghi chú</span>
+        <select id="language">
+          <option value="vi">Tiếng Việt</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label-text">Effort (chỉ Claude)</span>
+        <select id="effort">
+          <option value="low">low — nhanh, rẻ</option>
+          <option value="medium">medium</option>
+          <option value="high">high — mặc định</option>
+          <option value="xhigh">xhigh — kỹ hơn</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label-text">Số ký tự tối đa gửi đi</span>
+        <input type="number" id="max-input" min="4000" max="400000" step="1000">
+        <span class="hint">Full text dài sẽ bị cắt bớt phần giữa. Giảm nếu bị lỗi quá tải.</span>
+      </label>
+      <label class="field">
+        <span class="label-text">Max output tokens</span>
+        <input type="number" id="max-output" min="1000" max="32000" step="500">
+      </label>
+      <label class="field" style="grid-column: 1 / -1">
+        <span class="label-text">Xử lý file PDF</span>
+        <select id="pdf-mode">
+          <option value="auto">Gửi thẳng file PDF cho model — đọc được cả bảng biểu và hình (Claude, Gemini)</option>
+          <option value="text">Luôn trích text từ PDF rồi mới gửi — rẻ hơn, nhưng mất bảng/hình</option>
+        </select>
+        <span class="hint">OpenAI không nhận PDF trực tiếp qua Chat Completions nên luôn dùng text trích tại chỗ.</span>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Thư mục trên máy</h2>
+    <p class="hint">Chọn một thư mục gốc; mỗi chủ đề thành một thư mục con chứa file .md của từng paper kèm <span class="mono">_index.md</span> có bảng so sánh.</p>
+    <div class="row wrap">
+      <button id="btn-folder" class="sm">Chọn thư mục gốc</button>
+      <button id="btn-folder-clear" class="sm ghost">Bỏ liên kết</button>
+      <span id="folder-status" class="badge"></span>
+    </div>
+    <label class="field" style="margin-top:10px">
+      <span class="row" style="gap:6px"><input type="checkbox" id="auto-sync" style="width:auto"> Tự động ghi ra thư mục sau mỗi lần lưu/sửa</span>
+      <span class="hint">Chrome thu hồi quyền ghi sau khi đóng trình duyệt; lần đầu mỗi phiên vẫn phải bấm “Đồng bộ thư mục” trong Thư viện.</span>
+    </label>
+  </section>
+
+  <section class="card">
+    <h2>PaperVault App (ứng dụng desktop)</h2>
+    <label class="field">
+      <span class="label-text">Địa chỉ app</span>
+      <input type="text" id="app-url" placeholder="http://127.0.0.1:8765">
+      <span class="hint">Khi app đang chạy, popup có nút <b>→ App</b> để đẩy trang / kết quả sang, và Thư viện có nút đồng bộ toàn bộ sang app.</span>
+    </label>
+    <div class="row"><button id="btn-app-test" class="sm">Kiểm tra</button><span id="app-status" class="status"></span></div>
+  </section>
+
+  <section class="card">
+    <h2>Dữ liệu</h2>
+    <div class="row wrap">
+      <button id="btn-backup" class="sm">Tải file sao lưu JSON</button>
+      <button id="btn-open-lib" class="sm">Mở thư viện</button>
+      <span id="stats" class="hint"></span>
+    </div>
+  </section>
+
+  <div class="row">
+    <button id="btn-save" class="primary">Lưu cài đặt</button>
+    <span id="save-status" class="status"></span>
+  </div>
+</div>
+<script type="module" src="options.js"></script>
+</body>
+</html>

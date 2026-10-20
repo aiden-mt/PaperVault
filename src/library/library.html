@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="../common/theme.css">
+  <link rel="stylesheet" href="library.css">
+  <title>PaperVault — Thư viện</title>
+</head>
+<body>
+  <header class="topbar">
+    <strong class="brand">PaperVault</strong>
+    <input type="search" id="search" placeholder="Tìm theo tên, tag, dataset, ý tưởng…">
+    <span class="spacer"></span>
+    <button id="btn-add" class="primary sm">+ Thêm paper</button>
+    <button id="btn-sync" class="sm" title="Ghi toàn bộ thư viện ra thư mục trên máy">Đồng bộ thư mục</button>
+    <button id="btn-export" class="sm">Xuất ▾</button>
+    <button id="btn-import" class="sm">Nhập JSON</button>
+    <button id="btn-to-app" class="sm" title="Nhập toàn bộ thư viện này vào PaperVault App (ứng dụng desktop), bỏ qua paper đã có" hidden>→ Đồng bộ sang App</button>
+    <button id="btn-options" class="ghost sm">Cài đặt</button>
+    <input type="file" id="file-import" accept="application/json" hidden>
+  </header>
+  <div id="toast" class="toast" hidden></div>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="side-head">
+        <span>Chủ đề</span>
+        <button id="btn-add-topic" class="ghost sm" title="Thêm chủ đề">+</button>
+      </div>
+      <ul id="topic-list" class="topic-list"></ul>
+      <div class="side-foot">
+        <div id="sync-info" class="hint"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="main-head">
+        <div class="row">
+          <h1 id="view-title">Tất cả paper</h1>
+          <span id="view-count" class="badge"></span>
+        </div>
+        <div class="row wrap controls">
+          <select id="sort">
+            <option value="updated">Mới cập nhật</option>
+            <option value="created">Mới thêm</option>
+            <option value="title">Tên A→Z</option>
+            <option value="year">Năm giảm dần</option>
+            <option value="rating">Đánh giá cao</option>
+          </select>
+          <select id="filter-status">
+            <option value="">Mọi trạng thái</option>
+            <option value="to-read">Chưa đọc</option>
+            <option value="reading">Đang đọc</option>
+            <option value="done">Đã đọc</option>
+          </select>
+          <div class="tabs inline">
+            <button data-view="list" class="active">Danh sách</button>
+            <button data-view="compare">So sánh</button>
+          </div>
+          <span class="spacer"></span>
+          <label class="row sm-label"><input type="checkbox" id="select-all"> chọn tất cả</label>
+          <button id="btn-copy-table" class="sm">Copy bảng so sánh</button>
+          <button id="btn-bulk-move" class="sm">Chuyển thư mục</button>
+          <button id="btn-dedupe" class="sm" title="Gộp các paper trùng tên/link">Dọn trùng</button>
+          <button id="btn-bulk-del" class="sm danger">Xoá</button>
+        </div>
+      </div>
+
+      <div id="list-view" class="list-view"></div>
+      <div id="compare-view" class="compare-view" hidden></div>
+    </main>
+  </div>
+
+  <!-- Modal chi tiết / chỉnh sửa -->
+  <div id="detail" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <input type="text" id="d-title" class="title-input">
+        <button id="d-close" class="ghost sm">✕</button>
+      </div>
+      <div class="modal-body" id="d-body"></div>
+      <div class="modal-foot">
+        <button id="d-save" class="primary">Lưu thay đổi</button>
+        <button id="d-copy" class="sm">Copy Markdown</button>
+        <button id="d-open" class="sm">Mở link</button>
+        <span class="spacer"></span>
+        <span id="d-status" class="status"></span>
+        <button id="d-del" class="sm danger">Xoá paper</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal thêm paper thủ công -->
+  <div id="addmodal" class="modal" hidden>
+    <div class="modal-box narrow">
+      <div class="modal-head">
+        <strong>Thêm paper từ PDF hoặc text</strong>
+        <span class="spacer"></span>
+        <button id="a-close" class="ghost sm">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="a-dropzone" class="dropzone">
+          <b>Chọn file PDF</b>
+          kéo thả vào đây hoặc bấm để chọn — cũng có thể thả file vào bất kỳ đâu trong thư viện
+        </div>
+        <input type="file" id="a-file" accept="application/pdf,.pdf" hidden>
+        <div id="a-chip" class="file-chip" hidden>
+          <span id="a-chip-text"></span>
+          <button id="a-chip-clear" title="Bỏ file">✕</button>
+        </div>
+
+        <label class="field">
+          <span class="label-text">Link paper (tuỳ chọn)</span>
+          <input type="text" id="a-url" placeholder="https://arxiv.org/abs/...">
+        </label>
+        <label class="field">
+          <span class="label-text">…hoặc dán abstract / full text</span>
+          <textarea id="a-text" rows="8" placeholder="Dán nội dung paper…"></textarea>
+        </label>
+        <div class="row">
+          <button id="a-extract" class="primary">Trích xuất 5 mục</button>
+          <button id="a-manual" class="sm">Tạo note trống (tự điền)</button>
+        </div>
+        <div id="a-status" class="status"></div>
+        <div id="a-result"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="library.js"></script>
+</body>
+</html>

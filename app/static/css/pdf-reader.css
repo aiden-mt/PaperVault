@@ -1,0 +1,68 @@
+/* Nút 文 và bong bóng bản dịch trong trình đọc PDF (nạp vào shadow root, kế thừa content.css của extension). */
+:host { all: initial; }
+
+.pv-overlay { position: fixed; inset: 0; z-index: 2147483646; pointer-events: none; }
+.pv-band { position: fixed; border-radius: 2px; background: rgba(79, 70, 229, .13); }
+.pv-bracket { position: fixed; display: flex; align-items: center; color: #4338ca; font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif; font-weight: 700; line-height: 1; }
+
+.pv-button, .pv-panel {
+  position: fixed; z-index: 2147483647; display: none;
+  font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, Roboto, Arial, sans-serif; color-scheme: light;
+}
+.pv-visible { display: block; }
+
+.pv-button {
+  width: 30px; height: 30px; padding: 0; border: 1px solid rgba(0, 0, 0, .1); border-radius: 8px;
+  background: #fff; color: #4f46e5; font-size: 15px; line-height: 1; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, .18);
+}
+.pv-button:hover { background: #eef0ff; }
+
+.pv-panel {
+  width: min(400px, 90vw); max-height: 60vh; overflow-y: auto; padding: 10px 12px 12px;
+  border: 1px solid rgba(0, 0, 0, .08); border-radius: 12px; background: #fff; color: #111827;
+  box-shadow: 0 10px 30px rgba(16, 24, 40, .22);
+}
+.pv-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.pv-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+.pv-badge { padding: 2px 8px; border-radius: 999px; background: #eef0ff; color: #4338ca; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+.pv-badge-ctx { background: #ecfdf5; color: #047857; }
+.pv-badge-plain { background: #fef3c7; color: #92400e; }
+.pv-badge-page { background: #f3f4f6; color: #4b5563; }
+.pv-close { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: #6b7280; font-size: 13px; cursor: pointer; }
+.pv-close:hover { background: #f3f4f6; color: #111827; }
+.pv-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
+.pv-actions button { padding: 4px 10px; border: 1px solid rgba(0, 0, 0, .12); border-radius: 7px; background: #fff; color: #374151; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.pv-actions button:hover:not(:disabled) { background: #f3f4f6; }
+.pv-actions button.pv-primary { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+.pv-actions button.pv-primary:hover:not(:disabled) { background: #4338ca; }
+.pv-actions button:disabled { opacity: .7; cursor: default; }
+
+.pv-translated { font-size: 15px; line-height: 1.55; white-space: pre-wrap; }
+.pv-note { margin-top: 8px; color: #92400e; font-size: 12px; line-height: 1.5; }
+.pv-sentence, .pv-original, .pv-ai { margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f0f0; color: #6b7280; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
+.pv-ai { color: #1f2937; font-size: 13.5px; }
+.pv-label { font-weight: 600; color: #9ca3af; }
+.pv-edge { color: #4f46e5; font-weight: 700; opacity: .75; }
+mark { padding: 1px 3px; border-radius: 3px; background: #fde68a; color: #111827; font-weight: 600; }
+.pv-error { margin-top: 6px; color: #b91c1c; font-size: 13px; }
+.pv-spinner { width: 18px; height: 18px; margin: 6px 0; border: 2px solid #e0e7ff; border-top-color: #4f46e5; border-radius: 50%; animation: pv-spin .7s linear infinite; }
+@keyframes pv-spin { to { transform: rotate(360deg); } }
+/* Phát âm: mỗi giọng một dòng (US = Anh-Mỹ, UK = Anh-Anh), phiên âm IPA, nguồn âm thanh, nút nghe / tải */
+.pv-pron { margin: 2px 0 10px; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fafbff; font-size: 12.5px; color: #374151; }
+.pv-pron-w { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-weight: 650; font-size: 13.5px; color: #111827; }
+.pv-pron-long { font-size: 12px; font-weight: 600; color: #6b7280; }
+.pv-pron-src { margin-left: auto; font-size: 10.5px; font-weight: 500; color: #9ca3af; }
+.pv-acc { display: grid; grid-template-columns: 30px 56px minmax(0, 1fr) auto auto auto; align-items: center; gap: 6px; padding: 3px 0; }
+.pv-acc + .pv-acc { border-top: 1px dashed #eceef3; }
+.pv-acc-k { padding: 1px 0; border-radius: 4px; text-align: center; font-size: 10.5px; font-weight: 800; letter-spacing: .02em; color: #fff; }
+.pv-acc-us .pv-acc-k { background: #1d4ed8; }
+.pv-acc-uk .pv-acc-k { background: #b91c1c; }
+.pv-acc-n { font-size: 12px; font-weight: 600; color: #374151; }
+.pv-ipa { font-family: "Charis SIL", "Doulos SIL", "Segoe UI", "Lucida Sans Unicode", Arial, sans-serif; font-size: 13.5px; color: #4338ca; overflow-wrap: anywhere; }
+.pv-ipa-none { font-family: inherit; font-size: 11.5px; color: #9ca3af; font-style: italic; }
+.pv-acc-src { padding: 0 6px; border-radius: 999px; background: #f3f4f6; color: #6b7280; font-size: 10.5px; white-space: nowrap; cursor: help; }
+.pv-speak { display: inline-flex; align-items: center; justify-content: center; gap: 3px; min-width: 30px; padding: 2px 9px; border: 1px solid #d1d5db; border-radius: 999px; background: #fff; color: #374151; font-size: 11.5px; font-weight: 600; line-height: 1.5; white-space: nowrap; cursor: pointer; }
+.pv-speak:hover { border-color: #6366f1; color: #4338ca; background: #f5f7ff; }
+.pv-speak.on { border-color: #6366f1; background: #eef2ff; color: #4338ca; }
+.pv-speak.pv-dl { padding: 2px 7px; }
+.pv-speak:disabled { opacity: .6; cursor: default; }
