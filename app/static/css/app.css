@@ -229,7 +229,9 @@ table.data ul { margin: 0; padding-left: 16px; }
 .sec-title:first-child { border-top: none; padding-top: 0; margin-top: 0; }
 @media (max-width: 760px) { .form-grid { grid-template-columns: 1fr; } }
 .pdf-frame { width: 100%; height: calc(78vh / var(--ui-zoom, 1)); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
-.sticky-actions { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+.sticky-actions { position: sticky; bottom: 0; z-index: 20; background: var(--bg); padding: 10px 0; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; box-shadow: 0 -8px 16px -12px rgba(0, 0, 0, .25); }
+/* Thanh Lưu dính sát đáy màn hình: bỏ khoảng đệm dưới của trang (vùng dính bị trừ phần đệm này nên nội dung lọt xuống dưới thanh). */
+.view:has(.sticky-actions) { padding-bottom: 0; }
 
 /* Chat hỏi đáp */
 .chat { display: flex; flex-direction: column; gap: 10px; max-width: 900px; }
@@ -1399,3 +1401,16 @@ td .rm-relchg { display: block; width: fit-content; }
 .rm-quick-list li { margin: 2px 0; }
 .rm-quick-go { padding: 0; font-size: 13px; text-align: left; color: var(--text-2); }
 .rm-quick-go:hover:not(:disabled) { color: var(--accent); }
+/* Văn bản AI viết: đoạn ngắn, danh sách, phần trỏ nguồn in mờ (readable.js) */
+.rd > p, .lec-sec p, .syn-p p { margin: 0 0 .75em; }
+.rd > p:last-child, .lec-sec p:last-child, .syn-p p:last-child { margin-bottom: 0; }
+.rd > ol.enum, .lec-sec ol:not(.lec-steps):not(.lec-check), .syn-p ol { margin: .2em 0 .8em; padding-left: 1.4em; }
+.rd > ol.enum > li, .lec-sec ol:not(.lec-steps):not(.lec-check) > li { margin: 0 0 .45em; padding-left: .2em; }
+.lec-sec ol:not(.lec-steps):not(.lec-check) > li::marker, .rd > ol.enum > li::marker { font-weight: 700; color: var(--accent); }
+.cite-ref { color: var(--muted, #8a8f98); font-size: .9em; }
+.lec-sec { line-height: 1.7; }
+/* Tab Liên quan: thanh chuyển nhanh giữa các phần */
+.rel-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.rel-nav button { padding: 4px 12px; border-radius: 999px; font-size: 12.5px; background: var(--surface); border: 1px solid var(--border); box-shadow: none; }
+.rel-nav button:hover { border-color: var(--accent); color: var(--accent); }
+.rel-nav .hint { margin-left: 2px; }

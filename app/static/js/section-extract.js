@@ -1,6 +1,7 @@
 // Trích xuất lại MỘT mục của ghi chú thay vì toàn bộ. Model vẫn đọc cả paper (cần ngữ cảnh), nhưng chỉ viết lại các
 // trường của mục được chọn, các mục khác giữ nguyên, kể cả phần người dùng đã sửa tay.
 import { store, savePaper, paperById } from './store.js';
+import { fixLanguage } from './langfix.js';
 import { complete, NATIVE_PDF_PROVIDERS } from './llm.js';
 import { EXTRACTION_SCHEMA, normalizeExtraction } from './schema.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts.js';
@@ -103,6 +104,7 @@ export async function reExtractSection(paperId, key, { label = '', hint = '', on
   });
   const patch = parseLooseJson(out.text);
   if (!patch || typeof patch !== 'object' || !fields.some((f) => patch[f.split('.')[0]] !== undefined)) throw new Error('Model không trả về nội dung cho mục này, hãy thử lại.');
+  await fixLanguage(patch, settings.language); // giữ mục viết lại đúng một thứ tiếng như phần còn lại
   const latest = paperById(paperId);
   const extraction = mergeFields(normalizeExtraction(latest.extraction), fields, patch);
   const patchPaper = { extraction };

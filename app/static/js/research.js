@@ -830,10 +830,11 @@ export function researchMapHtml(map, paper) {
   const sources = `${group('ref', 'Bài gốc dẫn')}${group('cit', 'Dẫn bài gốc')}${group('pin', 'Bạn chọn thêm')}`;
 
   return `${d.overview ? `<p class="wn-overview">${linkify(d.overview)}</p>` : ''}${lineage}
-    ${sec('So sánh các bài', 'Phương pháp, bài toán, domain, dữ liệu và điểm khác bài gốc · dòng P là đóng góp riêng của bài gốc', compTable ? legendHtml(map) + sortBar('cmp') + compTable : '')}
-    ${sec('Các nghiên cứu đã cover những khía cạnh nào', 'Cột P: bài gốc có cover không (✓ có · ◐ một phần · – chưa) · cột “Bài đã cover”: các nghiên cứu khác · bấm nhãn loại hoặc ✓ ◐ – để đưa lên đầu', covTable ? sortBar('cov') + covTable : '')}
-    ${sec('Còn bỏ ngỏ', 'Vấn đề chưa nghiên cứu nào trong danh sách giải quyết trọn vẹn · bấm nhãn để đưa lên đầu', gaps ? sortBar('gap') + gaps : '')}
+    ${'' /* Kết quả trước (hướng đi, phần bỏ ngỏ), bằng chứng chi tiết sau (khía cạnh, bảng so sánh). */}
     ${sec('Hướng nghiên cứu tiếp theo', 'Xếp theo mức đáng làm, mỗi hướng bám vào một vấn đề còn bỏ ngỏ', dirs)}
+    ${sec('Còn bỏ ngỏ', 'Vấn đề chưa nghiên cứu nào trong danh sách giải quyết trọn vẹn · bấm nhãn để đưa lên đầu', gaps ? sortBar('gap') + gaps : '')}
+    ${sec('Các nghiên cứu đã cover những khía cạnh nào', 'Cột P: bài gốc có cover không (✓ có · ◐ một phần · – chưa) · cột “Bài đã cover”: các nghiên cứu khác · bấm nhãn loại hoặc ✓ ◐ – để đưa lên đầu', covTable ? sortBar('cov') + covTable : '')}
+    ${sec('So sánh các bài', 'Phương pháp, bài toán, domain, dữ liệu và điểm khác bài gốc · dòng P là đóng góp riêng của bài gốc', compTable ? legendHtml(map) + sortBar('cmp') + compTable : '')}
     ${sources ? `<details class="rm-sources"><summary>Các bài đã đọc để lập bản đồ (${(map.papers || []).length})</summary>${sources}</details>` : ''}`;
 }
 

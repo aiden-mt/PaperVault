@@ -157,7 +157,8 @@ export function mdToHtml(md) {
         out.push(`<${kind}${kind === 'ol' && start > 1 ? ` start="${start}"` : ''}>`);
         lists.push({ kind, indent });
       }
-      out.push(`<li>${inline(li[2])}`);
+      // Mô hình hay đánh số lại bên trong mục ("1. 1) …", "- • …"): bỏ phần lặp.
+      out.push(`<li>${inline(kind === 'ol' ? li[2].replace(/^\(?\d{1,2}[.)](?!\d)\s*/, '') : li[2].replace(/^[-*•·]\s+/, ''))}`);
       blank = false;
       continue;
     }

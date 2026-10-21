@@ -10,6 +10,7 @@ import { store, savePaper, paperById } from './store.js';
 import { complete } from './llm.js';
 import { parseLooseJson, clampText, escapeHtml } from './util.js';
 import { mdToHtml } from './ui.js';
+import { readableMd, muteRefs, stripMarker } from './readable.js';
 import { pdfFullText } from './pdftext.js';
 import { unverifiedNumbers, shallowSentences } from './quality.js';
 import { protectMath, restoreMath, rich, titleHtml } from './richtext.js';
@@ -153,6 +154,9 @@ Một người cùng lĩnh vực rộng nhưng chưa làm đúng nhánh hẹp n�
 - Khái niệm mới xuất hiện lần đầu phải kèm một câu nói nó LÀM GÌ, không phải nó tên gì.
 - Thuật ngữ tiếng Anh giữ nguyên, lần đầu kèm giải thích ngắn trong ngoặc. Không tự chế bản dịch cho thuật ngữ.
 - Câu hoàn chỉnh, đủ chủ vị. Không mở bằng "Trong bài báo này, các tác giả…", vào thẳng nội dung.
+- Trình bày cho dễ đọc trên màn hình: mỗi đoạn 2-3 câu và chỉ một ý, các đoạn trong cùng một trường cách nhau bằng một dòng trống (\\n\\n trong chuỗi JSON). Câu ngắn, khoảng 25 từ trở xuống; câu dài hơn thì tách đôi.
+- Có từ hai ý song song trở lên (các lý do, các bước, các hạn chế) thì viết thành danh sách, mỗi ý một dòng bắt đầu bằng "1. ", "2. "…, có một câu dẫn trước danh sách và (nếu cần) một câu kết sau.
+- Phần trỏ về nguồn như (Sec. 3.1, Table 2) đặt cuối câu, không chen giữa câu.
 - Công thức và ký hiệu viết bằng LaTeX trong $...$ (cùng dòng) hoặc $$...$$ (đứng riêng), ví dụ $z_t \\sim q(\\cdot \\mid x_t)$. App dựng công thức khi hiển thị. Sau công thức vẫn phải đọc nó thành lời.
 
 ## Tiêu chuẩn độ sâu
@@ -328,11 +332,12 @@ export async function removeLecture(paperId) {
 
 /* ---------- Hiển thị ---------- */
 
-const para = (s) => mdToHtml(str(s));
+// Đoạn dài được tách thành đoạn ngắn và danh sách cho dễ đọc; phần trỏ nguồn (Sec. 3.1, Table 2) in mờ.
+const para = (s) => muteRefs(mdToHtml(readableMd(str(s))));
 const lead = (s) => { const t = str(s).trim(); return t.length && t.length <= LEAD_MAX ? `<b>${rich(t)}</b>` : rich(t); };
 /** Câu đầu của "do" làm tên bước (in đậm khi ngắn), phần còn lại là thân. */
 function splitLead(text) {
-  const t = str(text).trim();
+  const t = stripMarker(str(text)).trim();
   const m = /^(.{8,90}?[.:!?])\s+(.+)$/s.exec(t);
   return m ? [m[1], m[2]] : (t.length <= LEAD_MAX ? [t, ''] : ['', t]);
 }
@@ -358,8 +363,8 @@ function sectionBody(name, d, lang) {
     return `<div class="table-wrap"><table class="lec-table"><thead><tr><th style="width:24%">${L.number}</th><th style="width:40%">${L.claim}</th><th>${L.setting}</th></tr></thead><tbody>${arr(d.items).map((it) => `<tr><td class="lec-num">${rich(str(it.number))}</td><td>${rich(str(it.claim))}</td><td>${rich(str(it.setting))}</td></tr>`).join('')}</tbody></table></div>
       ${str(d.limits_of_evidence) ? `<div class="lec-why"><span class="lec-k">${L.not}</span>${para(d.limits_of_evidence)}</div>` : ''}`;
   }
-  if (name === 'limits') return `<ul class="lec-limits">${arr(d.items).map((it) => `<li>${lead(it.point)}${str(it.so_what) ? `<div class="lec-so">${para(it.so_what)}</div>` : ''}</li>`).join('')}</ul>`;
-  if (name === 'check') return `<ol class="lec-check">${arr(d.items).map((it) => `<li>${rich(str(it.q))}<details><summary>${L.ans}</summary>${para(it.a)}</details></li>`).join('')}</ol>`;
+  if (name === 'limits') return `<ul class="lec-limits">${arr(d.items).map((it) => `<li>${lead(stripMarker(str(it.point)))}${str(it.so_what) ? `<div class="lec-so">${para(it.so_what)}</div>` : ''}</li>`).join('')}</ul>`;
+  if (name === 'check') return `<ol class="lec-check">${arr(d.items).map((it) => `<li>${rich(stripMarker(str(it.q)))}<details><summary>${L.ans}</summary>${para(it.a)}</details></li>`).join('')}</ol>`;
   return '';
 }
 
@@ -397,7 +402,7 @@ export function lectureMarkdown(paper, lec) {
     head('mechanism');
     if (str(s.mechanism.input)) out.push(`**${en ? 'Worked example' : 'Đầu vào lấy làm ví dụ'}:** ${s.mechanism.input}\n`);
     arr(s.mechanism.steps).forEach((st, i) => {
-      out.push(`${i + 1}. ${str(st.do)}`);
+      out.push(`${i + 1}. ${stripMarker(str(st.do))}`);
       if (str(st.why)) out.push(`   *${en ? 'Why it is needed' : 'Vì sao cần'}:* ${st.why}`);
       if (str(st.note)) out.push(`   *${en ? 'Notation' : 'Ký hiệu'}:* ${st.note}`);
       out.push('');
@@ -418,7 +423,7 @@ export function lectureMarkdown(paper, lec) {
     // Đáp án xuống cuối, không nằm ngay dưới câu hỏi: tự dựng lại lời giải thích mới là lúc học được.
     head('check');
     const items = arr(s.check.items);
-    items.forEach((it, i) => out.push(`${i + 1}. ${str(it.q)}`));
+    items.forEach((it, i) => out.push(`${i + 1}. ${stripMarker(str(it.q))}`));
     if (items.length) { out.push(`\n<details>\n<summary>${en ? 'Answers' : 'Đáp án'}</summary>\n`); items.forEach((it, i) => out.push(`${i + 1}. ${str(it.a)}`)); out.push('\n</details>'); }
   }
   if (lec.refs?.length) { out.push(`\n## ${en ? 'Cited papers used for the comparison' : 'Các bài được dẫn dùng cho phần đối chiếu'}\n`); for (const r of lec.refs) out.push(`- ${r.title}${r.year ? ` (${r.year})` : ''}${r.influential ? ' ★' : ''}`); }

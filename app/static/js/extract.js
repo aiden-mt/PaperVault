@@ -1,5 +1,6 @@
 // Luồng trích xuất dùng chung: chuẩn bị nguồn (text / PDF) -> gọi LLM -> gợi ý chủ đề -> kiểm tra trùng -> lưu.
 import { api } from './api.js';
+import { fixLanguage } from './langfix.js';
 import { store, savePaper, saveTopic, findDuplicate, paperById } from './store.js';
 import { extractPaper, NATIVE_PDF_PROVIDERS, hasCredentials } from './llm.js';
 import { suggestTopic } from './topics.js';
@@ -21,6 +22,12 @@ export async function runExtraction(rawSource, { onStatus = () => {} } = {}) {
     source, settings, topicNames: store.topics.map((t) => t.name),
     onRetry: retryStatus(onStatus),
   });
+  // Bản tiếng Anh không được lẫn tiếng Việt (prompt viết bằng tiếng Việt nên mô hình đôi khi chép cụm "Không nêu"…).
+  if (extraction.lang === 'en') {
+    onStatus('Đang soát phần tiếng Việt lẫn vào bản tiếng Anh…');
+    const n = await fixLanguage(extraction, 'en');
+    if (n) meta.langFixed = n;
+  } else await fixLanguage(extraction, 'vi');
 
   const hay = [
     extraction.title, source.title, extraction.problem, extraction.bottleneck, extraction.key_idea?.summary,

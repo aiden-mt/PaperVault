@@ -6,6 +6,8 @@ import { $, toast, confirmDialog, mdToHtml, topicBadge, selectAllHtml, syncSelec
 import { unverifiedNumbers } from '../quality.js';
 import { streamChat, englishKeywords, hasCredentials } from '../llm.js';
 import { buildChatSystem, paperNotesText, CHAT_LANGS } from '../prompts.js';
+import { makeJob, trackJob } from '../bgjobs.js';
+import { readableChatMd } from '../readable.js';
 import { venueBadge, RANK_FILTERS, matchesRankFilter, rankSortKey } from '../venue.js';
 
 const MODES = {
@@ -31,6 +33,7 @@ const STOP = new Set('the a an of to in and or for on with by from as is are was
 
 const state = {
   chat: null, abort: null, list: [], texts: new Map(),
+  streaming: null,      // hội thoại đang nhận câu trả lời (vẫn chạy khi người dùng sang trang khác)
   picking: false, panelOpen: true,
   pick: { q: '', topic: '', rank: '', textOnly: false },
 };
@@ -168,7 +171,7 @@ function messageHtml(m, i, c) {
   const outT = (u.output_tokens ?? u.completion_tokens ?? u.candidatesTokenCount ?? 0);
   const f = (n) => n.toLocaleString('vi-VN');
   return `<div class="msg a ${m.error ? 'err' : ''}" data-i="${i}">
-    <div class="md">${m.content ? citeLinks(mdToHtml(m.content), c) : (m.error ? '' : '<span class="spin"></span> Đang soạn câu trả lời…')}</div>
+    <div class="md">${m.content ? citeLinks(mdToHtml(readableChatMd(m.content)), c) : (m.error ? '' : '<span class="spin"></span> Đang soạn câu trả lời…')}</div>
     ${m.error ? `<div class="status err">${escapeHtml(m.error)}</div><button class="sm" data-retry="${i}">Hỏi lại</button>` : ''}
     ${m.unverified?.length && !m.pending ? `<div class="msg-warn" title="Kiểm tra cơ học: các con số này không xuất hiện trong ghi chú, toàn văn hay đoạn trích đã gửi cho model">⚠ ${m.unverified.length} con số không thấy trong tài liệu đã gửi, nên đối chiếu lại: ${m.unverified.map((n) => `<b>${escapeHtml(n)}</b>`).join(', ')}</div>` : ''}
     ${m.content && !m.pending ? `<div class="msg-foot"><span class="hint">${escapeHtml(m.model || '')}${inT || outT ? ` · vào ${f(inT)}${cacheR ? ` · đọc cache ${f(cacheR)}` : ''}${cacheW ? ` · ghi cache ${f(cacheW)}` : ''} · ra ${f(outT)} token` : ''}${m.stopped ? ' · đã dừng' : ''}${m.truncated ? ' · bị cắt vì đạt giới hạn độ dài' : ''}</span><span class="spacer"></span><button class="ghost sm" data-copy="${i}">Copy</button></div>` : ''}
@@ -273,7 +276,9 @@ function startHtml() {
 export async function render(root, { params, query }) {
   root.className = 'view split';
   const fromIds = (query.get('ids') || '').split(',').filter(Boolean);
-  if (params[0]) {
+  if (params[0] && state.streaming?.id === params[0]) {
+    state.chat = state.streaming;
+  } else if (params[0]) {
     try { state.chat = await api.chat(params[0]); } catch (_) { state.chat = newChat(); }
   } else if (fromIds.length || query.get('new')) {
     state.chat = newChat(fromIds);
@@ -343,18 +348,26 @@ export async function render(root, { params, query }) {
     box.innerHTML = c.messages.length
       ? c.messages.map((m, i) => messageHtml(m, i, c)).join('')
       : `<div class="chat-ready"><b>Sẵn sàng hỏi về ${c.paperIds.length} paper.</b><span class="hint">Chọn một câu gợi ý bên dưới hoặc tự đặt câu hỏi. Có thể thêm hoặc bỏ paper ở bảng Nguồn bất cứ lúc nào.</span>${!hasCredentials(store.settings) ? '<span class="status err">Chưa có API key. <a href="#/settings">Mở Cài đặt</a>.</span>' : ''}</div>`;
+    c.messages.forEach((m, i) => {
+      if (!m.pending || m.content || !m.stage) return;
+      const node = box.querySelector(`.msg[data-i="${i}"] .md`);
+      if (node) showProgress(node, m.stage.label, { expectedMs: m.stage.ms, startedAt: Date.parse(m.at) });
+    });
+    const busy = !!state.abort && state.streaming === c;
+    if ($('ch-send')) { $('ch-send').hidden = busy; $('ch-stop').hidden = !busy; }
     $('ch-suggest').innerHTML = c.messages.length ? '' : SUGGESTIONS.map(([label, q]) => `<button data-q="${escapeHtml(q)}" title="${escapeHtml(q)}">${escapeHtml(label)}</button>`).join('');
     if (!keepScroll || nearBottom) box.scrollTop = box.scrollHeight;
   };
 
-  const persist = async () => {
-    const c = state.chat;
+  // c: hội thoại cần lưu (mặc định hội thoại đang mở; câu trả lời viết xong có thể thuộc hội thoại người dùng đã rời).
+  const persist = async (c = state.chat) => {
     if (!c.messages.length && !c.id && !c.paperIds.length) return;
-    const saved = await api.putChat({ ...c, messages: c.messages.map(({ pending, ...m }) => m) });
+    const saved = await api.putChat({ ...c, messages: c.messages.map(({ pending, stage, ...m }) => m) });
     c.id = saved.id;
     c.createdAt = saved.createdAt;
-    if (!location.hash.startsWith(`#/chat/${c.id}`)) history.replaceState(null, '', `#/chat/${c.id}`);
-    drawList();
+    // Chỉ sửa địa chỉ khi người dùng vẫn đang xem đúng hội thoại này trong trang Chat.
+    if (state.chat === c && location.hash.startsWith('#/chat') && !location.hash.startsWith(`#/chat/${c.id}`)) history.replaceState(null, '', `#/chat/${c.id}`);
+    if ($('ch-list')) drawList();
   };
   const persistSoon = debounce(() => persist().catch(() => {}), 600);
 
@@ -382,7 +395,8 @@ export async function render(root, { params, query }) {
   async function ask(question, { retryIndex = null } = {}) {
     const c = state.chat;
     question = (question || '').trim();
-    if (!question || state.abort) return;
+    if (!question) return;
+    if (state.abort) return toast(state.streaming === c ? 'Đang trả lời câu trước, chờ xong hoặc bấm Dừng.' : 'Đang trả lời ở một hội thoại khác, chờ xong rồi hỏi tiếp.', 3500);
     if (!c.paperIds.length) { toast('Chọn ít nhất một paper trước.', 2500, 'err'); state.picking = true; state.panelOpen = true; drawAll(); return; }
     if (!hasCredentials(store.settings)) return toast('Chưa có API key. Mở Cài đặt.', 3000, 'err');
     if (retryIndex != null) c.messages.splice(retryIndex - 1, 2);
@@ -394,10 +408,19 @@ export async function render(root, { params, query }) {
     const idx = c.messages.length - 1; // cố định vị trí bong bóng của lượt này
     // Thanh tiến độ trong bong bóng trả lời cho tới khi chữ đầu tiên về (lúc đó nội dung thay chỗ thanh).
     const startedAt = Date.parse(ans.at);
-    const pendingBar = (label, expectedMs) => { const node = state.chat === c && !ans.content && $('ch-msgs')?.querySelector(`.msg[data-i="${idx}"] .md`); if (node) showProgress(node, label, { expectedMs, startedAt }); };
+    // Thẻ ở bảng nổi khi người dùng sang trang khác: câu trả lời vẫn viết tiếp và được lưu vào hội thoại.
+    const job = makeJob();
+    trackJob('chat:answer', job, { label: 'Chat với paper', title: c.title || '', href: () => (c.id ? `#/chat/${c.id}` : '#/chat'), here: () => location.hash.startsWith('#/chat'), expectedMs: () => 15000 });
+    const pendingBar = (label, expectedMs) => {
+      ans.stage = { label, ms: expectedMs };
+      job.update(label);
+      const node = state.chat === c && !ans.content && $('ch-msgs')?.querySelector(`.msg[data-i="${idx}"] .md`);
+      if (node) showProgress(node, label, { expectedMs, startedAt });
+    };
     drawMsgs();
     pendingBar(c.mode !== 'notes' ? 'Đang tìm đoạn liên quan trong paper…' : 'Đang chuẩn bị ngữ cảnh…', 8000);
     state.abort = new AbortController();
+    state.streaming = c;
     $('ch-send').hidden = true;
     $('ch-stop').hidden = false;
     let raf = 0;
@@ -405,7 +428,7 @@ export async function render(root, { params, query }) {
       raf = 0;
       if (state.chat !== c) return;
       const node = $('ch-msgs')?.querySelector(`.msg[data-i="${idx}"] .md`);
-      if (node) node.innerHTML = citeLinks(mdToHtml(ans.content), c);
+      if (node) node.innerHTML = citeLinks(mdToHtml(readableChatMd(ans.content)), c);
       const box = $('ch-msgs');
       if (box && box.scrollHeight - box.scrollTop - box.clientHeight < 160) box.scrollTop = box.scrollHeight;
     };
@@ -419,7 +442,7 @@ export async function render(root, { params, query }) {
       const history = c.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.role === 'user' ? (m.sent || m.content) : m.content })).filter((m) => m.content);
       const out = await streamChat({
         settings: store.settings, system: systemBlocks(c), messages: history, signal: state.abort.signal,
-        onText: (t) => { ans.content += t; if (!raf) raf = requestAnimationFrame(paint); },
+        onText: (t) => { if (!ans.content) job.update('Đang viết câu trả lời…'); ans.content += t; if (!raf) raf = requestAnimationFrame(paint); },
         onRetry: (n, wait) => { ans.content = ''; const node = state.chat === c && $('ch-msgs')?.querySelector(`.msg[data-i="${idx}"] .md`); if (node) node.innerHTML = `<span class="spin"></span> Bị giới hạn tốc độ, thử lại lần ${n} sau ${Math.round(wait / 1000)}s…`; },
       });
       ans.content = fixMixedScript(ans.content);
@@ -436,12 +459,15 @@ export async function render(root, { params, query }) {
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
       delete ans.pending;
+      delete ans.stage;
       if (!ans.content && !ans.error) ans.error = ans.stopped ? 'Đã dừng trước khi có nội dung.' : 'Không nhận được nội dung.';
       state.abort = null;
+      state.streaming = null;
       if ($('ch-send')) $('ch-send').hidden = false;
       if ($('ch-stop')) $('ch-stop').hidden = true;
       if ($('ch-msgs') && state.chat === c) drawMsgs(true);
-      await persist().catch((err) => toast(`Không lưu được hội thoại: ${err.message}`, 4000, 'err'));
+      await persist(c).catch((err) => toast(`Không lưu được hội thoại: ${err.message}`, 4000, 'err'));
+      job.finish(ans.stopped ? '' : (ans.error || ''));
     }
   }
 
@@ -553,5 +579,6 @@ export async function render(root, { params, query }) {
     download(`chat-${(c.title || 'papervault').slice(0, 40).replace(/[^\p{L}\p{N}]+/gu, '-')}.md`, md.join('\n'), 'text/markdown;charset=utf-8');
   });
 
-  return () => { state.abort?.abort(); };
+  // Rời trang Chat không huỷ câu trả lời đang viết: nó chạy tiếp, xong thì lưu vào hội thoại (bảng nổi báo tiến độ).
+  return () => {};
 }

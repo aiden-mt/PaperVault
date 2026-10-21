@@ -2,6 +2,8 @@
 // lang = 'vi' | 'en' đổi nhãn các mục cho khớp ngôn ngữ đang hiển thị.
 import { escapeHtml } from './util.js';
 import { mdToHtml } from './ui.js';
+import { stripMarker } from './readable.js';
+import { localizeFixed } from './langfix.js';
 import { splitLimitations } from './schema.js';
 import { rich, richBlock } from './richtext.js';
 
@@ -57,6 +59,7 @@ const has = (s) => String(s ?? '').trim() !== '';
  * redo = true thêm nút trích xuất lại riêng từng mục (xem section-extract.js).
  */
 export function renderSections(e, { openFirst = true, paper = null, lang = 'vi', redo = false } = {}) {
+  e = localizeFixed(e || {}, lang); // "Không nêu" trong bản tiếng Anh -> "Not stated."…
   const L = labelsFor(lang);
   const EMPTY = `<em class="muted">${L.empty}</em>`;
   const para = (s) => (has(s) ? richBlock(String(s).trim()) : EMPTY);
@@ -65,7 +68,7 @@ export function renderSections(e, { openFirst = true, paper = null, lang = 'vi',
     const arr = (items || []).filter(has);
     if (!arr.length) return EMPTY;
     const tag = ordered ? 'ol' : 'ul';
-    return `<${tag}>${arr.map((i) => `<li>${rich(i)}</li>`).join('')}</${tag}>`;
+    return `<${tag}>${arr.map((i) => `<li>${rich(stripMarker(i))}</li>`).join('')}</${tag}>`;
   };
   const labeledList = (label, items, opts) => ((items || []).filter(has).length ? `<div class="f"><b>${label}:</b>${list(items, opts)}</div>` : '');
   const join = (parts) => parts.filter(Boolean).join('') || EMPTY;

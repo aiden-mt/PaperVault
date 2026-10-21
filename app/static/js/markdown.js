@@ -1,5 +1,7 @@
 // Kết xuất Markdown: note từng paper, index từng chủ đề, bảng so sánh, BibTeX, file xuất thư mục.
 import { fmtDate, slugify } from './util.js';
+import { stripMarker } from './readable.js';
+import { localizeFixed } from './langfix.js';
 import { splitLimitations } from './schema.js';
 import { labelsFor, effortLabel } from './render.js';
 
@@ -43,7 +45,7 @@ export function metricsTable(metrics, L = null) {
 export function paperToMarkdown(paper, topic, { extraction = null, lang = 'vi' } = {}) {
   const L = labelsFor(lang);
   const en = lang === 'en';
-  const e = extraction || paper.extraction || {};
+  const e = localizeFixed(extraction || paper.extraction || {}, lang);
   const v = e.validation || {};
   const lim = e.limitation || {};
   const ki = e.key_idea || {};
@@ -91,7 +93,7 @@ export function paperToMarkdown(paper, topic, { extraction = null, lang = 'vi' }
   line(L.summary, ki.summary);
   if (ki.pipeline?.length) {
     md.push(`- **${L.pipeline}:**`);
-    ki.pipeline.forEach((s, n) => md.push(`  ${n + 1}. ${s}`));
+    ki.pipeline.forEach((s, n) => md.push(`  ${n + 1}. ${stripMarker(s)}`));
   }
   if (ki.components?.length) {
     md.push(`- **${L.components}:**`);

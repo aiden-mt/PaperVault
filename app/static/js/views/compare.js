@@ -2,7 +2,10 @@
 import { api } from '../api.js';
 import { store, onChange, topicOf, paperById, saveSettings } from '../store.js';
 import { escapeHtml, download, copyText, norm, STATUS_LABEL } from '../util.js';
-import { $, toast, setStatus, spinner, showProgress, topicBadge, mdToHtml, selectAllHtml, syncSelectAll } from '../ui.js';
+import { $, toast, setStatus, spinner, topicBadge, mdToHtml, selectAllHtml, syncSelectAll } from '../ui.js';
+import { runJob, getJob, jobRunning, followJob } from '../bgjobs.js';
+import { readableChatMd, stripMarker } from '../readable.js';
+import { richBlock } from '../richtext.js';
 import { synthesisToMarkdown, bibtexAll, bibtexKeys, synthesisToLatex, wordDocument, synthesisToWordHtml, bibtexKey, latexEscape } from '../markdown.js';
 import { COLUMNS, COL_GROUPS, DEFAULT_COLS, ALL_COLS, pickColumns, colLabel, cellValue, tableMarkdown, tableCsv, tableLatex, tableWordHtml } from '../compare-cols.js';
 import { sourceLang, notesIn } from '../notes-i18n.js';
@@ -263,7 +266,7 @@ export async function render(root, { query }) {
   };
 
   const cellHtml = (v) => (Array.isArray(v)
-    ? (v.length ? (v.length === 1 ? escapeHtml(v[0]) : `<ul>${v.map((x) => `<li>${escapeHtml(x)}</li>`).join('')}</ul>`) : '<span class="muted">—</span>')
+    ? (v.length ? (v.length === 1 ? escapeHtml(v[0]) : `<ul>${v.map((x) => `<li>${escapeHtml(stripMarker(x))}</li>`).join('')}</ul>`) : '<span class="muted">—</span>')
     : (v ? escapeHtml(v) : '<span class="muted">—</span>'));
   const titleCell = (p) => {
     const e = p.extraction || {};
@@ -421,18 +424,29 @@ export async function render(root, { query }) {
     const rows = selectedPapers();
     if (rows.length < 2) return setStatus('syn-status', 'Chọn ít nhất 2 paper.', 'err');
     if (!hasCredentials(store.settings)) return setStatus('syn-status', 'Chưa có API key. <a href="#/settings">Mở Cài đặt</a>.', 'err');
-    $('syn-run').disabled = true;
-    showProgress('syn-status', `Đang tổng hợp ${rows.length} paper…`, { expectedMs: 60000 });
-    try {
-      const { synthesis, meta } = await synthesize({ papers: rows, settings: store.settings, focus: $('syn-focus').value });
+    if (jobRunning('syn')) return;
+    const focus = $('syn-focus').value;
+    // Chạy nền: rời trang vẫn tổng hợp tiếp và lưu, mở lại thì thanh tiến độ chạy tiếp.
+    const job = runJob('syn', async (update) => {
+      update(`Đang tổng hợp ${rows.length} paper…`);
+      const { synthesis, meta } = await synthesize({ papers: rows, settings: store.settings, focus });
       lastSynthesis = { synthesis, papers: rows, meta, at: new Date().toISOString() };
       await api.kvSet('lastSynthesis', { ...lastSynthesis, papers: rows.map((p) => p.id) }).catch(() => {});
-      setStatus('syn-status', `Xong (${meta.provider}/${meta.model}).`, 'ok');
-      drawSynthesis(lastSynthesis);
-    } catch (e) {
-      setStatus('syn-status', escapeHtml(e.message), 'err');
-    } finally { $('syn-run').disabled = false; }
+      return lastSynthesis;
+    }, { label: `Tổng hợp related work (${rows.length} paper)`, href: '#/compare', here: () => location.hash.startsWith('#/compare'), expectedMs: () => 60000 });
+    followSynthesis(job);
   });
+
+  function followSynthesis(job) {
+    $('syn-run').disabled = true;
+    followJob(job, $('syn-status'), { expectedMs: 60000, onDone: (j) => {
+      if ($('syn-run')) $('syn-run').disabled = false;
+      if (j.error) return setStatus('syn-status', escapeHtml(j.error), 'err');
+      setStatus('syn-status', `Xong (${j.result.meta.provider}/${j.result.meta.model}).`, 'ok');
+      drawSynthesis(j.result);
+    } });
+  }
+  { const j = getJob('syn'); if (j && !j.done) followSynthesis(j); }
 
   function drawSynthesis({ synthesis: s, papers }) {
     const md = synthesisToMarkdown(s, papers);
@@ -441,13 +455,13 @@ export async function render(root, { query }) {
         <button id="syn-dl" title="Lưu file .md"><svg class="i"><use href="#i-download"/></svg>.md</button>
         <button id="syn-tex" title="Lưu file .tex (section Related Work + bảng)"><svg class="i"><use href="#i-download"/></svg>LaTeX</button>
         <button id="syn-doc" title="Lưu file .docx"><svg class="i"><use href="#i-download"/></svg>Word</button></div></div>
-      <h3>Tổng quan</h3><p>${escapeHtml(s.overview || '')}</p>
-      <h3>Các hướng tiếp cận</h3>${(s.themes || []).map((t) => `<p><b>${escapeHtml(t.name)}</b> <span class="hint">(${escapeHtml((t.papers || []).join('; '))})</span><br>${escapeHtml(t.summary || '')}</p>`).join('')}
+      <h3>Tổng quan</h3><div class="syn-p">${richBlock(s.overview || '')}</div>
+      <h3>Các hướng tiếp cận</h3>${(s.themes || []).map((t) => `<p><b>${escapeHtml(t.name)}</b> <span class="hint">(${escapeHtml((t.papers || []).join('; '))})</span></p><div class="syn-p">${richBlock(t.summary || '')}</div>`).join('')}
       <h3>So sánh theo khía cạnh</h3><table class="data"><thead><tr><th>Khía cạnh</th><th>Nhận xét</th></tr></thead><tbody>${(s.comparison || []).map((c) => `<tr><td><b>${escapeHtml(c.aspect)}</b></td><td>${escapeHtml(c.notes)}</td></tr>`).join('')}</tbody></table>
-      <h3>Khoảng trống nghiên cứu</h3><ul>${(s.gaps || []).map((g) => `<li>${escapeHtml(g)}</li>`).join('')}</ul>
-      <h3>Vị trí của đề tài</h3><blockquote>${escapeHtml(s.positioning || '')}</blockquote>
-      <h3>Bản nháp Related Work</h3><div class="draft">${mdToHtml(s.related_work_draft || '')}</div>
-      <h3>Việc nên làm tiếp</h3><ul>${(s.next_steps || []).map((g) => `<li>${escapeHtml(g)}</li>`).join('')}</ul>`;
+      <h3>Khoảng trống nghiên cứu</h3><ul>${(s.gaps || []).map((g) => `<li>${escapeHtml(stripMarker(g))}</li>`).join('')}</ul>
+      <h3>Vị trí của đề tài</h3><blockquote>${richBlock(s.positioning || '')}</blockquote>
+      <h3>Bản nháp Related Work</h3><div class="draft">${mdToHtml(readableChatMd(s.related_work_draft || ''))}</div>
+      <h3>Việc nên làm tiếp</h3><ul>${(s.next_steps || []).map((g) => `<li>${escapeHtml(stripMarker(g))}</li>`).join('')}</ul>`;
     $('syn-copy').addEventListener('click', async () => { await copyText(md); toast('Đã copy bản tổng hợp.'); });
     $('syn-dl').addEventListener('click', () => download(`related-work-${new Date().toISOString().slice(0, 10)}.md`, md, 'text/markdown;charset=utf-8'));
     $('syn-tex').addEventListener('click', () => download('related-work.tex', synthesisToLatex(s, papers), 'text/x-tex;charset=utf-8'));
@@ -460,7 +474,7 @@ export async function render(root, { query }) {
       const papers = (saved.papers || []).map(paperById).filter(Boolean);
       if (!papers.length) return;
       lastSynthesis = { synthesis: saved.synthesis, papers, meta: saved.meta };
-      if ($('syn-out')) { drawSynthesis(lastSynthesis); setStatus('syn-status', `Bản tổng hợp trước (${(saved.at || '').slice(0, 10)}).`); }
+      if ($('syn-out')) { drawSynthesis(lastSynthesis); if (!jobRunning('syn')) setStatus('syn-status', `Bản tổng hợp trước (${(saved.at || '').slice(0, 10)}).`); }
     }).catch(() => {});
   }
 

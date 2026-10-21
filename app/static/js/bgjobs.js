@@ -1,7 +1,7 @@
 // Theo dõi các việc AI chạy nền (Bài giảng, Có gì mới, Hướng nghiên cứu…) và hiện bảng nổi ở góc màn hình khi người dùng
 // đang ở trang khác: thanh tiến độ chạy tiếp đúng chỗ (không tính lại từ đầu), xong thì báo và có nút mở kết quả.
 import { escapeHtml } from './util.js';
-import { showProgress } from './ui.js';
+import { showProgress, endProgress } from './ui.js';
 
 const tracked = new Map(); // key -> { job, label, title, href, here, doneAt }
 let tray = null;
@@ -11,11 +11,11 @@ let timer = 0;
  * Bắt đầu theo dõi một job ({ status, step, of, done, error, listeners }).
  * here(): true khi trang đang mở đã tự hiện tiến độ của job này (khi đó bảng nổi ẩn thẻ của nó).
  */
-export function trackJob(key, job, { label, title = '', href = '', here = () => false, expectedMs = () => 40000 }) {
+export function trackJob(key, job, { label, title = '', href = '', here = () => false, expectedMs = () => 40000, doneText = '' }) {
   if (!job) return job;
-  if (!job.startedAt) {
-    job.startedAt = Date.now();
-    job.stepAt = Date.now();
+  if (!job.tracked) {
+    job.tracked = true;
+    if (!job.startedAt) { job.startedAt = Date.now(); job.stepAt = Date.now(); }
     job.lastStep = job.step;
     job.listeners.add((j) => {
       if (j.step !== j.lastStep) { j.lastStep = j.step; j.stepAt = Date.now(); }
@@ -23,13 +23,72 @@ export function trackJob(key, job, { label, title = '', href = '', here = () => 
       render();
     });
   }
-  tracked.set(key, { job, label, title, href, here, expectedMs });
+  tracked.set(key, { job, label, title, href, here, expectedMs, doneText });
   render();
   return job;
 }
 
 /** Tuỳ chọn cho showProgress để thanh tiến độ của job chạy tiếp đúng chỗ khi vẽ lại. */
-export const jobProgressOpts = (job, expectedMs) => ({ step: job.step, of: job.of, expectedMs, startedAt: job.startedAt, stepStartedAt: job.stepAt });
+export const jobProgressOpts = (job, expectedMs) => ({ step: job.step, of: job.of, ...(job.pct != null ? { pct: job.pct } : {}), expectedMs, startedAt: job.startedAt, stepStartedAt: job.stepAt });
+
+/* ---------- Job chung cho việc chạy một lần (trích xuất lại, tô câu, dịch bằng AI, hỏi đáp…) ---------- */
+
+const jobs = new Map(); // key -> job, giữ cả job đã xong để trang mở lại lấy được kết quả
+
+/** Job rỗng: update(status, { step, of, pct }) báo tiến độ, finish(error) kết thúc. */
+export function makeJob() {
+  const job = { status: 'Đang chuẩn bị…', step: null, of: 0, pct: null, done: false, error: '', result: undefined, listeners: new Set(), startedAt: Date.now(), stepAt: Date.now() };
+  const emit = () => { for (const fn of [...job.listeners]) { try { fn(job); } catch (_) { /* trang đã đóng */ } } };
+  job.update = (status, o = {}) => {
+    if (status) job.status = status;
+    if (o.step != null && o.step !== job.step) { job.step = o.step; job.stepAt = Date.now(); }
+    if (o.of != null) job.of = o.of;
+    if (o.pct !== undefined) job.pct = o.pct;
+    emit();
+  };
+  job.finish = (error = '') => { job.error = error; job.done = true; emit(); };
+  return job;
+}
+
+export const getJob = (key) => jobs.get(key) || null;
+export const jobRunning = (key) => { const j = jobs.get(key); return !!j && !j.done; };
+
+/**
+ * Chạy fn(update) thành job nền: rời trang thì việc vẫn chạy và tự lưu, trang mở lại thì thấy thanh tiến độ chạy tiếp
+ * đúng chỗ, ở trang khác thì hiện thẻ ở bảng nổi (track: tuỳ chọn của trackJob). Gọi lại cùng key khi việc đang chạy
+ * thì trả về job cũ, không gọi model thêm lần nữa. job.promise xong khi việc xong (kể cả lỗi, xem job.error).
+ */
+export function runJob(key, fn, track = null) {
+  const cur = jobs.get(key);
+  if (cur && !cur.done) return cur;
+  const job = makeJob();
+  job.key = key;
+  jobs.set(key, job);
+  if (track) trackJob(key, job, track);
+  job.promise = Promise.resolve()
+    .then(() => fn(job.update))
+    .then((r) => { job.result = r; job.finish(); }, (e) => { job.cause = e; job.finish(e?.message || String(e)); })
+    .then(() => job);
+  return job;
+}
+
+/**
+ * Vẽ tiến độ của job vào target (id hoặc phần tử) cho tới khi xong. Trang vẽ lại thì phần tử cũ bị gỡ và thôi theo
+ * dõi, trang mới gọi followJob lại với phần tử mới. onDone(job) chạy một lần nếu phần tử còn trên trang lúc job xong.
+ */
+export function followJob(job, target, { expectedMs = 40000, onDone = null } = {}) {
+  const node = typeof target === 'string' ? document.getElementById(target) : target;
+  if (!job || !node) return () => {};
+  const ms = typeof expectedMs === 'function' ? expectedMs : () => expectedMs;
+  const fn = (j) => {
+    if (!node.isConnected) { j.listeners.delete(fn); return; }
+    if (j.done) { j.listeners.delete(fn); endProgress(node); onDone?.(j); return; }
+    showProgress(node, j.status, jobProgressOpts(j, ms(j)));
+  };
+  job.listeners.add(fn);
+  fn(job);
+  return () => job.listeners.delete(fn);
+}
 
 function ensureTray() {
   if (tray && tray.isConnected) return tray;
@@ -44,7 +103,8 @@ function ensureTray() {
     if (open) {
       const t = tracked.get(open.dataset.bgOpen);
       if (t?.job.done) tracked.delete(open.dataset.bgOpen);
-      if (t?.href) location.hash = t.href;
+      const href = typeof t?.href === 'function' ? t.href() : t?.href;
+      if (href) location.hash = href;
       render();
     }
   });
@@ -75,7 +135,7 @@ function render() {
           ${t.href ? `<button class="sm" data-bg-open="${escapeHtml(key)}">${state === 'run' ? 'Xem' : 'Mở'}</button>` : ''}
           <button class="ghost sm" data-bg-close="${escapeHtml(key)}" title="Ẩn (việc vẫn chạy tiếp)">✕</button></div>
         ${t.title ? `<div class="bg-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>` : ''}
-        <div class="bg-body">${state === 'ok' ? '<span class="hint">Đã xong, kết quả đã được lưu.</span>' : state === 'err' ? `<span class="status err">${escapeHtml(t.job.error)}</span>` : ''}</div></div>`;
+        <div class="bg-body">${state === 'ok' ? `<span class="hint">${escapeHtml((typeof t.doneText === 'function' ? t.doneText(t.job) : t.doneText) || 'Đã xong, kết quả đã được lưu.')}</span>` : state === 'err' ? `<span class="status err">${escapeHtml(t.job.error)}</span>` : ''}</div></div>`;
       const tmp = document.createElement('div');
       tmp.innerHTML = html;
       const fresh = tmp.firstElementChild;

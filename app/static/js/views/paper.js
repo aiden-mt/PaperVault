@@ -2,7 +2,7 @@
 import { api } from '../api.js';
 import { store, onChange, topicOf, savePaper, removePaper, paperById, topicById, saveSettings } from '../store.js';
 import { escapeHtml, fmtDate, fmtRelative, STATUS_LABEL, STATUS_ORDER, copyText, download, norm, uid } from '../util.js';
-import { $, el, toast, confirmDialog, mdToHtml, ratingControl, topicBadge, setStatus, spinner, dialog, showProgress, endProgress } from '../ui.js';
+import { $, el, toast, confirmDialog, mdToHtml, ratingControl, topicBadge, setStatus, spinner, dialog, showProgress } from '../ui.js';
 import { renderSections } from '../render.js';
 import { paperToMarkdown, quickNoteLine, bibtexOf } from '../markdown.js';
 import { normalizeExtraction } from '../schema.js';
@@ -13,7 +13,8 @@ import { buildWhatsNew, whatsNewJob, removeWhatsNew, whatsNewHtml, whatsNewMarkd
 import { timelineHtml, bindTimeline, timelineTime } from '../timeline.js';
 import { loadWatches, addWatch, removeWatchWhere } from '../watches.js';
 import { openGraph3D } from '../graph3d.js';
-import { trackJob, jobProgressOpts } from '../bgjobs.js';
+import { trackJob, jobProgressOpts, runJob, getJob, jobRunning, followJob } from '../bgjobs.js';
+import { readableChatMd } from '../readable.js';
 import { buildResearchMap, researchJob, removeResearchMap, researchMapHtml, researchMapMarkdown, researchChip, togglePin, isPinned, removePin, compareState, compareBadgeHtml, compareButtonHtml, PER_KIND_OPTIONS, PER_KIND_DEFAULT, perKindValue, MAIN_CAP, BATCH_SIZE, fillMissing, fillJob, missingCodes, bindResearchSort, researchLog, restoreResearchMap, removeLogEntry, mapSummary, LOG_EVENTS, bindResearchLinks, jumpTo } from '../research.js';
 import { titleHtml } from '../richtext.js';
 import { NOTE_LANGS, sourceLang, displayLang, notesIn } from '../notes-i18n.js';
@@ -28,7 +29,9 @@ import { runExtraction, savePaperFromExtraction, acceptPdfFile } from '../extrac
 import { findPdf, attachFromUrl, autoAttach } from '../pdffind.js';
 import { venueBadge, venueDetailHtml, VENUE_TYPES } from '../venue.js';
 
-const TABS = [['notes', 'Ghi chú'], ['lecture', 'Bài giảng'], ['edit', 'Chỉnh sửa'], ['pdf', 'PDF'], ['ask', 'Hỏi đáp'], ['related', 'Liên quan'], ['research', 'Hướng nghiên cứu'], ['cite', 'Trích dẫn'], ['source', 'Nguồn']];
+// Xếp từ dùng nhiều đến dùng ít: đọc hiểu (Ghi chú, PDF, Bài giảng, Hỏi đáp) -> mở rộng (Liên quan, Hướng nghiên cứu)
+// -> viết bài (Trích dẫn) -> sửa dữ liệu (Chỉnh sửa, Nguồn).
+const TABS = [['notes', 'Ghi chú'], ['pdf', 'PDF'], ['lecture', 'Bài giảng'], ['ask', 'Hỏi đáp'], ['related', 'Liên quan'], ['research', 'Hướng nghiên cứu'], ['cite', 'Trích dẫn'], ['edit', 'Chỉnh sửa'], ['source', 'Nguồn']];
 
 /* ---------- helpers cho form chỉnh sửa (kế thừa extension) ---------- */
 const getPath = (obj, path) => path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
@@ -105,6 +108,14 @@ const onPaperTab = (pid, tabKey) => () => {
   if (!m || decodeURIComponent(m[1]) !== pid) return false;
   return (new URLSearchParams(m[2] || '').get('tab') || 'notes') === tabKey;
 };
+/** true khi người dùng đang mở trang của paper này (tab nào cũng được). */
+const onPaperPage = (pid) => () => {
+  const m = location.hash.match(/^#\/paper\/([^?]+)/);
+  return !!m && decodeURIComponent(m[1]) === pid;
+};
+// Lần trích xuất lại một mục gần nhất, để hoàn tác: { id, key, label, previous }. Nằm ngoài trang để việc xong lúc
+// người dùng đang ở trang khác thì mở lại vẫn hoàn tác được.
+let lastRedo = null;
 /** Bắt đầu dựng bài giảng và theo dõi tiến độ ở bảng việc nền. */
 const trackLecture = (pid) => trackJob(`lec:${pid}`, buildLecture(pid), { label: 'Bài giảng', title: paperById(pid)?.title || '', href: `#/paper/${pid}?tab=lecture`, here: onPaperTab(pid, 'lecture'), expectedMs: () => 40000 });
 
@@ -133,7 +144,6 @@ export async function render(root, { params, query }) {
   if (!p) { root.innerHTML = '<div class="empty">Không tìm thấy paper này. <a href="#/library">Về thư viện</a></div>'; return; }
   let tab = query.get('tab') || 'notes';
   let draft = null;
-  const chatHistory = (p.qa || []).map((x) => [{ role: 'user', content: x.q }, { role: 'assistant', content: x.a }]).flat();
 
   root.innerHTML = `<div class="paper-page">
     <div class="paper-head">
@@ -176,8 +186,10 @@ export async function render(root, { params, query }) {
 
   const quickSave = async (patch) => {
     p = await savePaper({ ...paperById(p.id), ...patch });
-    setStatus('pp-save-status', 'Đã lưu.', 'ok');
-    setTimeout(() => setStatus('pp-save-status', ''), 1500);
+    if (!jobRunning(`rex:${p.id}`)) {
+      setStatus('pp-save-status', 'Đã lưu.', 'ok');
+      setTimeout(() => { if (!jobRunning(`rex:${p.id}`)) setStatus('pp-save-status', ''); }, 1500);
+    }
     metaRow();
   };
   $('pp-rating').appendChild(ratingControl(p.rating || 0, (n) => quickSave({ rating: n })));
@@ -218,6 +230,7 @@ export async function render(root, { params, query }) {
     location.hash = '#/library';
   });
   $('pp-reextract').addEventListener('click', reExtract);
+  { const j = getJob(`rex:${p.id}`); if (j && !j.done) followReExtract(j); }
   $('pp-tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-tab]');
     if (!b) return;
@@ -277,8 +290,6 @@ export async function render(root, { params, query }) {
 
   // Bản ghi chú đang hiển thị (gốc hoặc đã dịch), dùng cho Copy Markdown.
   let shown = null;
-  // Lần trích xuất lại một mục gần nhất, để hoàn tác: { id, key, label, previous }.
-  let lastRedo = null;
   const langName = (l) => (NOTE_LANGS.find(([k]) => k === l) || [l, l])[1];
 
   /* Danh sách câu đáng nhớ AI đã tô trong PDF, nhóm theo loại. Bấm số trang để mở PDF đúng trang đó. */
@@ -368,7 +379,27 @@ export async function render(root, { params, query }) {
       $('pp-oneliner').innerHTML = ex.one_liner ? `<div class="oneliner">${escapeHtml(ex.one_liner)}</div>` : '';
       $('pp-sections').innerHTML = renderSections(ex, { openFirst: true, paper: p, lang, redo: true });
       $('pp-sections').querySelectorAll('details').forEach((d) => { d.open = true; });
+      markRedoBusy();
     };
+    /** Mục đang được trích xuất lại (chạy nền): khoá các nút ↻ và hiện thanh tiến độ ở đúng mục đó. */
+    function markRedoBusy() {
+      const j = getJob(`rexsec:${p.id}`);
+      const sec = $('pp-sections');
+      if (!j || j.done || !sec) return;
+      sec.querySelectorAll('[data-redo]').forEach((x) => { x.disabled = true; });
+      const b = sec.querySelector(`[data-redo="${CSS.escape(j.info?.key || '')}"]`);
+      const box = b?.closest('details');
+      if (!box) return;
+      box.classList.add('sec-busy');
+      b.insertAdjacentHTML('beforebegin', '<span class="sec-status"></span>');
+      const pid = p.id;
+      followJob(j, box.querySelector('.sec-status'), { expectedMs: 35000, onDone: (x) => {
+        if (p.id !== pid) return;
+        if (x.error) toast(x.error, 7000, 'err');
+        else { p = x.result.paper; metaRow(); $('pp-title').value = p.title; toast(`Đã trích xuất lại mục ${x.info.label}.`); }
+        if (tab === 'notes') redraw();
+      } });
+    }
     const drawLang = async ({ ai = false } = {}) => {
       const src = sourceLang(e);
       const lang = displayLang(store.settings, e);
@@ -381,20 +412,34 @@ export async function render(root, { params, query }) {
         info.textContent = 'Bản gốc lúc trích xuất';
         return;
       }
-      const cached = !ai && await notesIn(p, lang, { cachedOnly: true });
+      // Dịch bằng AI chạy nền (vài chục giây): rời trang vẫn dịch tiếp và lưu, mở lại thì thanh tiến độ chạy tiếp.
+      const jobKey = `trn:${p.id}:${lang}`;
+      const useJob = ai || jobRunning(jobKey);
+      const cached = !useJob && await notesIn(p, lang, { cachedOnly: true });
       if (!cached) {
         paint(normalizeExtraction(e), src);
-        showProgress(info, ai ? `Đang dịch lại sang ${langName(lang)} bằng AI…` : `Đang dịch sang ${langName(lang)}…`, { expectedMs: ai ? 30000 : 5000 });
+        if (!useJob) showProgress(info, `Đang dịch sang ${langName(lang)}…`, { expectedMs: 5000 });
       }
       try {
-        const r = cached || await notesIn(paperById(p.id), lang, ai ? { translateAI: (texts, from, to) => translateNotesAI({ texts, from, to, settings: store.settings, keep: properNames(e) }) } : {});
-        if (displayLang(store.settings, e) !== lang || tab !== 'notes') return; // người dùng đã đổi lựa chọn trong lúc dịch
+        let r = cached;
+        if (!r && useJob) {
+          const pid = p.id;
+          const job = runJob(jobKey, (update) => {
+            update(`Đang dịch lại sang ${langName(lang)} bằng AI…`);
+            return notesIn(paperById(pid), lang, { translateAI: (texts, from, to) => translateNotesAI({ texts, from, to, settings: store.settings, keep: properNames(e) }) });
+          }, { label: `Dịch ghi chú sang ${langName(lang)} bằng AI`, title: p.title, href: `#/paper/${pid}?tab=notes`, here: onPaperTab(pid, 'notes'), expectedMs: () => 30000 });
+          followJob(job, info, { expectedMs: 30000 });
+          await job.promise;
+          if (job.error) throw job.cause || new Error(job.error);
+          r = job.result;
+        } else if (!r) r = await notesIn(paperById(p.id), lang, {});
+        if (!info.isConnected || displayLang(store.settings, e) !== lang || tab !== 'notes') return; // đã rời trang / đổi lựa chọn trong lúc dịch
         paint(r.extraction, lang);
         info.textContent = `Bản dịch ${r.engine === 'AI' ? 'bằng AI' : `tự động (${r.engine || 'Google'})`} từ ${langName(src)}`;
         aiBtn.hidden = !hasCredentials(store.settings);
         aiBtn.textContent = r.engine === 'AI' ? 'Dịch lại bằng AI' : 'Dịch bằng AI cho chính xác hơn';
       } catch (err) {
-        info.innerHTML = `<span class="status err">Không dịch được: ${escapeHtml(err.message)}. Đang hiện bản gốc.</span>`;
+        if (info.isConnected) info.innerHTML = `<span class="status err">Không dịch được: ${escapeHtml(err.message)}. Đang hiện bản gốc.</span>`;
       }
     };
     $('pp-lang').addEventListener('click', async (ev) => {
@@ -431,24 +476,14 @@ export async function render(root, { params, query }) {
       });
       if (!choice) return;
       const pid = p.id;
-      const box = btn.closest('details');
-      $('pp-sections').querySelectorAll('[data-redo]').forEach((x) => { x.disabled = true; });
-      box.classList.add('sec-busy');
-      btn.insertAdjacentHTML('beforebegin', '<span class="sec-status"></span>');
-      const st = box.querySelector('.sec-status');
-      try {
-        const r = await reExtractSection(pid, key, { label, hint: choice.hint, onStatus: (m) => { if (st.isConnected) showProgress(st, m, { expectedMs: 35000 }); } });
-        if (p.id !== pid) return;
-        p = r.paper;
+      if (jobRunning(`rexsec:${pid}`)) return;
+      const job = runJob(`rexsec:${pid}`, async (update) => {
+        const r = await reExtractSection(pid, key, { label, hint: choice.hint, onStatus: (m) => update(m) });
         lastRedo = { id: pid, key, label, previous: r.previous };
-        metaRow();
-        $('pp-title').value = p.title;
-        toast(`Đã trích xuất lại mục ${label}.`);
-        if (tab === 'notes') redraw();
-      } catch (err) {
-        toast(err.message, 7000, 'err');
-        if (box.isConnected) { box.classList.remove('sec-busy'); st.remove(); $('pp-sections')?.querySelectorAll('[data-redo]').forEach((x) => { x.disabled = false; }); }
-      }
+        return r;
+      }, { label: `Trích xuất lại mục ${label}`, title: p.title, href: `#/paper/${pid}?tab=notes`, here: onPaperTab(pid, 'notes'), expectedMs: () => 35000 });
+      job.info = { key, label };
+      markRedoBusy();
     });
     const save = async () => { await quickSave({ userNotes: $('pp-notes').value }); toast('Đã lưu ghi chú.'); };
     $('pp-venue-edit').addEventListener('click', editVenue);
@@ -561,22 +596,29 @@ export async function render(root, { params, query }) {
     if (!choice) return;
     const reload = () => $('pp-reader')?.contentWindow?.pvReloadMarks?.();
     if (choice === 'clear') { const n = await clearAutoHighlights(p.id); p = paperById(p.id); reload(); drawAhLegend(); return toast(`Đã xoá ${n} câu AI đã tô.`); }
-    const btn = $('pp-auto-hl');
-    if (btn) btn.disabled = true;
-    try {
-      const box = $('pp-ah-status');
-      if (box) box.hidden = false;
-      const r = await autoHighlight(p.id, { level: choice.level, onStatus: (m, step) => { if ($('pp-ah-status')) showProgress('pp-ah-status', m, { ...(step != null ? { step } : {}), of: 3, expectedMs: step === 1 ? 45000 : 4000 }); } });
-      p = paperById(p.id);
-      reload();
-      drawAhLegend();
-      toast(`Đã tô ${r.kept} câu đáng nhớ${r.dropped ? ` (bỏ ${r.dropped} câu không khớp nguyên văn)` : ''}. Bấm vào nét tô để xem lý do.`, 7000);
-    } catch (err) {
-      toast(err.message, 7000, 'err');
-    } finally {
+    const pid = p.id;
+    if (jobRunning(`ah:${pid}`)) return;
+    runJob(`ah:${pid}`, (update) => autoHighlight(pid, { level: choice.level, onStatus: (m, step) => update(m, { of: 3, ...(step != null ? { step } : {}) }) }),
+      { label: 'Tô câu đáng nhớ', title: p.title, href: `#/paper/${pid}?tab=pdf`, here: onPaperTab(pid, 'pdf'), expectedMs: (j) => (j.step === 1 ? 45000 : 4000) });
+    followAutoHighlight();
+  }
+
+  /** Thanh tiến độ "Tô câu đáng nhớ" dưới thanh trình đọc; mở lại tab PDF giữa chừng thì chạy tiếp đúng chỗ. */
+  function followAutoHighlight() {
+    const j = getJob(`ah:${p.id}`);
+    if (!j || j.done || !$('pp-ah-status')) return;
+    if ($('pp-auto-hl')) $('pp-auto-hl').disabled = true;
+    $('pp-ah-status').hidden = false;
+    followJob(j, $('pp-ah-status'), { expectedMs: (x) => (x.step === 1 ? 45000 : 4000), onDone: (x) => {
       if ($('pp-auto-hl')) $('pp-auto-hl').disabled = false;
-      if ($('pp-ah-status')) { endProgress('pp-ah-status'); $('pp-ah-status').hidden = true; }
-    }
+      if ($('pp-ah-status')) $('pp-ah-status').hidden = true;
+      if (x.error) return toast(x.error, 7000, 'err');
+      p = paperById(p.id) || p;
+      $('pp-reader')?.contentWindow?.pvReloadMarks?.();
+      drawAhLegend();
+      const r = x.result;
+      toast(`Đã tô ${r.kept} câu đáng nhớ${r.dropped ? ` (bỏ ${r.dropped} câu không khớp nguyên văn)` : ''}. Bấm vào nét tô để xem lý do.`, 7000);
+    } });
   }
 
   /* Chú thích màu của câu AI tô, ngay dưới thanh trình đọc: mỗi loại một màu, kèm số câu. Thu gọn được. */
@@ -662,6 +704,7 @@ export async function render(root, { params, query }) {
       menu.addEventListener('click', (e) => { if (e.target.closest('button')) menu.hidden = true; e.stopPropagation(); });
       document.addEventListener('click', () => { if (menu.isConnected) menu.hidden = true; });
       $('pp-auto-hl').addEventListener('click', () => autoHighlightDialog());
+      followAutoHighlight();
       drawAhLegend();
       $('pp-pdf-save').addEventListener('click', async () => {
         const w = $('pp-reader').contentWindow;
@@ -767,7 +810,7 @@ export async function render(root, { params, query }) {
     ];
     body.innerHTML = `<div class="row" style="gap:8px;margin-bottom:6px"><span class="lang-label">Ngôn ngữ trả lời</span><select id="pp-ask-lang" style="width:auto" title="Dùng chung với trang Chat với paper">${CHAT_LANGS.map(([k, l]) => `<option value="${k}" ${(store.settings.chatLang || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="hint" style="margin-bottom:8px">Hỏi model về paper này. Ngữ cảnh gồm ghi chú đã trích xuất${p.pdfId && NATIVE_PDF_PROVIDERS.has(store.settings.provider) ? ', và file PDF gửi kèm' : ''}, cùng nội dung nguồn đã lưu (nếu có). Lịch sử được lưu cùng paper.</div>
-      <div class="chat" id="pp-chat">${qa.map((x) => `<div class="msg q">${escapeHtml(x.q)}</div><div class="msg a">${mdToHtml(x.a)}</div>`).join('')}</div>
+      <div class="chat" id="pp-chat">${qa.map((x) => `<div class="msg q">${escapeHtml(x.q)}</div><div class="msg a">${mdToHtml(readableChatMd(x.a))}</div>`).join('')}</div>
       <div class="suggest-q">${suggestions.map((s) => `<button data-q="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')}</div>
       <div class="chat-input"><textarea id="pp-q" placeholder="Câu hỏi của bạn… (Enter để gửi, Shift+Enter xuống dòng)"></textarea><button id="pp-ask" class="primary">Hỏi</button>${qa.length ? '<button id="pp-clear-chat" class="sm ghost">Xoá lịch sử</button>' : ''}</div>
       <div id="pp-ask-status" class="status"></div>`;
@@ -775,34 +818,46 @@ export async function render(root, { params, query }) {
       q = (q || '').trim();
       if (!q) return;
       if (!hasCredentials(store.settings)) return setStatus('pp-ask-status', 'Chưa có API key. <a href="#/settings">Mở Cài đặt</a>.', 'err');
-      const chat = $('pp-chat');
-      chat.insertAdjacentHTML('beforeend', `<div class="msg q">${escapeHtml(q)}</div><div class="msg a" id="pp-pending"></div>`);
-      showProgress('pp-pending', 'Đang suy nghĩ…', { expectedMs: 20000 });
-      $('pp-q').value = '';
-      $('pp-ask').disabled = true;
-      chat.lastElementChild.scrollIntoView({ block: 'end' });
-      try {
-        const text = (await api.getText(p.id)).text || '';
+      const pid = p.id;
+      if (jobRunning(`ask:${pid}`)) return toast('Đang trả lời câu hỏi trước, chờ một chút.');
+      // Chạy nền: rời trang vẫn trả lời tiếp và lưu vào lịch sử hỏi đáp của paper.
+      const job = runJob(`ask:${pid}`, async (update) => {
+        update('Đang suy nghĩ…');
+        const cur = paperById(pid);
+        const history = (cur.qa || []).flatMap((x) => [{ role: 'user', content: x.q }, { role: 'assistant', content: x.a }]).slice(-8);
+        const text = (await api.getText(pid)).text || '';
         let pdfBase64 = null;
-        if (p.pdfId && NATIVE_PDF_PROVIDERS.has(store.settings.provider) && store.settings.pdfMode !== 'text' && text.length < 2000) {
-          pdfBase64 = (await api.pdfBase64(p.pdfId)).base64;
+        if (cur.pdfId && NATIVE_PDF_PROVIDERS.has(store.settings.provider) && store.settings.pdfMode !== 'text' && text.length < 2000) {
+          pdfBase64 = (await api.pdfBase64(cur.pdfId)).base64;
         }
-        const a = await askPaper({ paper: p, text, settings: store.settings, question: q, history: chatHistory.slice(-8), pdfBase64 });
-        chatHistory.push({ role: 'user', content: q }, { role: 'assistant', content: a });
-        $('pp-pending').innerHTML = mdToHtml(a);
-        $('pp-pending').id = '';
-        const next = [...(paperById(p.id).qa || []), { q, a, at: new Date().toISOString() }].slice(-30);
-        p = await savePaper({ ...paperById(p.id), qa: next });
-      } catch (e) {
-        $('pp-pending').innerHTML = `<span class="status err">${escapeHtml(e.message)}</span>`;
-        $('pp-pending').id = '';
-      } finally { $('pp-ask').disabled = false; }
+        const a = await askPaper({ paper: cur, text, settings: store.settings, question: q, history, pdfBase64 });
+        const next = [...(paperById(pid).qa || []), { q, a, at: new Date().toISOString() }].slice(-30);
+        await savePaper({ ...paperById(pid), qa: next });
+        return a;
+      }, { label: 'Hỏi đáp về paper', title: p.title, href: `#/paper/${pid}?tab=ask`, here: onPaperTab(pid, 'ask'), expectedMs: () => 20000 });
+      job.info = { q };
+      $('pp-q').value = '';
+      followAsk(job);
     };
+    /** Câu hỏi đang chờ trả lời: bong bóng câu hỏi + thanh tiến độ ở chỗ câu trả lời. */
+    const followAsk = (job) => {
+      const chat = $('pp-chat');
+      chat.insertAdjacentHTML('beforeend', `<div class="msg q">${escapeHtml(job.info.q)}</div><div class="msg a"></div>`);
+      const node = chat.lastElementChild;
+      $('pp-ask').disabled = true;
+      node.scrollIntoView({ block: 'end' });
+      followJob(job, node, { expectedMs: 20000, onDone: (j) => {
+        if ($('pp-ask')) $('pp-ask').disabled = false;
+        node.innerHTML = j.error ? `<span class="status err">${escapeHtml(j.error)}</span>` : mdToHtml(readableChatMd(j.result));
+        p = paperById(p.id) || p;
+      } });
+    };
+    { const j = getJob(`ask:${p.id}`); if (j && !j.done) followAsk(j); }
     $('pp-ask-lang').addEventListener('change', async (ev) => { await saveSettings({ chatLang: ev.target.value }); toast('Đã đổi ngôn ngữ trả lời, áp dụng từ câu hỏi tới.'); });
     $('pp-ask').addEventListener('click', () => ask($('pp-q').value));
     $('pp-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask($('pp-q').value); } });
     body.querySelector('.suggest-q').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (b) ask(b.dataset.q); });
-    $('pp-clear-chat')?.addEventListener('click', async () => { chatHistory.length = 0; p = await savePaper({ ...paperById(p.id), qa: [] }); drawAsk(); });
+    $('pp-clear-chat')?.addEventListener('click', async () => { p = await savePaper({ ...paperById(p.id), qa: [] }); drawAsk(); });
   }
 
   /* Bài giảng: tám mục đưa người đọc từ kiến thức nền tới chỗ hiểu cơ chế của bài. Dựng chạy nền, rời tab vẫn chạy tiếp. */
@@ -878,14 +933,14 @@ export async function render(root, { params, query }) {
     let shownLec = p.lecture;
     const paintLec = (l) => { shownLec = l; $('pp-lec-toc').innerHTML = tocHtml(l.lang); $('pp-lec-body').innerHTML = lectureHtml(l); };
     // Dịch bằng AI theo từng nhóm khoảng 6000 ký tự để không chạm trần đầu ra của một lượt gọi.
-    const translateChunks = async (texts, from, to) => {
+    const translateChunks = async (texts, from, to, update) => {
       const keep = properNames(p.extraction || {});
       const out = [];
       for (let i = 0; i < texts.length;) {
         let j = i;
         let size = 0;
         while (j < texts.length && (j === i || size + texts[j].length <= 6000)) { size += texts[j].length; j += 1; }
-        showProgress('pp-lec-lang-info', 'Đang dịch lại bằng AI…', { pct: (i / texts.length) * 100 });
+        update('Đang dịch lại bằng AI…', { pct: (i / texts.length) * 100 });
         out.push(...await translateNotesAI({ texts: texts.slice(i, j), from, to, settings: store.settings, keep }));
         i = j;
       }
@@ -900,19 +955,32 @@ export async function render(root, { params, query }) {
       const aiBtn = $('pp-lec-lang-ai');
       aiBtn.hidden = true;
       if (lang === src) { paintLec(p.lecture); info.textContent = 'Bản gốc lúc dựng'; return; }
-      const cached = !ai && await lectureIn(p, lang, { cachedOnly: true });
-      if (!cached) { paintLec(p.lecture); showProgress(info, ai ? 'Đang dịch lại bằng AI…' : `Đang dịch sang ${langName(lang)}…`, { expectedMs: ai ? 40000 : 5000 }); }
+      // Dịch bằng AI chạy nền như dịch ghi chú.
+      const jobKey = `trl:${pid}:${lang}`;
+      const useJob = ai || jobRunning(jobKey);
+      const cached = !useJob && await lectureIn(p, lang, { cachedOnly: true });
+      if (!cached) { paintLec(p.lecture); if (!useJob) showProgress(info, `Đang dịch sang ${langName(lang)}…`, { expectedMs: 5000 }); }
       try {
-        const r = cached || await lectureIn(paperById(pid), lang, ai ? { translateAI: translateChunks } : {});
+        let r = cached;
+        if (!r && useJob) {
+          const job = runJob(jobKey, (update) => {
+            update('Đang dịch lại bằng AI…', { pct: 0 });
+            return lectureIn(paperById(pid), lang, { translateAI: (texts, from, to) => translateChunks(texts, from, to, update) });
+          }, { label: `Dịch bài giảng sang ${langName(lang)} bằng AI`, title: p.title, href: `#/paper/${pid}?tab=lecture`, here: onPaperTab(pid, 'lecture'), expectedMs: () => 40000 });
+          followJob(job, info, { expectedMs: 40000 });
+          await job.promise;
+          if (job.error) throw job.cause || new Error(job.error);
+          r = job.result;
+        } else if (!r) r = await lectureIn(paperById(pid), lang, {});
         p = paperById(pid) || p;
         const now = store.settings.notesLang;
-        if ((now === 'vi' || now === 'en' ? now : src) !== lang || tab !== 'lecture' || !$('pp-lec-body')) return; // đã đổi lựa chọn trong lúc dịch
+        if (!info.isConnected || (now === 'vi' || now === 'en' ? now : src) !== lang || tab !== 'lecture' || !$('pp-lec-body')) return; // đã rời trang / đổi lựa chọn trong lúc dịch
         paintLec(r.lecture);
         info.textContent = `Bản dịch ${r.engine === 'AI' ? 'bằng AI' : `tự động (${r.engine || 'Google'})`} từ ${langName(src)}`;
         aiBtn.hidden = !hasCredentials(store.settings);
         aiBtn.textContent = r.engine === 'AI' ? 'Dịch lại bằng AI' : 'Dịch bằng AI cho chính xác hơn';
       } catch (err) {
-        if ($('pp-lec-lang-info')) $('pp-lec-lang-info').innerHTML = `<span class="status err">Không dịch được: ${escapeHtml(err.message)}. Đang hiện bản gốc.</span>`;
+        if (info.isConnected) info.innerHTML = `<span class="status err">Không dịch được: ${escapeHtml(err.message)}. Đang hiện bản gốc.</span>`;
       }
     };
     $('pp-lec-lang').addEventListener('click', async (ev) => {
@@ -940,16 +1008,13 @@ export async function render(root, { params, query }) {
     const ident = s2Ident(p);
     const rm = p.researchMap;
     const rmJob = researchJob(p.id);
-    const rmCard = ident ? `<div class="card rm-quick"><div class="row wrap" style="align-items:center"><h2 style="margin:0">🧭 Hướng nghiên cứu</h2>
+    const rmCard = ident ? `<div class="card rm-quick" id="pp-rm-quick"><div class="row wrap" style="align-items:center"><h2 style="margin:0">🧭 Hướng nghiên cứu</h2>
         <span class="hint">${rmJob && !rmJob.done ? 'Đang tạo…' : rm ? `${(rm.data?.gaps || []).length} vấn đề còn bỏ ngỏ · ${(rm.data?.directions || []).length} hướng gợi ý · ${escapeHtml(fmtRelative(rm.at))}` : 'So sánh bài này với các bài nó dẫn và bài dẫn nó, chỉ ra phần còn bỏ ngỏ và hướng làm tiếp'}</span>
         <span class="spacer"></span><button class="sm ${rm ? '' : 'primary'}" id="pp-go-research">${rm ? 'Mở' : 'Tạo'} Hướng nghiên cứu →</button></div>
         ${rm && (rm.data?.directions || []).length ? `<ol class="rm-quick-list">${rm.data.directions.slice(0, 5).map((x, i) => `<li><button type="button" class="linkish rm-quick-go" data-go-dir="${i}" title="Mở hướng này trong tab Hướng nghiên cứu">${escapeHtml(x.title)}</button></li>`).join('')}</ol>` : ''}</div>` : '';
-    body.innerHTML = `<div class="related-stack">${rmCard}
-      <div class="card" id="pp-local"><h2>Trong thư viện của bạn (cùng tag / dataset / chủ đề)</h2>
-        ${local.length ? local.map(({ x }) => `<div class="paper" data-id="${x.id}"><div class="body"><div class="t">${escapeHtml(x.title)}</div><div class="meta">${topicBadge(topicOf(x))}${(x.extraction?.tags || []).slice(0, 4).map((t) => `<span class="badge accent">#${escapeHtml(t)}</span>`).join('')}</div><div class="line"><b>Điểm mới:</b> ${escapeHtml(x.extraction?.novelty || '—')}</div></div></div>`).join('') : '<span class="hint">Chưa tìm thấy paper liên quan trong thư viện.</span>'}
-      </div>
-      ${ident ? '<div class="card wn-card" id="pp-wn"></div>' : ''}
-      <div class="card"><div class="row" style="align-items:center"><h2 style="margin:0">Khám phá qua Semantic Scholar</h2><span class="spacer"></span>
+    body.innerHTML = `<div class="related-stack">
+      <nav class="rel-nav" aria-label="Các phần của tab Liên quan">${ident ? '<button type="button" data-rel-go="pp-s2-card">Khám phá qua Semantic Scholar</button><button type="button" data-rel-go="pp-wn">Có gì mới kể từ bài này</button>' : ''}<button type="button" data-rel-go="pp-local">Trong thư viện <span class="hint">${local.length}</span></button>${ident ? '<button type="button" data-rel-go="pp-rm-quick">🧭 Hướng nghiên cứu</button>' : ''}</nav>
+      <div class="card" id="pp-s2-card"><div class="row" style="align-items:center"><h2 style="margin:0">Khám phá qua Semantic Scholar</h2><span class="spacer"></span>
         ${ident ? '<button id="pp-research" class="sm" title="So sánh, phần còn bỏ ngỏ và hướng nghiên cứu tiếp (tab Hướng nghiên cứu)">🧭 Hướng nghiên cứu</button><button id="pp-graph3d" class="sm" title="Đồ thị 3D: bài này, các bài nó dẫn, các bài dẫn nó, và liên kết giữa chúng">🕸 Đồ thị 3D</button>' : ''}
         ${ident ? `<span class="sel-pick"><button id="pp-follow" class="sm" aria-haspopup="menu" title="Tự báo bài mới trong trang Theo dõi paper mới">🔔 Theo dõi ▾</button>
           <div id="pp-follow-menu" class="menu right" role="menu" hidden>
@@ -968,8 +1033,14 @@ export async function render(root, { params, query }) {
           <span class="spacer"></span><label class="s2-auto hint" title="Khi mở paper, kết quả đã lưu cũ hơn số ngày này sẽ tự được lấy mới. Để trống hoặc 0 thì chỉ làm mới khi bấm nút. Áp dụng cho mọi paper.">Tự làm mới sau <input type="number" id="s2-auto-days" min="0" max="365" step="1" placeholder="—" value="${Number(store.settings.s2AutoRefreshDays) > 0 ? Number(store.settings.s2AutoRefreshDays) : ''}"> ngày</label></div>
         <div id="s2-roles"></div>
         <div id="pp-s2" style="margin-top:8px"></div>` : '<span class="hint">Paper chưa có arXiv ID / DOI / link nên không tra cứu được.</span>'}
-      </div></div>`;
+      </div>
+      ${ident ? '<div class="card wn-card" id="pp-wn"></div>' : ''}
+      <div class="card" id="pp-local"><h2>Trong thư viện của bạn (cùng tag / dataset / chủ đề)</h2>
+        ${local.length ? local.map(({ x }) => `<div class="paper" data-id="${x.id}"><div class="body"><div class="t">${escapeHtml(x.title)}</div><div class="meta">${topicBadge(topicOf(x))}${(x.extraction?.tags || []).slice(0, 4).map((t) => `<span class="badge accent">#${escapeHtml(t)}</span>`).join('')}</div><div class="line"><b>Điểm mới:</b> ${escapeHtml(x.extraction?.novelty || '—')}</div></div></div>`).join('') : '<span class="hint">Chưa tìm thấy paper liên quan trong thư viện.</span>'}
+      </div>
+      ${rmCard}</div>`;
     $('pp-local').addEventListener('click', (e) => { const c = e.target.closest('.paper[data-id]'); if (c) location.hash = `#/paper/${c.dataset.id}`; });
+    body.querySelector('.rel-nav')?.addEventListener('click', (e) => { const b = e.target.closest('[data-rel-go]'); if (b) document.getElementById(b.dataset.relGo)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     if (!ident) return;
 
     // Lựa chọn lọc được nhớ giữa các lần mở (chỉ trên máy này).
@@ -1330,20 +1401,33 @@ export async function render(root, { params, query }) {
   }
 
   async function reExtract() {
+    const pid = p.id;
+    if (jobRunning(`rex:${pid}`)) return toast('Paper này đang được trích xuất lại, xem thanh tiến độ ở đầu trang.');
     if (!hasCredentials(store.settings)) return toast('Chưa có API key. Mở Cài đặt.', 3000, 'err');
     const t = await api.getText(p.id);
     if (!p.pdfId && (t.text || '').length < 120) return toast('Chưa có nội dung nguồn / PDF để trích xuất lại. Vào tab Nguồn hoặc PDF để bổ sung.', 4000, 'err');
     if (!(await confirmDialog('Chạy lại trích xuất ghi chú theo template từ nguồn đã lưu? Ghi chú cá nhân, trích dẫn theo đoạn, trạng thái và đánh giá được giữ nguyên. Phần ghi chú trích xuất sẽ được thay bằng bản mới.', { okLabel: 'Trích xuất lại' }))) return;
-    const st = $('pp-save-status');
-    try {
-      const source = { url: p.url, title: p.title, arxivId: p.arxivId, doi: p.doi, kind: t.kind || p.sourceKind, text: t.text || '', pdfId: p.pdfId, pdfName: p.pdfName, exceptId: p.id, s2Id: p.s2Id, citationCount: p.citationCount };
-      const r = await runExtraction(source, { onStatus: (m) => showProgress(st, m, { expectedMs: 50000 }) });
-      await savePaperFromExtraction({ extraction: r.extraction, meta: r.meta, source: r.source, topicId: p.topicId, existingId: p.id });
-      p = paperById(p.id);
-      setStatus(st, 'Đã trích xuất lại.', 'ok');
+    const source = { url: p.url, title: p.title, arxivId: p.arxivId, doi: p.doi, kind: t.kind || p.sourceKind, text: t.text || '', pdfId: p.pdfId, pdfName: p.pdfName, exceptId: p.id, s2Id: p.s2Id, citationCount: p.citationCount };
+    // Chạy nền: rời trang vẫn chạy tiếp và tự lưu, mở lại thì thanh tiến độ chạy tiếp đúng chỗ.
+    const job = runJob(`rex:${pid}`, async (update) => {
+      const r = await runExtraction(source, { onStatus: (m) => update(m) });
+      await savePaperFromExtraction({ extraction: r.extraction, meta: r.meta, source: r.source, topicId: paperById(pid)?.topicId || source.topicId, existingId: pid });
+      return r;
+    }, { label: 'Trích xuất lại ghi chú', title: p.title, href: `#/paper/${pid}?tab=notes`, here: onPaperPage(pid), expectedMs: () => 50000 });
+    followReExtract(job);
+  }
+
+  /** Thanh tiến độ trích xuất lại ở đầu trang paper. */
+  function followReExtract(job) {
+    if ($('pp-reextract')) $('pp-reextract').disabled = true;
+    followJob(job, $('pp-save-status'), { expectedMs: 50000, onDone: (j) => {
+      if ($('pp-reextract')) $('pp-reextract').disabled = false;
+      if (j.error) return setStatus('pp-save-status', escapeHtml(j.error), 'err');
+      p = paperById(p.id) || p;
+      setStatus('pp-save-status', 'Đã trích xuất lại.', 'ok');
       metaRow();
       drawTab();
-    } catch (e) { setStatus(st, escapeHtml(e.message), 'err'); }
+    } });
   }
 
   /** Chuyển sang một tab khác của trang paper (dùng cho lối tắt từ tab Liên quan). */

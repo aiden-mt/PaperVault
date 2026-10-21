@@ -4,6 +4,7 @@
 //  - Chỉ số dưới / trên viết kiểu văn bản thường (D_Aug, P_θ, y_<n, x^2, 10^{-3}) ở ghi chú cũ chưa dùng LaTeX.
 //  - Liệt kê viết liền trong một đoạn ("1) … 2) … 3) …", "(i) … (ii) …") tách thành danh sách đánh số.
 import { escapeHtml } from './util.js';
+import { readableBlocks, muteRefs } from './readable.js';
 
 // $...$ cùng dòng: không có khoảng trắng ngay trong hai dấu $, và không theo sau bởi chữ số, để "$5 và $10" không bị coi là công thức.
 const MATH = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?![\s$])([^$\n]+?)(?<!\s)\$(?!\d)/g;
@@ -97,8 +98,11 @@ export function splitEnum(raw) {
 /** Một trường văn bản của ghi chú: tách liệt kê viết liền thành danh sách, phần còn lại như rich(). */
 export function richBlock(s) {
   const e = splitEnum(s);
-  if (!e) return rich(s);
-  return `${e.intro ? `<div class="enum-intro">${rich(e.intro)}</div>` : ''}<ol class="enum">${e.items.map((x) => `<li>${rich(x)}</li>`).join('')}</ol>`;
+  if (e) return muteRefs(`${e.intro ? `<div class="enum-intro">${rich(e.intro)}</div>` : ''}<ol class="enum">${e.items.map((x) => `<li>${rich(x)}</li>`).join('')}</ol>`);
+  // Khối chữ dài: tách đoạn ngắn, ý liệt kê viết liền thành danh sách (xem readable.js).
+  const blocks = readableBlocks(s);
+  if (blocks.length <= 1) return muteRefs(rich(s));
+  return muteRefs(`<div class="rd">${blocks.map((b) => (b.type === 'ol' ? `<ol class="enum">${b.items.map((x) => `<li>${rich(x)}</li>`).join('')}</ol>` : `<p>${rich(b.text)}</p>`)).join('')}</div>`);
 }
 
 /* ---------- Giữ công thức khi dịch ---------- */

@@ -12,6 +12,7 @@ import { extractPdfText } from '../pdf.js';
 import { hasCredentials } from '../llm.js';
 import { suggestTopic } from '../topics.js';
 import { venueBadge } from '../venue.js';
+import { makeJob, trackJob } from '../bgjobs.js';
 
 const SOURCE_LABEL = { arxiv: 'arXiv', doi: 'DOI', openreview: 'OpenReview', acl: 'ACL', 'pdf-url': 'Link PDF', 'paper-url': 'Trang web', 'other-url': 'Link', title: 'Tìm theo tên', pdf: 'File PDF' };
 
@@ -338,10 +339,18 @@ async function runSave() {
   st.progress = { done: 0, total: targets.length, label: '' };
   let saved = 0;
   let errors = 0;
+  // Thẻ ở bảng nổi khi người dùng sang trang khác (việc vẫn chạy tiếp; trang này có thanh tiến độ riêng).
+  const job = makeJob();
+  trackJob('batch:save', job, {
+    label: extract ? 'Thêm hàng loạt + trích xuất' : 'Thêm hàng loạt', href: '#/add?tab=batch',
+    here: () => !!document.querySelector('.bq-bar-info'), expectedMs: () => (extract ? 50000 : 3000),
+    doneText: () => `Đã lưu ${saved} paper${errors ? `, ${errors} paper lỗi` : ''}.`,
+  });
   draw();
   for (const it of targets) {
     if (st.stop) break;
     st.progress.label = it.title || it.label;
+    job.update(`${Math.min(st.progress.done + 1, targets.length)}/${targets.length} · ${String(st.progress.label).slice(0, 70)}`, { step: st.progress.done, of: targets.length });
     draw();
     if (extract && it.status !== 'extracted') await extractItem(it);
     if (it.status !== 'error' && !st.stop) await saveItem(it);
@@ -349,6 +358,7 @@ async function runSave() {
     st.progress.done++;
   }
   st.saving = false;
+  job.finish();
   st.lastRun = { saved, errors, stopped: st.stop, extract };
   st.progress = null;
   st.filter = errors ? 'error' : (saved ? 'saved' : st.filter);

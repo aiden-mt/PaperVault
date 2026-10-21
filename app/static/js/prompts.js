@@ -28,8 +28,13 @@ const RULES = `Quy tắc bắt buộc:
 - Giữ đúng MỨC KHẲNG ĐỊNH của tác giả: may/might = "có thể", suggests/indicates = "cho thấy", we hypothesize = "giả thuyết rằng", tends to = "có xu hướng", up to X = "lên tới X". Không nâng thành "chứng minh", "chắc chắn", "luôn luôn", cũng không hạ xuống.
 - Không viết câu rỗng. Phép thử: thay tên phương pháp bằng một từ vô nghĩa mà câu vẫn "đúng" thì câu đó không mang thông tin. "X cải thiện chất lượng nhờ cơ chế Y" phải nói rõ Y làm gì, cải thiện metric nào, bao nhiêu, trên dataset nào.
 - Công thức và ký hiệu toán viết bằng LaTeX đặt trong cặp $...$, ví dụ $\\mathcal{L}_{VQA} = -\\sum_n \\log P_\\theta(y_n \\mid y_{<n}, x)$ hoặc $\\text{top-}p = 0.92$. Không viết công thức bằng ký tự Unicode rời (ℒ, ∑, θ đứng ngoài $...$). Tên mô hình, dataset thì viết thường, không đặt trong $...$.
-- Một trường văn bản có nhiều ý liệt kê thì mỗi ý một dòng riêng, bắt đầu bằng "1) ", "2) "…
+- Một trường văn bản (chuỗi) có nhiều ý liệt kê thì mỗi ý một dòng riêng, bắt đầu bằng "1) ", "2) "…
+- Phần tử của một MẢNG (pipeline, components, datasets, items…) KHÔNG tự đánh số, không gạch đầu dòng, không viết "Step 1:" ở đầu: app tự đánh số khi hiển thị.
+- Trường văn bản dài hơn 3 câu thì chia đoạn: mỗi đoạn 2-3 câu, một ý, các đoạn cách nhau bằng một dòng trống (\\n\\n trong chuỗi JSON). Câu ngắn, khoảng 25 từ trở xuống.
 - Chỉ trả về JSON đúng schema, không kèm giải thích hay code fence.`;
+
+// Prompt và mô tả schema viết bằng tiếng Việt: khi đầu ra là tiếng Anh phải nói rõ các cụm cố định cũng viết tiếng Anh.
+const ONLY_ENGLISH = `- OUTPUT LANGUAGE IS ENGLISH. Every string value in the JSON must be English only, with no Vietnamese word anywhere. The instructions above and the schema descriptions are written in Vietnamese; translate their fixed phrases instead of copying them: "Không nêu" -> "Not stated", "(suy luận)" -> "(inferred)", "(chỉ dựa trên abstract)" -> "(abstract only)". Only the confidence field keeps its enum value as given.`;
 
 const langName = (settings) => (settings.language === 'en' ? 'English' : 'tiếng Việt');
 
@@ -102,7 +107,8 @@ export function buildSystemPrompt(settings) {
     FIELD_GUIDE,
     '',
     RULES.replace('{LANG}', langName(settings)),
-  ].join('\n');
+    settings.language === 'en' ? ONLY_ENGLISH : '',
+  ].filter(Boolean).join('\n');
 }
 
 export function buildUserPrompt({ source, settings, topicNames }) {

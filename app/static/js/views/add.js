@@ -8,6 +8,7 @@ import { renderSections } from '../render.js';
 import { hasCredentials } from '../llm.js';
 import { parseReferences } from '../bib.js';
 import { renderBatch, addEntries } from './batch.js';
+import { runJob, getJob, jobRunning, followJob } from '../bgjobs.js';
 
 let pendingFiles = [];
 export function setPendingFiles(files) { pendingFiles = files; }
@@ -38,6 +39,10 @@ export async function render(root, { query }) {
   drawTab();
   if (query.get('q')) { $('add-q').value = query.get('q'); resolveLink(); }
   if (pendingFiles.length && state.tab === 'pdf') { const f = pendingFiles.shift(); pendingFiles = []; acceptPdf(f); }
+  // Trích xuất chạy nền: đang chạy thì thanh tiến độ chạy tiếp, xong lúc người dùng ở trang khác thì hiện kết quả để lưu.
+  const aj = getJob(ADD_JOB);
+  if (aj && !aj.done) followAdd(aj);
+  else if (aj?.done && !aj.shown) showAddResult(aj);
 }
 
 /* ---------------- Hộp thư từ extension ---------------- */
@@ -243,19 +248,33 @@ async function acceptPdf(file) {
 
 /* ---------------- Trích xuất + xác nhận ---------------- */
 
+const ADD_JOB = 'add:extract';
+
 async function extract(source) {
-  const btn = $('add-extract');
-  if (btn) btn.disabled = true;
+  if (jobRunning(ADD_JOB)) return toast('Đang trích xuất một paper khác, chờ xong rồi thử lại.', 3000);
   $('add-result').innerHTML = '';
-  try {
-    const r = await runExtraction(source, { onStatus: (m) => showProgress('add-status', m, { expectedMs: 50000 }) });
-    state.result = r;
-    state.savedId = null;
-    setStatus('add-status', r.source.warning ? `⚠️ ${escapeHtml(r.source.warning)}` : 'Xong. Kiểm tra rồi bấm <b>Lưu vào thư viện</b>.', r.source.warning ? 'err' : 'ok');
-    renderConfirm(r);
-  } catch (e) {
-    setStatus('add-status', escapeHtml(e.message), 'err');
-  } finally { if (btn) btn.disabled = false; }
+  const job = runJob(ADD_JOB, (update) => runExtraction(source, { onStatus: (m) => update(m) }), {
+    label: 'Trích xuất paper mới', title: source.title || source.pdfName || source.url || '', href: '#/add',
+    here: () => location.hash.startsWith('#/add'), expectedMs: () => 50000,
+    doneText: 'Đã trích xuất xong. Mở để kiểm tra rồi lưu vào thư viện.',
+  });
+  followAdd(job);
+}
+
+/** Thanh tiến độ trích xuất ở trang Thêm paper. */
+function followAdd(job) {
+  if ($('add-extract')) $('add-extract').disabled = true;
+  followJob(job, $('add-status'), { expectedMs: 50000, onDone: (j) => { if ($('add-extract')) $('add-extract').disabled = false; showAddResult(j); } });
+}
+
+function showAddResult(j) {
+  j.shown = true;
+  if (j.error) return setStatus('add-status', escapeHtml(j.error), 'err');
+  const r = j.result;
+  state.result = r;
+  state.savedId = null;
+  setStatus('add-status', r.source.warning ? `⚠️ ${escapeHtml(r.source.warning)}` : 'Xong. Kiểm tra rồi bấm <b>Lưu vào thư viện</b>.', r.source.warning ? 'err' : 'ok');
+  renderConfirm(r);
 }
 
 function renderConfirm(r) {
