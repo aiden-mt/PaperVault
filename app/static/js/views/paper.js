@@ -15,6 +15,7 @@ import { loadWatches, addWatch, removeWatchWhere } from '../watches.js';
 import { openGraph3D } from '../graph3d.js';
 import { trackJob, jobProgressOpts, runJob, getJob, jobRunning, followJob } from '../bgjobs.js';
 import { readableChatMd } from '../readable.js';
+import { loadPages, pagesForPaper, pageLabel } from '../notebook.js';
 import { buildResearchMap, researchJob, removeResearchMap, researchMapHtml, researchMapMarkdown, researchChip, togglePin, isPinned, removePin, compareState, compareBadgeHtml, compareButtonHtml, PER_KIND_OPTIONS, PER_KIND_DEFAULT, perKindValue, MAIN_CAP, BATCH_SIZE, fillMissing, fillJob, missingCodes, bindResearchSort, researchLog, restoreResearchMap, removeLogEntry, mapSummary, LOG_EVENTS, bindResearchLinks, jumpTo } from '../research.js';
 import { titleHtml } from '../richtext.js';
 import { NOTE_LANGS, sourceLang, displayLang, notesIn } from '../notes-i18n.js';
@@ -372,6 +373,7 @@ export async function render(root, { params, query }) {
       <div class="card notes-box"><h2>Ghi chú cá nhân</h2>
         <textarea id="pp-notes" placeholder="Nhận xét, câu hỏi, ý tưởng khi đọc… (hỗ trợ Markdown đơn giản)">${escapeHtml(p.userNotes || '')}</textarea>
         <div class="row" style="margin-top:8px"><button id="pp-notes-save" class="primary sm">Lưu ghi chú</button><span class="hint">Ctrl+Enter để lưu nhanh</span></div></div>
+      <div class="card pp-nb" id="pp-nb"><div class="row" style="align-items:center"><h2 style="margin:0">📓 Trong sổ tay nghiên cứu</h2><span class="spacer"></span><a class="btn-link sm" href="#/notebook?new=paper&paper=${encodeURIComponent(p.id)}">+ Ghi chú mới về bài này</a></div><div id="pp-nb-list" class="hint">Đang tải…</div></div>
       ${annotationsHtml()}
       <div class="card"><h2>Dòng note rút gọn</h2><div class="mono hint" style="user-select:all">${escapeHtml(quickNoteLine(p))}</div></div>`;
     const paint = (ex, lang) => {
@@ -491,6 +493,16 @@ export async function render(root, { params, query }) {
     $('pp-notes-save').addEventListener('click', save);
     $('pp-notes').addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) save(); });
     bindAnnotations(body);
+    // Các trang sổ tay nhắc tới bài này ([[@id]] hoặc ![[@id]]).
+    loadPages().then(() => {
+      const box = $('pp-nb-list');
+      if (!box) return;
+      const hits = pagesForPaper(p.id);
+      box.innerHTML = hits.length
+        ? hits.map(({ page, snippet }) => `<a class="pp-nb-row" href="#/notebook/${page.id}"><b>${escapeHtml(pageLabel(page))}</b>${snippet ? `<span class="hint">${escapeHtml(snippet)}</span>` : ''}</a>`).join('')
+        : 'Chưa trang nào nhắc tới bài này. Trong sổ tay, gõ <code>[[@</code> rồi chọn bài để liên kết.';
+      box.classList.toggle('hint', !hits.length);
+    }).catch(() => { if ($('pp-nb-list')) $('pp-nb-list').textContent = 'Không tải được sổ tay.'; });
   }
 
   function drawEdit() {
@@ -1015,7 +1027,7 @@ export async function render(root, { params, query }) {
     body.innerHTML = `<div class="related-stack">
       <nav class="rel-nav" aria-label="Các phần của tab Liên quan">${ident ? '<button type="button" data-rel-go="pp-s2-card">Khám phá qua Semantic Scholar</button><button type="button" data-rel-go="pp-wn">Có gì mới kể từ bài này</button>' : ''}<button type="button" data-rel-go="pp-local">Trong thư viện <span class="hint">${local.length}</span></button>${ident ? '<button type="button" data-rel-go="pp-rm-quick">🧭 Hướng nghiên cứu</button>' : ''}</nav>
       <div class="card" id="pp-s2-card"><div class="row" style="align-items:center"><h2 style="margin:0">Khám phá qua Semantic Scholar</h2><span class="spacer"></span>
-        ${ident ? '<button id="pp-research" class="sm" title="So sánh, phần còn bỏ ngỏ và hướng nghiên cứu tiếp (tab Hướng nghiên cứu)">🧭 Hướng nghiên cứu</button><button id="pp-graph3d" class="sm" title="Đồ thị 3D: bài này, các bài nó dẫn, các bài dẫn nó, và liên kết giữa chúng">🕸 Đồ thị 3D</button>' : ''}
+        ${ident ? '<button id="pp-research" class="sm" title="So sánh, phần còn bỏ ngỏ và hướng nghiên cứu tiếp (tab Hướng nghiên cứu)">🧭 Hướng nghiên cứu</button><button id="pp-litmap" class="sm" title="Bản đồ tài liệu 2D: cụm bài tương đồng, dòng thời gian theo trích dẫn, mở rộng từ nhiều bài gốc">🗺 Bản đồ tài liệu</button><button id="pp-graph3d" class="sm" title="Đồ thị 3D: bài này, các bài nó dẫn, các bài dẫn nó, và liên kết giữa chúng">🕸 Đồ thị 3D</button>' : ''}
         ${ident ? `<span class="sel-pick"><button id="pp-follow" class="sm" aria-haspopup="menu" title="Tự báo bài mới trong trang Theo dõi paper mới">🔔 Theo dõi ▾</button>
           <div id="pp-follow-menu" class="menu right" role="menu" hidden>
             <label class="menu-check"><input type="checkbox" id="pp-follow-cites"> Bài mới dẫn bài này</label>
@@ -1176,6 +1188,7 @@ export async function render(root, { params, query }) {
     drawWhatsNew();
     bindFollow();
     $('pp-graph3d')?.addEventListener('click', () => openGraph3D(paperById(p.id) || p));
+    $('pp-litmap')?.addEventListener('click', async () => (await import('../litmap.js')).openLitMap(paperById(p.id) || p));
     $('pp-research')?.addEventListener('click', () => goTab('research'));
     $('pp-go-research')?.addEventListener('click', () => goTab('research'));
     // Bấm một hướng trong thẻ 🧭: mở tab Hướng nghiên cứu và cuộn tới đúng hướng đó.

@@ -77,14 +77,17 @@ export async function render(root) {
       </div>`;
   };
   draw();
-  root.addEventListener('click', (e) => {
+  // root là khung chung của mọi trang: phải gỡ sự kiện khi rời Tổng quan, không thì bấm ở trang khác cũng bị bắt.
+  const onClick = (e) => {
     const go = e.target.closest('[data-go]');
     if (go && go.dataset.go === '__dismiss') { try { localStorage.setItem('pv-onboard-done', '1'); } catch (_) { /* bỏ qua */ } draw(); return; }
     if (go) { location.hash = go.dataset.go; return; }
     const card = e.target.closest('.paper[data-id]');
     if (card) location.hash = `#/paper/${card.dataset.id}`;
-  });
-  return onChange(draw);
+  };
+  root.addEventListener('click', onClick);
+  const unsub = onChange(draw);
+  return () => { root.removeEventListener('click', onClick); unsub(); };
 }
 
 function onboardingHtml(s) {

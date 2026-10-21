@@ -18,9 +18,12 @@ import * as feed from './views/feed.js';
 import * as chat from './views/chat.js';
 import * as help from './views/help.js';
 import * as notes from './views/notes.js';
+import * as notebook from './views/notebook.js';
+import * as calendar from './views/calendar.js';
+import { loadMathLib } from './mathlib.js';
 import { syncTranslateButton } from './translate-popup.js';
 
-const routes = { '': dashboard, library, paper, add, compare, topics, settings, feed, chat, help, notes };
+const routes = { '': dashboard, library, paper, add, compare, topics, settings, feed, chat, help, notes, notebook, calendar };
 let cleanup = null;
 let currentName = '';
 
@@ -90,14 +93,14 @@ $('nav-toggle').addEventListener('click', () => $('nav').classList.toggle('open'
 
 // Phím tắt chuyển trang: "g" rồi một phím (G D = Tổng quan…), riêng Thêm paper là "n".
 // Một bảng dùng chung cho cả xử lý phím lẫn nhãn phím tắt hiện cạnh mục menu.
-const GO_KEYS = { '': 'd', library: 'l', chat: 'a', compare: 'c', feed: 'f', topics: 't', notes: 'n', settings: 's', help: 'h' };
+const GO_KEYS = { '': 'd', library: 'l', chat: 'a', compare: 'c', feed: 'f', topics: 't', notes: 'n', notebook: 'b', calendar: 'k', settings: 's', help: 'h' };
 const NAV_SHORTCUT = { ...Object.fromEntries(Object.entries(GO_KEYS).map(([r, k]) => [r, ['G', k.toUpperCase()]])), add: ['N'] };
 const kbdHtml = (keys) => keys.map((k) => `<kbd>${k}</kbd>`).join('');
 
 document.querySelectorAll('.nav a[data-route]').forEach((a) => {
   const keys = NAV_SHORTCUT[a.dataset.route];
   if (!keys) return;
-  a.title = `${a.textContent.trim()} · phím tắt ${keys.join(' rồi ')}`;
+  a.title = `${a.dataset.full || a.textContent.trim()} · phím tắt ${keys.join(' rồi ')}`;
   const s = document.createElement('span');
   s.className = 'nav-kbd';
   s.innerHTML = kbdHtml(keys);
@@ -179,6 +182,7 @@ async function initDesktop() {
   await initDesktop();
   try {
     await loadAll();
+    loadMathLib(); // macro LaTeX tự định nghĩa (Sổ tay → Thư viện LaTeX) dùng cho mọi công thức
     applyAppearance(store.settings.appearance);
     syncTranslateButton();
     const h = await api.health();

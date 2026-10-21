@@ -40,7 +40,10 @@ export function dialog({ title = '', body = '', buttons = [{ label: 'Đóng', va
     const bodyEl = wrap.querySelector('.modal-body');
     if (typeof body === 'string') bodyEl.innerHTML = body; else bodyEl.appendChild(body);
     const foot = wrap.querySelector('.modal-foot');
-    const close = (v) => { wrap.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const close = (v) => { wrap.remove(); document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); resolve(v); };
+    // Chuyển sang trang khác (liên kết, phím tắt) thì đóng hộp thoại, không để nó treo trên trang mới.
+    const onHash = () => close(null);
+    window.addEventListener('hashchange', onHash);
     for (const b of buttons) {
       const btn = el(`<button class="${b.primary ? 'primary' : ''} ${b.danger ? 'danger' : ''}">${escapeHtml(b.label)}</button>`);
       btn.addEventListener('click', async () => {

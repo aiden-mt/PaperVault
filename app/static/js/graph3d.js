@@ -112,7 +112,7 @@ function loadLib() {
 
 const isDark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-function libraryMatch(n) {
+export function libraryMatch(n) {
   const t = norm(n.title);
   return store.papers.find((p) => (n.arxiv && p.arxivId && p.arxivId.replace(/v\d+$/, '') === n.arxiv)
     || (n.id && p.s2Id === n.id) || (n.doi && p.doi && p.doi.toLowerCase() === n.doi.toLowerCase()) || (t && norm(p.title) === t));
@@ -137,7 +137,7 @@ export async function openGraph3D(paper) {
         <button class="sm" id="g3-fit" title="Đưa toàn bộ đồ thị vào khung nhìn">Vừa khung</button>
         <button class="sm" id="g3-refresh" title="Lấy lại danh sách bài từ Semantic Scholar (kết quả được lưu, chỉ lấy mới khi bấm)">Tải lại</button>
         <button class="sm" id="g3-research" title="So sánh các bài trong đồ thị với bài này, phần còn bỏ ngỏ và hướng nghiên cứu tiếp (tab Hướng nghiên cứu)">🧭 Hướng nghiên cứu${paper.researchMap ? '' : ' (tạo)'}</button>
-        <button class="sm" id="g3-close">Đóng (Esc)</button>
+        <button class="sm" id="g3-close" title="Esc chỉ bỏ chọn bài đang chọn">Đóng (Shift + Esc)</button>
       </div>
     </div>
     <div class="g3-expand">
@@ -168,7 +168,7 @@ export async function openGraph3D(paper) {
       <div class="g3-canvas" id="g3-canvas"><div class="g3-stage" id="g3-stage"></div><div class="g3-wait" id="g3-wait"></div><div class="g3-hover" id="g3-hover" hidden></div></div>
     </div>
     <aside class="g3-side" id="g3-side" hidden></aside>
-    <div class="g3-help hint">Kéo để xoay · cuộn để phóng to · chuột phải kéo để dời · bấm một bài để xem chi tiết · cỡ nút theo số trích dẫn</div>
+    <div class="g3-help hint">Esc bỏ chọn · Shift + Esc đóng · kéo để xoay · cuộn để phóng to · chuột phải kéo để dời · bấm một bài để xem chi tiết · cỡ nút theo số trích dẫn</div>
   </div>`);
   document.body.appendChild(ov);
   const $$ = (id) => ov.querySelector(`#${id}`);
@@ -184,7 +184,14 @@ export async function openGraph3D(paper) {
     document.removeEventListener('keydown', onKey, true);
     ov.remove();
   };
-  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  // Esc: bỏ chọn bài đang chọn; Shift + Esc: đóng đồ thị.
+  const onKey = (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    e.preventDefault();
+    if (e.shiftKey && !e.ctrlKey && !e.altKey) close(); // Shift + Esc: Windows không dùng tổ hợp này (Ctrl + Esc mở menu Start)
+    else if (selected) { selected = null; side(null); refresh(); refreshList(); }
+  };
   const onResize = () => { if (G) G.width($$('g3-canvas').clientWidth).height($$('g3-canvas').clientHeight); };
   document.addEventListener('keydown', onKey, true);
   window.addEventListener('resize', onResize);

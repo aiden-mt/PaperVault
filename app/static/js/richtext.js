@@ -9,11 +9,17 @@ import { readableBlocks, muteRefs } from './readable.js';
 // $...$ cùng dòng: không có khoảng trắng ngay trong hai dấu $, và không theo sau bởi chữ số, để "$5 và $10" không bị coi là công thức.
 const MATH = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?![\s$])([^$\n]+?)(?<!\s)\$(?!\d)/g;
 
+// Macro LaTeX người dùng tự định nghĩa (Sổ tay → Thư viện LaTeX), ví dụ { '\\R': '\\mathbb{R}' }. Dùng cho mọi công thức trong app.
+let MACROS = {};
+export const setMathMacros = (m) => { MACROS = m && typeof m === 'object' ? { ...m } : {}; };
+export const mathMacros = () => ({ ...MACROS });
+
 export function renderMath(tex, display = false) {
   const k = window.katex;
   if (!k) return escapeHtml(display ? `$$${tex}$$` : `$${tex}$`);
   try {
-    return k.renderToString(tex.trim(), { displayMode: display, throwOnError: false, output: 'html', strict: 'ignore', trust: false });
+    // Bản sao macro mỗi lần: KaTeX ghi thêm vào object khi gặp \gdef, không để công thức này ảnh hưởng công thức khác.
+    return k.renderToString(tex.trim(), { displayMode: display, throwOnError: false, output: 'html', strict: 'ignore', trust: false, macros: { ...MACROS } });
   } catch (_) {
     return escapeHtml(tex);
   }

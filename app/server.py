@@ -84,6 +84,7 @@ CONFIG = load_config()
 # Đặt thư mục này vào OneDrive / Google Drive để đồng bộ giữa các máy (mỗi lúc chỉ mở app trên một máy).
 DATA = Path(os.environ.get("PV_DATA") or CONFIG.get("dataDir") or (HOME_DIR / "data")).expanduser().resolve()
 PDF_DIR = DATA / "pdfs"
+IMG_DIR = DATA / "images"  # ảnh chèn vào Sổ tay
 DB_PATH = DATA / "papervault.db"
 HOST = os.environ.get("PV_HOST") or CONFIG.get("host") or "127.0.0.1"
 PORT = int(os.environ.get("PV_PORT") or CONFIG.get("port") or 8765)
@@ -100,6 +101,7 @@ _lock = threading.RLock()
 def _connect():
     DATA.mkdir(parents=True, exist_ok=True)
     PDF_DIR.mkdir(parents=True, exist_ok=True)
+    IMG_DIR.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
     # journal_mode=DELETE: không sinh file -wal/-shm cạnh DB, an toàn hơn khi DB nằm trong thư mục OneDrive/Google Drive.
     con.execute("PRAGMA journal_mode=DELETE")
@@ -115,6 +117,8 @@ def _connect():
     con.execute("""CREATE TABLE IF NOT EXISTS pdfs (
         id TEXT PRIMARY KEY, name TEXT, size INTEGER, createdAt TEXT)""")
     con.execute("""CREATE TABLE IF NOT EXISTS chats (
+        id TEXT PRIMARY KEY, updatedAt TEXT, json TEXT NOT NULL)""")
+    con.execute("""CREATE TABLE IF NOT EXISTS pages (
         id TEXT PRIMARY KEY, updatedAt TEXT, json TEXT NOT NULL)""")
     con.execute("""CREATE TABLE IF NOT EXISTS usage (
         id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, provider TEXT, model TEXT, task TEXT,
@@ -912,6 +916,21 @@ def put_chat(chat):
     return c
 
 
+# ---- sổ tay nghiên cứu (trang Markdown liên kết với nhau và với paper) ----
+
+def list_pages():
+    return [json.loads(r[0]) for r in db_all("SELECT json FROM pages ORDER BY updatedAt DESC")]
+
+
+def put_page(page):
+    p = dict(page)
+    p["id"] = p.get("id") or uid("pg")
+    p["createdAt"] = p.get("createdAt") or now_iso()
+    p["updatedAt"] = now_iso()
+    db_run("INSERT OR REPLACE INTO pages (id, updatedAt, json) VALUES (?,?,?)", (p["id"], p["updatedAt"], json.dumps(p, ensure_ascii=False)))
+    return p
+
+
 # ---- inbox (extension gửi sang) ----
 
 def inbox_add(item):
@@ -931,6 +950,48 @@ def inbox_remove(iid):
 
 
 # ---- pdfs ----
+
+# ---- ảnh của Sổ tay ----
+# Nhận diện loại ảnh bằng chữ ký đầu file (không tin phần mở rộng hay content-type). Không nhận SVG: SVG chứa được
+# script, mở thẳng đường dẫn ảnh trên cùng nguồn với app thì script chạy được.
+IMG_SIGS = [(b"\x89PNG\r\n\x1a\n", "png", "image/png"), (b"\xff\xd8\xff", "jpg", "image/jpeg"), (b"GIF87a", "gif", "image/gif"),
+            (b"GIF89a", "gif", "image/gif"), (b"BM", "bmp", "image/bmp")]
+IMG_TYPES = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp"}
+IMG_MAX = 20 * 1024 * 1024
+
+
+def image_kind(data: bytes):
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    for sig, ext, _ in IMG_SIGS:
+        if data.startswith(sig):
+            return ext
+    return None
+
+
+def save_image(data: bytes, name: str):
+    if not data:
+        raise ValueError("File ảnh trống.")
+    if len(data) > IMG_MAX:
+        raise ValueError(f"Ảnh quá lớn ({len(data) // (1024 * 1024)} MB), tối đa {IMG_MAX // (1024 * 1024)} MB.")
+    ext = image_kind(data)
+    if not ext:
+        raise ValueError("Chỉ nhận ảnh PNG, JPEG, GIF, WebP hoặc BMP.")
+    digest = hashlib.sha1(data).hexdigest()[:16]  # cùng một ảnh dán nhiều lần chỉ lưu một bản
+    fname = f"{digest}.{ext}"
+    path = IMG_DIR / fname
+    if not path.exists():
+        IMG_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    return {"id": fname, "url": f"/api/image/{fname}", "name": name, "size": len(data)}
+
+
+def image_path(fname: str):
+    if not re.fullmatch(r"[0-9a-f]{16}\.(png|jpg|gif|webp|bmp)", fname or ""):
+        return None
+    p = IMG_DIR / fname
+    return p if p.exists() else None
+
 
 def save_pdf(data: bytes, name: str):
     if data[:5] != b"%PDF-":
@@ -1522,13 +1583,77 @@ def _graph_ranks(data):
     return data
 
 
+def _graph_similarity(node_refs, cid, center_refs, top_k=8):
+    """Độ tương đồng giữa các bài trong đồ thị, theo cách Connected Papers: hai bài giống nhau khi
+    (1) dẫn nhiều bài chung (bibliographic coupling) và (2) hay được cùng một bài dẫn (co-citation), cộng thêm khi một bài
+    dẫn trực tiếp bài kia. Trả về (cạnh tương đồng top_k mỗi bài, điểm tương đồng của từng bài với bài gốc,
+    số bài trong đồ thị dẫn mỗi bài, số bài trong đồ thị mà mỗi bài dẫn)."""
+    from collections import defaultdict
+    refs = {pid: set(rs) for pid, rs in node_refs.items()}
+    refs[cid] = set(center_refs)
+    ids = set(refs)
+    inv = defaultdict(list)
+    for pid, rs in refs.items():
+        for r in rs:
+            inv[r].append(pid)
+    bc = defaultdict(int)
+    for r, ps in inv.items():
+        if 2 <= len(ps) <= 250:
+            ps = sorted(ps)
+            for i in range(len(ps)):
+                for j in range(i + 1, len(ps)):
+                    bc[(ps[i], ps[j])] += 1
+    cc = defaultdict(int)
+    cited_in = defaultdict(int)  # số bài trong đồ thị dẫn bài này
+    cites_in = {}                # số bài trong đồ thị mà bài này dẫn
+    for citer, rs in refs.items():
+        inside = sorted(r for r in rs if r in ids and r != citer)
+        cites_in[citer] = len(inside)
+        for r in inside:
+            cited_in[r] += 1
+        inside = inside[:400]
+        for i in range(len(inside)):
+            for j in range(i + 1, len(inside)):
+                cc[(inside[i], inside[j])] += 1
+    score = defaultdict(float)
+    for (a, b), n in bc.items():
+        la, lb = len(refs[a]), len(refs[b])
+        if la and lb:
+            score[(a, b)] += n / ((la * lb) ** 0.5)
+    for (a, b), n in cc.items():
+        ca, cb = cited_in.get(a, 0), cited_in.get(b, 0)
+        if ca and cb:
+            score[(a, b)] += n / ((ca * cb) ** 0.5)
+    for a, rs in refs.items():
+        for b in rs:
+            if b in ids and b != a:
+                k = (a, b) if a < b else (b, a)
+                score[k] += 0.25
+    best = defaultdict(list)
+    to_seed = {}
+    for (a, b), w in score.items():
+        if a == cid:
+            to_seed[b] = w
+        elif b == cid:
+            to_seed[a] = w
+        best[a].append((w, b))
+        best[b].append((w, a))
+    keep = {}
+    for a, lst in best.items():
+        for w, b in sorted(lst, reverse=True)[:top_k]:
+            k = (a, b) if a < b else (b, a)
+            keep[k] = w
+    sim = [{"a": a, "b": b, "w": round(w, 4)} for (a, b), w in keep.items() if w >= 0.02]
+    return sim, {k: round(v, 4) for k, v in to_seed.items()}, dict(cited_in), cites_in
+
+
 def s2_graph(ident, s2_key="", refresh=False, cits=100, hop2=False, min_shared=3):
     """Đồ thị trích dẫn quanh một paper: bài gốc, các bài nó dẫn, các bài dẫn nó, và cạnh GIỮA các bài đó với nhau
     (bài A trong đồ thị dẫn bài B trong đồ thị). Cạnh nội bộ lấy bằng MỘT request batch đọc danh sách tham khảo của mọi
     bài, thay vì gọi riêng từng bài. Lưu đệm 7 ngày."""
     cits = max(10, min(S2_EDGE_MAX, int(cits or 100)))
     min_shared = max(2, min(20, int(min_shared or 3)))
-    cache_key = f"s2graph:{ident}" + ("" if cits == 100 and not hop2 else f":{cits}:{int(bool(hop2))}:{min_shared}")
+    cache_key = f"s2graph2:{ident}" + ("" if cits == 100 and not hop2 else f":{cits}:{int(bool(hop2))}:{min_shared}")  # v2: thêm độ tương đồng
     cached = kv_get(cache_key)
     if cached and not refresh and time.time() - cached.get("at", 0) < S2_GRAPH_TTL:
         return _graph_ranks({**cached["data"], "cachedAt": cached["at"]})
@@ -1568,9 +1693,11 @@ def s2_graph(ident, s2_key="", refresh=False, cits=100, hop2=False, min_shared=3
     inner = 0
     inner_failed = False
     shared = {}  # bài ngoài đồ thị -> các bài trong đồ thị cùng dẫn nó
+    node_refs = {}  # bài trong đồ thị -> mọi bài nó dẫn (cả ngoài đồ thị), để tính độ tương đồng
     try:
         rows = _s2_batch(list(nodes), "references.paperId", s2_key)
         for pid, row in zip(list(nodes), rows):
+            node_refs[pid] = [r.get("paperId") for r in ((row or {}).get("references") or []) if r.get("paperId")]
             for r in ((row or {}).get("references") or []):
                 tid = r.get("paperId")
                 if tid and tid in nodes and tid != pid:
@@ -1599,11 +1726,24 @@ def s2_graph(ident, s2_key="", refresh=False, cits=100, hop2=False, min_shared=3
                     hop2_count += 1
             except Exception:
                 pass
+    sim, sim_seed, cited_in, cites_in = [], {}, {}, {}
+    if not inner_failed:
+        try:
+            center_refs = [r.get("paperId") for r in (center.get("references") or []) if r.get("paperId")]
+            center_refs = list(set(center_refs) | {pid for pid, n in nodes.items() if n["kind"] in ("ref", "both")})
+            sim, sim_seed, cited_in, cites_in = _graph_similarity(node_refs, cid, center_refs)
+        except Exception:
+            sim = []
+    for pid, n in nodes.items():
+        n["simSeed"] = sim_seed.get(pid, 0)
+        n["inG"] = cited_in.get(pid, 0)
+        n["outG"] = cites_in.get(pid, 0)
     cext = center.get("externalIds") or {}
     data = {
         "center": {"id": cid, "title": center.get("title") or "", "year": center.get("year"), "citations": center.get("citationCount") or 0,
+                   "authors": ", ".join(a.get("name", "") for a in (center.get("authors") or [])[:4]), "date": center.get("publicationDate") or "",
                    "venue": center.get("venue") or "", "arxiv": cext.get("ArXiv") or "", "doi": cext.get("DOI") or "", "url": center.get("url") or ""},
-        "nodes": list(nodes.values()), "links": links,
+        "nodes": list(nodes.values()), "links": links, "sim": sim,
         "stats": {"refs": len(refs), "cits": len(cit_items), "inner": inner, "hop2": hop2_count, "citsLimit": cits}, "innerFailed": inner_failed,
     }
     if not inner_failed:
@@ -2208,6 +2348,18 @@ class Handler(BaseHTTPRequestHandler):
                 db_run("DELETE FROM chats WHERE id=?", (seg[1],))
                 return self.ok(True)
 
+        if head == "pages":
+            if method == "GET" and len(seg) == 1:
+                return self.ok(list_pages())
+            if method in ("POST", "PUT") and len(seg) == 1:
+                body = self.read_json()
+                if isinstance(body, list):  # lưu nhiều trang một lượt (đổi tên trang thì sửa liên kết ở các trang khác)
+                    return self.ok([put_page(x) for x in body])
+                return self.ok(put_page(body))
+            if method == "DELETE" and len(seg) == 2:
+                db_run("DELETE FROM pages WHERE id=?", (seg[1],))
+                return self.ok(True)
+
         if head == "search" and method == "GET":
             return self.ok(search_text((qs.get("q") or [""])[0]))
 
@@ -2336,6 +2488,20 @@ class Handler(BaseHTTPRequestHandler):
             if method in ("POST", "PUT"):
                 kv_set(seg[1], self.read_json().get("value"))
                 return self.ok(True)
+
+        if head == "image":
+            if method == "POST" and len(seg) == 1:
+                data = self.read_body()
+                name = urllib.parse.unquote(self.headers.get("X-Filename") or "image")
+                try:
+                    return self.ok(save_image(data, name))
+                except ValueError as e:
+                    return self.error(str(e))
+            if method == "GET" and len(seg) == 2:
+                p = image_path(seg[1])
+                if not p:
+                    return self.error("Không có ảnh này.", 404)
+                return self.send_bytes(p.read_bytes(), IMG_TYPES[p.suffix[1:]], extra={"Cache-Control": "max-age=31536000, immutable", "X-Content-Type-Options": "nosniff"})
 
         if head == "pdf":
             if method == "POST" and len(seg) == 1:
@@ -2517,7 +2683,7 @@ class Handler(BaseHTTPRequestHandler):
             papers = get_papers(include_deleted=True)
             texts = {r[0]: {"text": r[1], "kind": r[2]} for r in db_all("SELECT paperId, text, kind FROM texts")} if (qs.get("texts") or ["0"])[0] == "1" else {}
             return self.ok({"format": "papervault-export", "version": 2, "exportedAt": now_iso(),
-                            "topics": get_topics(), "papers": papers, "texts": texts,
+                            "topics": get_topics(), "papers": papers, "texts": texts, "pages": list_pages(), "calendar": kv_get("calendar", []),
                             "settings": {k: v for k, v in get_settings().items() if k != "apiKeys"}})
 
         if head == "import" and method == "POST":
@@ -2541,6 +2707,19 @@ class Handler(BaseHTTPRequestHandler):
                 if t:
                     put_text(saved["id"], t.get("text", ""), t.get("kind", ""))
                 added += 1
+            # Lịch: gộp theo id (giữ kế hoạch đang có), thay thế thì lấy nguyên bản trong file.
+            if isinstance(data.get("calendar"), list):
+                cur = [] if not merge else (kv_get("calendar", []) or [])
+                have = {e.get("id") for e in cur}
+                kv_set("calendar", cur + [e for e in data["calendar"] if isinstance(e, dict) and e.get("id") not in have])
+            # Sổ tay: gộp thì bỏ qua trang đã có, thay thế thì xoá hết rồi nạp lại.
+            if isinstance(data.get("pages"), list):
+                if not merge:
+                    db_run("DELETE FROM pages")
+                have = {r[0] for r in db_all("SELECT id FROM pages")}
+                for pg in data["pages"]:
+                    if pg.get("id") and pg["id"] not in have:
+                        db_run("INSERT OR REPLACE INTO pages (id, updatedAt, json) VALUES (?,?,?)", (pg["id"], pg.get("updatedAt") or now_iso(), json.dumps(pg, ensure_ascii=False)))
             return self.ok(added)
 
         if head == "open" and method == "POST":

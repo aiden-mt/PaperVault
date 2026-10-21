@@ -55,6 +55,11 @@ export const api = {
     return req('POST', 'pdf', bytes, { headers: { 'content-type': 'application/pdf', 'X-Filename': encodeURIComponent(name || fileOrBytes.name || 'paper.pdf') } });
   },
   pdfUrl: (id) => `/api/pdf/${id}`,
+  /** Tải một ảnh lên (Sổ tay). Trả về { id, url, name, size }. */
+  uploadImage: async (file, name) => {
+    const bytes = file instanceof Uint8Array ? file : new Uint8Array(await file.arrayBuffer());
+    return req('POST', 'image', bytes, { headers: { 'content-type': 'application/octet-stream', 'X-Filename': encodeURIComponent(name || file.name || 'image') } });
+  },
   pdfBase64: (id) => req('GET', `pdf/${id}/base64`),
   pdfBytes: async (id) => new Uint8Array(await (await fetch(`/api/pdf/${id}`)).arrayBuffer()),
   deletePdf: (id) => req('DELETE', `pdf/${id}`),
@@ -85,6 +90,10 @@ export const api = {
   chat: (id) => req('GET', `chats/${id}`),
   putChat: (c) => req('POST', 'chats', c),
   deleteChat: (id) => req('DELETE', `chats/${id}`),
+  pages: () => req('GET', 'pages'),
+  putPage: (p) => req('POST', 'pages', p),
+  putPages: (list) => req('POST', 'pages', list),
+  deletePage: (id) => req('DELETE', `pages/${id}`),
 
   venueClassify: (candidates, hints = {}, hasArxiv = false) => req('POST', 'venue/classify', { candidates, hints, hasArxiv }),
   venueSearch: (q) => req('GET', `venue/search?q=${encodeURIComponent(q)}`),
