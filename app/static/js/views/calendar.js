@@ -301,13 +301,13 @@ export async function render(root, { query }) {
     const evs = items.filter((x) => x.kind === 'ev');
     const tasks = items.filter((x) => x.kind === 'task');
     const diary = dailyPage(d);
-    const snip = diary ? String(diary.content || '').replace(/[#>*`[\]!-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) : '';
+    const snip = diary ? String(diary.content || '').replace(/!?\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g, (m, x, y) => y || x.replace(/^@/, '')).replace(/[#>*`[\]!-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) : '';
     $('cal-side').innerHTML = `<div class="cal-sd-h"><h3>${escapeHtml(fmtDay(d))}</h3>${d === todayStr ? '<span class="badge accent">Hôm nay</span>' : ''}</div>
       <div class="cal-card cal-diary-card">${diary
         ? `<div class="cal-card-h">📓 Nhật ký ngày này<span class="spacer"></span><button type="button" class="sm" data-diary="${d}">Mở</button></div>${snip ? `<div class="hint">${escapeHtml(snip)}…</div>` : ''}`
         : `<div class="cal-card-h">📓 Chưa có nhật ký<span class="spacer"></span><button type="button" class="sm" data-diary="${d}">+ Tạo nhật ký</button></div><div class="hint">Trang nhật ký của ngày này trong Sổ tay, có sẵn khung đọc gì / ý tưởng / việc cần làm.</div>`}</div>
       ${dayPlanHtml(d, evs, tasks)}
-      <div class="cal-sd-sec"><h4>Kế hoạch (${evs.length})</h4>${evs.map((it) => rowHtml(it)).join('') || '<div class="hint">Chưa có kế hoạch. Gõ ở ô trên, hoặc bấm đúp một ngày trong lịch.</div>'}</div>
+      <div class="cal-sd-sec"><h4>Kế hoạch (${evs.length})</h4>${evs.map((it) => rowHtml(it)).join('') || '<div class="hint">Chưa có kế hoạch. Bấm + Thêm kế hoạch, hoặc bấm vào một ô giờ trong lịch tuần.</div>'}</div>
       ${st.tasks ? `<div class="cal-sd-sec"><h4>Việc có hạn trong Sổ tay (${tasks.length})</h4>${tasks.map((it) => rowHtml(it)).join('') || '<div class="hint">Trong Sổ tay, viết <code>- [ ] việc 📅 ' + d + '</code> (hoặc gõ / → Hạn chót) để việc hiện ở đây.</div>'}</div>` : ''}`;
   }
 

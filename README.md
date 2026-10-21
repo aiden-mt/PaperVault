@@ -1,145 +1,102 @@
-# PaperVault — Chrome Extension tổng hợp & phân loại paper
+# PaperVault
 
-Đọc một trang paper (arXiv, OpenReview, ACL Anthology…), trích xuất **5 mục chuẩn**, phân loại vào **thư mục chủ đề**, và xuất ra **bảng so sánh** theo đúng format:
+**Thư viện nghiên cứu cá nhân cho người đọc paper.** Thêm paper bằng link arXiv, DOI hoặc file PDF. AI đọc và viết ghi chú có cấu trúc. Bạn so sánh các bài, xem bản đồ trích dẫn, ghi chép trong sổ tay và lên lịch đọc, tất cả trong một app chạy trên máy bạn.
 
-> Tên paper → Điểm mới → Dataset/Metric → Ý tưởng có thể áp dụng cho bài của mình
+![Thư viện PaperVault](docs/screenshots/library.png)
 
-## Tải về nhanh
+[**⬇ Tải bản Windows**](../../releases/latest) · [Bắt đầu trong 3 bước](#bắt-đầu-trong-3-bước) · [Tính năng](#tính-năng) · [Extension Chrome](#extension-chrome--edge) · [Câu hỏi thường gặp](#câu-hỏi-thường-gặp)
 
-| Bạn muốn | Làm thế này |
+---
+
+## Có gì trong PaperVault
+
+| | |
 | --- | --- |
-| **Dùng app trên Windows** (không cần cài Python) | Vào [Releases](../../releases/latest), tải `PaperVault-windows.zip`, giải nén ra thư mục bất kỳ rồi chạy `PaperVault.exe`. Windows có thể báo SmartScreen vì app chưa ký số: bấm **More info → Run anyway**. Cần WebView2 Runtime (Windows 11 có sẵn; Windows 10 thường có sẵn qua Edge, nếu app không mở thì cài *Microsoft Edge WebView2 Runtime*). |
-| **Chạy từ mã nguồn** | Cài Python 3.10+, tải repo (*Code → Download ZIP* hoặc `git clone`), chạy `python app/server.py` rồi mở `http://127.0.0.1:8765`. Bản cửa sổ riêng: `pip install -r app/requirements.txt` rồi `pythonw app/desktop.py`. |
-| **Dùng extension Chrome / Edge** | Xem mục [1. Cài đặt](#1-cài-đặt) bên dưới. |
+| **Ghi chú paper tự động.** AI đọc toàn văn rồi điền ghi chú theo template: bài toán, research gap, phương pháp, dataset, kết quả, hạn chế. App kiểm tra từng con số trong ghi chú có thật trong bài không. | <img src="docs/screenshots/paper-notes.png" alt="Ghi chú paper" width="520"> |
+| **Bản đồ tài liệu.** Từ một bài, app vẽ các bài liên quan theo cụm tương đồng hoặc theo dòng thời gian trích dẫn. Màu theo năm, cỡ theo số trích dẫn, viền xanh là bài đã có trong thư viện. | <img src="docs/screenshots/litmap.png" alt="Bản đồ tài liệu" width="520"> |
+| **Sổ tay nghiên cứu.** Viết Markdown với công thức LaTeX, khối code tô màu, bảng paper lấy thẳng từ thư viện, liên kết `[[trang]]` và `[[@paper]]`. Chế độ chia đôi viết / xem giống Overleaf. | <img src="docs/screenshots/notebook.png" alt="Sổ tay nghiên cứu" width="520"> |
+| **Lịch kế hoạch.** Xem theo tháng, tuần hoặc danh sách. Bấm một ô 30 phút để thêm việc, kéo để dời giờ. Lịch nối với nhật ký và việc có hạn trong Sổ tay, gợi ý khung giờ trống để đọc paper. | <img src="docs/screenshots/calendar.png" alt="Lịch tuần" width="520"> |
+| **So sánh nhiều paper.** Bảng so sánh theo hàng hoặc theo cột, chọn thông số cần xem, xuất Markdown, CSV, BibTeX, LaTeX hoặc Word. | <img src="docs/screenshots/compare.png" alt="So sánh paper" width="520"> |
 
-Lần đầu mở, vào **Cài đặt** nhập API key của bạn (Claude, OpenAI hoặc Gemini). Dữ liệu (thư viện, PDF, key) chỉ nằm trên máy bạn: thư mục `data` cạnh `PaperVault.exe`, hoặc `app/data` khi chạy từ mã nguồn.
+---
 
-Mã nguồn phát hành theo giấy phép [MIT](LICENSE).
+## Bắt đầu trong 3 bước
 
-## 0. Ứng dụng độc lập (app/)
+1. **Tải app.** Vào [Releases](../../releases/latest), tải `PaperVault-windows.zip`, giải nén ra thư mục bất kỳ rồi chạy `PaperVault.exe`.
+   - Windows có thể hiện cảnh báo SmartScreen vì app chưa ký số. Bấm **More info → Run anyway**.
+   - App cần WebView2 Runtime. Windows 11 có sẵn. Nếu Windows 10 không mở được app, cài *Microsoft Edge WebView2 Runtime* từ trang của Microsoft.
+2. **Nhập API key.** Mở **Cài đặt**, chọn Claude, OpenAI hoặc Gemini rồi dán key, bấm **Kiểm tra kết nối**. Ghi thêm một câu mô tả đề tài của bạn: AI dùng nó để viết mục "liên quan tới bài của tôi".
+3. **Thêm paper đầu tiên.** Bấm **+ Thêm paper** (phím `N`), dán link arXiv, DOI hoặc thả file PDF. App tự tải toàn văn, PDF và viết ghi chú.
 
-Ngoài extension, thư mục [`app/`](app/README.md) chứa **PaperVault App**: ứng dụng web chạy cục bộ bằng Python (`python app/server.py`), dùng chung logic trích xuất / prompt / Markdown với extension, thêm dashboard, thêm paper theo arXiv ID/DOI (máy chủ tự tải full text + PDF), nhập hàng loạt, kanban đọc, xem PDF, hỏi đáp về paper, gợi ý paper liên quan (Semantic Scholar), BibTeX, tổng hợp related work bằng AI, xuất thư mục Markdown ra đĩa và tuỳ chọn đặt dữ liệu trên OneDrive/Google Drive. Có bản desktop mở trực tiếp bằng `app/dist/PaperVault/PaperVault.exe` (hoặc `app/PaperVault.bat`).
+> Không dùng Windows? Cài Python 3.10 trở lên, tải repo về rồi chạy `python app/server.py` và mở `http://127.0.0.1:8765` trong trình duyệt. Không cần cài thêm thư viện nào. Muốn chạy trong cửa sổ riêng: `pip install -r app/requirements.txt` rồi `python app/desktop.py`.
 
-Extension nối thẳng với app khi app đang chạy: popup có nút **→ App** (đẩy trang đang đọc hoặc kết quả đã trích xuất sang hộp thư của app), Thư viện có nút **→ Đồng bộ sang App** (nhập toàn bộ thư viện vào app, bỏ qua paper đã có). Địa chỉ app chỉnh trong Cài đặt (mặc định `http://127.0.0.1:8765`).
+---
 
-## 1. Cài đặt
+## Tính năng
 
-1. Mở `chrome://extensions` (hoặc `edge://extensions`).
-2. Bật **Developer mode** (góc trên bên phải).
-3. Bấm **Load unpacked** → chọn thư mục repo đã tải về (thư mục chứa `manifest.json`).
-4. Ghim icon PaperVault ra thanh công cụ.
-
-## 2. Cấu hình lần đầu
-
-Vào **Cài đặt** (nút trong popup, hoặc chuột phải icon → Options):
-
-| Mục | Ghi chú |
-| --- | --- |
-| Nhà cung cấp + API key | Claude (`claude-opus-5`), OpenAI (`gpt-4o`), hoặc Gemini (`gemini-2.0-flash`). Key lưu trong IndexedDB trên máy bạn. |
-| **Đề tài của bạn** | Quan trọng nhất. Mô tả càng cụ thể, mục "Ý tưởng có thể áp dụng" càng bám sát bài của bạn. |
-| Số ký tự tối đa | Mặc định 60.000. Full text dài hơn sẽ bị cắt phần giữa (giữ đầu + cuối vì Limitation thường nằm cuối). |
-| Thư mục trên máy | Chọn thư mục gốc để ghi file `.md`. |
-
-Bấm **Kiểm tra kết nối** để chắc chắn key/model hoạt động trước khi trích xuất thật.
-
-## 3. Cách dùng
-
-### Trích xuất từ trang đang mở
-Mở paper → bấm icon PaperVault → **Trích xuất 5 mục** → xem lại → chọn thư mục chủ đề → **Lưu vào thư viện**.
-
-Extension tự nhận diện:
-
-| Trang | Lấy được |
-| --- | --- |
-| `arxiv.org/abs/...` | Abstract + metadata, đồng thời **tự thử tải bản HTML full text** (`arxiv.org/html/...`) nếu paper có |
-| `arxiv.org/html/...`, `ar5iv` | Full text |
-| `arxiv.org/pdf/...` | Tự chuyển sang lấy bản `/abs/` hoặc `/html/` của cùng arXiv ID |
-| OpenReview, ACL Anthology | Title + abstract + metadata |
-| Trang khác | Heuristic (`article` / `main` / `body`) |
-| PDF bất kỳ | Bấm **Dùng file PDF của trang này** — extension tải file rồi gửi thẳng cho model |
-
-### Trích xuất từ file PDF
-Ba đường vào, dùng đường nào cũng được:
-
-- Popup → tab **PDF / Dán text** → chọn hoặc kéo thả file `.pdf`.
-- Thư viện → **+ Thêm paper** → chọn/kéo thả PDF. Kéo file vào **bất kỳ đâu trong trang thư viện** cũng được.
-- Đang mở một PDF trên trình duyệt → popup → **Dùng file PDF của trang này**.
-
-Với Claude và Gemini, file PDF được **gửi thẳng cho model**, nên model đọc được cả bảng kết quả và hình — mục Validation vì thế chính xác hơn hẳn so với đọc abstract. Với OpenAI (Chat Completions không nhận PDF), extension **tự trích text từ PDF** ngay trong trình duyệt rồi mới gửi; bộ trích text tự viết, không cần thư viện ngoài, có giải mã `/ToUnicode` CMap nên chữ ra đúng với phần lớn PDF sinh từ LaTeX. PDF bản scan (ảnh) thì không trích được text — hãy dùng Claude/Gemini cho trường hợp đó.
-
-Giới hạn: 24MB mỗi file.
-
-### Trích xuất từ text dán tay
-Popup → tab **PDF / Dán text**, hoặc bôi đen đoạn text trên trang → chuột phải → *PaperVault: trích xuất đoạn đang chọn*.
+Thanh bên trái của app chia thành ba nhóm. Mỗi trang có nút **?** mở đúng mục hướng dẫn.
 
 ### Thư viện
-Nút **Thư viện** trong popup (hoặc chuột phải icon → mở thư viện):
 
-- **Sidebar**: thư mục chủ đề, kèm số lượng; thêm / đổi tên / xoá.
-- **Danh sách**: mỗi card hiển thị sẵn Điểm mới / Dataset-Metric / Ý tưởng áp dụng. Click để mở và **sửa mọi trường** (5 mục, bảng metric, note cá nhân, trạng thái, đánh giá sao).
-- **So sánh**: bảng 4 cột đúng format bạn cần. Tick chọn vài paper để so sánh riêng, hoặc để trống để so sánh cả thư mục. **Copy bảng so sánh** cho ra Markdown dán thẳng vào Notion/Obsidian/Overleaf.
-- **Chuyển thư mục** / **Xoá** hàng loạt cho nhiều paper đã tick, và **Dọn trùng** để gộp các bản trùng tên/link (giữ bản cập nhật gần nhất).
-- Phím tắt: `/` để focus ô tìm kiếm, `Esc` để đóng modal.
+- **Thêm paper** từ arXiv ID, link, DOI, PDF hoặc văn bản dán vào. Thêm hàng loạt bằng cách dán cả danh sách link hoặc thả cả thư mục PDF. Nhập file `.bib` / `.ris` từ Zotero, Mendeley.
+- **Thư viện** xem dạng danh sách, kanban hoặc bảng. Lọc theo chủ đề, trạng thái đọc, năm, hạng venue. Tìm được cả trong toàn văn.
+- **Venue và xếp hạng** tự nhận diện: hạng hội nghị theo CORE/ICORE (A\*, A, B, C), tạp chí theo Scimago (Q1–Q4).
+- **Trang paper** có các tab: Ghi chú, PDF, Bài giảng, Hỏi đáp, Liên quan, Hướng nghiên cứu, Trích dẫn, Chỉnh sửa, Nguồn.
+  - *PDF*: bôi đen để dịch theo ngữ cảnh, tô sáng, gạch chân, AI tô các câu đáng nhớ.
+  - *Bài giảng*: AI viết lại bài thành bài giảng tám phần, có ví dụ chạy tay và câu tự kiểm tra.
+  - *Hướng nghiên cứu*: so sánh bài với các bài nó dẫn và các bài dẫn nó, chỉ ra vấn đề còn bỏ ngỏ và gợi ý hướng làm tiếp.
 
-### Phân loại chủ đề
-Hai tầng gợi ý, luôn cho phép ghi đè thủ công:
+### Khám phá và phân tích
 
-1. **Local**: chấm điểm từ khoá của từng chủ đề trên title + abstract (cụm từ nhiều điểm hơn từ đơn, xuất hiện ở title được cộng thêm).
-2. **LLM**: model chọn một tên trong danh sách chủ đề hiện có, hoặc đề xuất tên mới nếu không có mục nào hợp.
+- **Paper mới**: theo dõi arXiv theo từ khoá, tác giả hoặc bài dẫn một bài bạn quan tâm.
+- **Chat với paper**: hỏi đáp trên nhiều paper cùng lúc. Câu trả lời ghi rõ nguồn [P1], [P2], bấm để mở paper.
+- **So sánh**: bảng so sánh nhiều paper, xuất ra nhiều định dạng.
+- **Bản đồ tài liệu 2D** và **đồ thị trích dẫn 3D** dựa trên dữ liệu Semantic Scholar.
 
-Dropdown xếp thư mục theo điểm gợi ý và luôn có mục **➕ Tạo thư mục mới**.
+### Cá nhân
 
-Sau khi trích xuất, khối xác nhận hiện ngay dưới kết quả: chọn thư mục → bấm lưu. Nếu paper đã có trong thư viện, extension báo trùng và cho chọn **cập nhật bản cũ** (giữ nguyên ghi chú cá nhân, trạng thái, đánh giá, ngày tạo) hay **lưu thành bản mới**; nút lưu tự khoá sau khi lưu xong nên không tạo bản trùng do bấm hai lần. Lỡ đóng popup giữa chừng thì mở lại sẽ có nút **Khôi phục** kết quả chưa lưu (giữ trong 20 phút).
+- **Sổ tay**: trang Markdown lồng nhau, mẫu trang có sẵn (ghi chú đọc paper, họp nhóm, kế hoạch thí nghiệm…), thư viện macro LaTeX nhập từ file `.tex` / `.sty`, chèn ảnh bằng dán hoặc kéo thả, đồ thị liên kết giữa các trang.
+- **Lịch**: kế hoạch theo ngày giờ, lặp lại hằng ngày, tuần hoặc tháng, nối với nhật ký và việc có hạn (`- [ ] việc 📅 2026-10-30`) trong Sổ tay.
+- **Thẻ ghi nhớ**: gom các đoạn bạn lưu khi đọc PDF (bôi đen → *+ Ghi chú*) và các trích dẫn thêm tay, ôn lại bằng cách lật thẻ.
 
-15 chủ đề mặc định: VQA, Vision-Language & Multimodal LLM, Image Captioning, Object Detection, Segmentation, LLM & NLP, RAG & Retrieval, Generative & Diffusion, OCR & Document AI, Video Understanding, Speech & Audio, Efficiency & Compression, Training & Optimization, Dataset & Benchmark, Inbox.
+Danh sách chi tiết từng chức năng nằm ở [app/README.md](app/README.md).
 
-## 4. Xuất dữ liệu
+---
 
-| Cách | Kết quả |
-| --- | --- |
-| **Đồng bộ thư mục** | `<gốc>/<Chủ đề>/<ten-paper>.md` + `_index.md` (có bảng so sánh) mỗi thư mục + `README.md` + `_bang-so-sanh-tat-ca.md` ở gốc |
-| **Xuất → 1** | Một file Markdown gộp toàn bộ, nhóm theo chủ đề |
-| **Xuất → 2** | Chỉ bảng so sánh (Markdown) |
-| **Xuất → 3** | JSON sao lưu (nhập lại bằng **Nhập JSON**) |
-| **Xuất → 4** | CSV bảng so sánh (mở được bằng Excel, có BOM nên không lỗi tiếng Việt) |
-| **Copy Markdown** | Note đầy đủ của một paper vào clipboard |
+## Extension Chrome / Edge
 
-Lưu ý: Chrome thu hồi quyền ghi thư mục sau khi đóng trình duyệt, nên mỗi phiên lần đầu bạn cần bấm **Đồng bộ thư mục** một lần để cấp lại quyền.
+Extension giúp lưu paper ngay khi đang đọc trên trình duyệt:
 
-## 5. Cấu trúc mã nguồn
+1. Mở `chrome://extensions` (hoặc `edge://extensions`), bật **Developer mode**.
+2. Bấm **Load unpacked** rồi chọn thư mục repo này (thư mục có `manifest.json`).
+3. Mở một trang paper, bấm icon PaperVault → **→ App** để đẩy paper sang app đang chạy.
 
-```
-manifest.json
-icons/
-src/
-  background/service-worker.js   điều phối scrape → LLM → lưu; context menu; tải thêm full text arXiv
-  content/scrape.js              inject vào tab, adapter cho từng site
-  common/
-    db.js        IndexedDB: papers / topics / kv (settings, directory handle)
-    llm.js       adapter Anthropic · OpenAI · Gemini (đều dùng structured output theo schema)
-    schema.js    JSON Schema của bản trích xuất + chuẩn hoá dữ liệu
-    prompts.js   system/user prompt (định nghĩa rõ 5 mục, cấm bịa số liệu)
-    topics.js    chủ đề mặc định + thuật toán chấm điểm gợi ý
-    markdown.js  render note, _index.md, bảng so sánh
-    render.js    render 5 mục ra HTML (dùng chung popup + thư viện)
-    pdf.js       đọc PDF: base64 cho model, và bộ trích text tự viết (inflate + /ToUnicode)
-    fs.js        File System Access API
-    theme.css    biến màu + component, tự đổi theo dark mode
-  popup/ library/ options/
-```
+Extension cũng tự trích xuất và lưu thư viện riêng được, không cần app. Hướng dẫn đầy đủ: [docs/extension.md](docs/extension.md).
 
-## 6. Ghi chú kỹ thuật
+---
 
-- **Structured output** dùng cho cả 3 provider: Anthropic `output_config.format.json_schema`, OpenAI `response_format.json_schema` (`strict: true`), Gemini `responseSchema` — nên kết quả luôn đúng schema thay vì phải đoán JSON từ văn bản (vẫn có parser dự phòng chịu được code fence).
-- Gọi Anthropic từ trình duyệt cần header `anthropic-dangerous-direct-browser-access: true` — đã có sẵn.
-- Không gửi `temperature` hay `budget_tokens` (Opus 5 / Sonnet 5 từ chối các tham số này); `output_config.effort` chỉ gửi cho các model Claude hỗ trợ.
-- Chi phí tham khảo: một abstract ~1–2K token input; một full text bị cắt ở 60K ký tự ~15–20K token input. Nếu chỉ cần lướt nhanh, để **effort: low** hoặc dùng Haiku/Flash.
-- PDF gửi cho model dưới dạng `document`/`inlineData` base64; file được cất tạm trong IndexedDB thay vì đẩy vài MB qua `chrome.runtime.sendMessage`, và bị xoá ngay sau khi trích xuất xong.
-- Prompt yêu cầu model ghi `(chỉ dựa trên abstract)` và hạ `confidence` khi không có full text — bạn thấy ngay mức tin cậy trong popup và trên card.
+## Câu hỏi thường gặp
 
-## 7. Hạn chế đã biết
+**Dữ liệu của tôi nằm ở đâu?**
+Trên máy bạn. Bản Windows lưu trong thư mục `data` cạnh `PaperVault.exe`. Khi chạy từ mã nguồn, dữ liệu nằm trong `app/data`. App không gửi thư viện của bạn lên máy chủ nào. Chỉ phần nội dung cần cho AI được gửi tới nhà cung cấp bạn chọn, kèm key của bạn.
 
-- PDF bản scan không có lớp text: chỉ dùng được với Claude/Gemini (gửi thẳng file), không trích text cục bộ được.
-- Bộ trích text PDF là heuristic tự viết, không phải pdf.js: với font CID không kèm `/ToUnicode` thì chữ có thể ra ký tự lạ — extension có cảnh báo khi phát hiện.
-- Đồng bộ thư mục là **ghi đè**, không xoá file của paper đã bị xoá trong extension — dọn thủ công nếu cần.
-- Bảng metric trong note chỉ sửa được ở dạng dòng `metric | dataset | baseline | đề xuất | Δ` (đủ dùng, nhưng không phải trình soạn bảng).
+**Tốn bao nhiêu tiền API?**
+Một paper đọc toàn văn tốn khoảng 15–20 nghìn token đầu vào. Trang Tổng quan hiển thị số token đã dùng trong tháng. Muốn tiết kiệm, chọn mức effort thấp hoặc model nhỏ (Haiku, Flash, gpt-4o-mini) trong Cài đặt.
+
+**Đồng bộ giữa nhiều máy được không?**
+Được. Trong Cài đặt, chuyển thư mục dữ liệu vào OneDrive hoặc Google Drive. Chỉ mở app trên một máy tại một thời điểm. Xem [hướng dẫn dùng cloud](app/README.md#4-dùng-dữ-liệu-trên-cloud-onedrive--google-drive).
+
+**Sao lưu thế nào?**
+Cài đặt → **Sao lưu & nhập dữ liệu** → *Tải file sao lưu JSON*. File chứa paper, ghi chú, sổ tay và lịch. File PDF và ảnh trong sổ tay không nằm trong bản sao lưu, hãy chép thêm thư mục `data/pdfs` và `data/images`.
+
+---
+
+## Cho người phát triển
+
+- `app/`: máy chủ Python (chỉ dùng thư viện chuẩn, SQLite) và giao diện JavaScript thuần trong `app/static`. Bản desktop dùng pywebview, đóng gói bằng PyInstaller qua `app/build_exe.bat`.
+- `src/`, `manifest.json`: extension Chrome / Edge (Manifest V3).
+- Mỗi tag `v*` đẩy lên GitHub sẽ chạy [workflow](.github/workflows/release.yml) build `PaperVault-windows.zip` và đăng lên Releases.
+
+## Giấy phép
+
+[MIT](LICENSE). Ảnh chụp màn hình trong README dùng dữ liệu mẫu.

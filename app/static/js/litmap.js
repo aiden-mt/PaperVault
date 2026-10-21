@@ -642,7 +642,7 @@ export async function openLitMap(paper) {
     [yearLo, yearHi] = yearDomain();
     const lo = yearLo, hi = yearHi;
     const oldest = Math.min(...[...nodes.values()].map((n) => n.year).filter(Boolean));
-    const ticks = [...new Set([0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(lo + (hi - lo) * f)))];
+    const ticks = [...new Set([0, 0.5, 1].map((f) => Math.round(lo + (hi - lo) * f)))];
     const grad = STOPS.map(([t, c]) => `rgb(${c.join(',')}) ${Math.round(t * 100)}%`).join(', ');
     $$('lm-legend').innerHTML = `<span class="lm-yr"><span class="lm-yr-k">Năm</span><span class="lm-yr-bar"><span class="lm-grad" style="background:linear-gradient(90deg, ${grad})"></span>
         <span class="lm-yr-ticks">${ticks.map((y) => `<span style="left:${((y - lo) / Math.max(1, hi - lo)) * 100}%">${y === lo && oldest < lo ? `≤${y}` : y}</span>`).join('')}</span></span><span class="lm-yr-k">cũ → mới</span></span>
