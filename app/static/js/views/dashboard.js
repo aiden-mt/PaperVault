@@ -1,5 +1,5 @@
 // Trang tổng quan: số liệu, phân bố theo chủ đề/năm, paper gần đây, hàng đợi đọc, tag.
-import { store, stats, onChange, topicOf } from '../store.js';
+import { store, stats, onChange, topicOf, saveSettings } from '../store.js';
 import { escapeHtml, fmtRelative, STATUS_LABEL, stars } from '../util.js';
 import { topicBadge } from '../ui.js';
 import { hasCredentials } from '../llm.js';
@@ -80,7 +80,13 @@ export async function render(root) {
   // root là khung chung của mọi trang: phải gỡ sự kiện khi rời Tổng quan, không thì bấm ở trang khác cũng bị bắt.
   const onClick = (e) => {
     const go = e.target.closest('[data-go]');
-    if (go && go.dataset.go === '__dismiss') { try { localStorage.setItem('pv-onboard-done', '1'); } catch (_) { /* bỏ qua */ } draw(); return; }
+    if (go && go.dataset.go === '__dismiss') {
+      // lưu cả vào cài đặt trên máy chủ: localStorage có thể mất (đổi cổng, xoá dữ liệu trình duyệt, máy khác)
+      try { localStorage.setItem('pv-onboard-done', '1'); } catch (_) { /* bỏ qua */ }
+      saveSettings({ onboardDismissed: true }).catch(() => {});
+      draw();
+      return;
+    }
     if (go) { location.hash = go.dataset.go; return; }
     const card = e.target.closest('.paper[data-id]');
     if (card) location.hash = `#/paper/${card.dataset.id}`;
@@ -93,6 +99,7 @@ export async function render(root) {
 function onboardingHtml(s) {
   let dismissed = false;
   try { dismissed = localStorage.getItem('pv-onboard-done') === '1'; } catch (_) { /* bỏ qua */ }
+  if (store.settings.onboardDismissed) dismissed = true;
   const steps = [
     [hasCredentials(store.settings), 'Nhập API key và bấm Kiểm tra kết nối', '#/settings'],
     [!!(store.settings.myResearch || '').trim(), 'Mô tả đề tài của bạn trong Cài đặt', '#/settings'],

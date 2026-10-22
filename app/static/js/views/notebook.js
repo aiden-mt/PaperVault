@@ -10,16 +10,21 @@ import {
   parseLinks, tagsOf, allTags, backlinks, unlinkedMentions, renameLinks, pageLabel, paperShort, ancestors, childrenOf,
   isInside, TEMPLATES, renderNote, toggleTodo, PAPER_QUERY_HELP, ensureDailyPage, localDate, dailyDateOf,
 } from '../notebook.js';
-import { pickTemplate, paperQueryBuilder, openGuide, codeDialog, formulaDialog, mathLibraryDialog, parentOptions, imageUrlDialog } from './notebook-ui.js';
+import { pickTemplate, paperQueryBuilder, openGuide, setGuideBlocks, codeDialog, formulaDialog, mathLibraryDialog, parentOptions, imageUrlDialog } from './notebook-ui.js';
 import { loadMathLib } from '../mathlib.js';
+import { aiDialog } from '../notebook-ai.js';
+import { openInlineAI, closeInlineAI } from '../notebook-inline-ai.js';
 import { loadEvents, occurrences, toggleDone, saveEvent, catOf, fmtDay } from '../calendar.js';
 
 const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { /* bỏ qua */ } return null; };
 const EMOJIS = '📄 📑 📝 📓 📚 🧠 💡 🧪 🔬 📊 📈 🗺 🧭 🎯 ✅ ⭐ 🔥 ❓ ⚠️ 📌 🗂 🧩 🛠 🤖 👁 🖼 🗣 🌐 📅 🏷 💬 🔗 🧮 📐 🧬 🏁 🚧 🌱 🪄'.split(' ');
 
+const SIDE_BTN = '<button type="button" class="ghost sm nb-side-tg" data-nb-side title="Ẩn / hiện danh sách trang">☰</button>';
+
 export async function render(root, { params, query }) {
   root.className = 'view split';
   root.innerHTML = `<div class="nb-page">
+    <div class="nb-side-scrim" title="Đóng danh sách trang"></div>
     <aside class="nb-side">
       <div class="nb-side-h"><button type="button" class="nb-side-title" id="nb-home" title="Về trang chủ Sổ tay">📓 Sổ tay nghiên cứu</button><span class="spacer"></span><button class="ghost sm" id="nb-help" title="Hướng dẫn: Markdown, liên kết, khối, bảng paper, phím tắt (Ctrl + /)">❔</button><button class="ghost sm" id="nb-graph" title="Đồ thị liên kết giữa các trang và paper">🕸</button></div>
       <input type="search" id="nb-search" placeholder="Tìm trang, nội dung, #tag… (Ctrl+K)">
@@ -270,7 +275,25 @@ export async function render(root, { params, query }) {
   $('nb-daily').addEventListener('click', () => openDaily());
   $('nb-graph').addEventListener('click', () => openNoteGraph());
   $('nb-home').addEventListener('click', () => openPage(null));
-  $('nb-help').addEventListener('click', () => openGuide('md', { insert: insertSnippet }));
+  // Ẩn / hiện danh sách trang (khung hẹp, ví dụ khi chia đôi màn hình, mặc định ẩn để chừa chỗ viết).
+  const pageEl = root.querySelector('.nb-page');
+  // Khung hẹp (≤ 900px, ví dụ một nửa màn hình chia đôi): danh sách thành ngăn trượt đè lên trang, mặc định đóng,
+  // mở trang xong tự đóng. Khung rộng: cột cố định, nhớ lựa chọn ẩn / hiện.
+  const narrow = () => window.matchMedia('(max-width: 900px)').matches;
+  pageEl.classList.toggle('side-off', narrow() || LS('pv.nbSide') === '0');
+  root.addEventListener('click', (e) => {
+    if (e.target.closest('[data-nb-side]') || e.target.classList.contains('nb-side-scrim')) {
+      const off = !pageEl.classList.contains('side-off');
+      pageEl.classList.toggle('side-off', off);
+      if (!narrow()) LS('pv.nbSide', off ? '0' : '1');
+      return;
+    }
+    if (narrow() && e.target.closest('.nb-side [data-open]')) setTimeout(() => pageEl.classList.add('side-off'), 0);
+  });
+  const nbMq = window.matchMedia('(max-width: 900px)');
+  const onNbMq = (ev) => pageEl.classList.toggle('side-off', ev.matches || LS('pv.nbSide') === '0');
+  nbMq.addEventListener('change', onNbMq);
+  $('nb-help').addEventListener('click', () => openGuide('start', { insert: insertSnippet }));
   $('nb-mathlib').addEventListener('click', async () => { if (await mathLibraryDialog()) drawPreview(); });
 
   /* ---------------- vùng chính ---------------- */
@@ -279,7 +302,7 @@ export async function render(root, { params, query }) {
     const p = pageById(cur);
     const box = $('nb-crumbs');
     if (!p || !box) return;
-    box.innerHTML = `<button type="button" class="nb-crumb-home" data-open-home="1" title="Về trang chủ Sổ tay">⌂ Sổ tay</button>${ancestors(p).map((a) => `<span class="nb-crumb-sep">/</span><a data-open="${a.id}">${escapeHtml(pageLabel(a))}</a>`).join('')}<span class="nb-crumb-sep">/</span><span class="nb-crumb-cur">${escapeHtml(pageLabel(p))}</span>`;
+    box.innerHTML = `${SIDE_BTN}<button type="button" class="nb-crumb-home" data-open-home="1" title="Về trang chủ Sổ tay">⌂ Sổ tay</button>${ancestors(p).map((a) => `<span class="nb-crumb-sep">/</span><a data-open="${a.id}">${escapeHtml(pageLabel(a))}</a>`).join('')}<span class="nb-crumb-sep">/</span><span class="nb-crumb-cur">${escapeHtml(pageLabel(p))}</span>`;
   }
 
   function drawHome() {
@@ -287,10 +310,10 @@ export async function render(root, { params, query }) {
     const nTags = allTags().length;
     const nPapers = new Set(allPages().flatMap((p) => [...parseLinks(p.content).papers])).size;
     $('nb-main').innerHTML = `<div class="nb-home">
-      <div class="nb-home-h"><h1>📓 Sổ tay nghiên cứu</h1><span class="spacer"></span><button type="button" class="primary" data-home-new>+ Trang mới</button><button type="button" data-home-daily>📅 Hôm nay</button></div>
+      <div class="nb-home-h">${SIDE_BTN}<h1>📓 Sổ tay nghiên cứu</h1><span class="spacer"></span><button type="button" class="primary" data-home-new>+ Trang mới</button><button type="button" data-home-daily>📅 Hôm nay</button></div>
       <div class="nb-home-stats"><span><b>${allPages().length}</b> trang</span><span><b>${nTags}</b> tag</span><span><b>${nPapers}</b> paper được nhắc tới</span>${trashPages().length ? `<span>${trashPages().length} trong thùng rác</span>` : ''}</div>
       ${recent.length ? `<h3>Sửa gần đây</h3><div class="nb-recent">${recent.map((p) => `<button type="button" class="nb-recent-c" data-open="${p.id}"><b>${escapeHtml(pageLabel(p))}</b><span class="hint">${escapeHtml(fmtRelative(p.updatedAt))}${ancestors(p).length ? ` · trong ${escapeHtml(ancestors(p).map((a) => a.title).join(' / '))}` : ''}</span><span class="nb-recent-s">${escapeHtml((p.content || '').replace(/[#>*`[\]!-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120))}</span></button>`).join('')}</div>` : ''}
-      <div class="nb-guide-btns"><span class="hint">Hướng dẫn chi tiết:</span>${[['md', 'Markdown'], ['link', 'Liên kết & paper'], ['block', 'Khối đặc biệt'], ['query', 'Bảng paper'], ['keys', 'Phím tắt']].map(([k, l]) => `<button type="button" class="sm" data-guide="${k}">${l}</button>`).join('')}<button type="button" class="sm" data-mathlib="1">📐 Thư viện LaTeX</button></div>
+      <div class="nb-guide-btns"><span class="hint">Hướng dẫn chi tiết:</span>${[['start', 'Bắt đầu'], ['md', 'Markdown'], ['slash', 'Lệnh /'], ['link', 'Liên kết & paper'], ['code', 'Code & công thức'], ['ai', 'AI'], ['task', 'Việc & lịch'], ['keys', 'Phím tắt']].map(([k, l]) => `<button type="button" class="sm" data-guide="${k}">${l}</button>`).join('')}<button type="button" class="sm" data-mathlib="1">📐 Thư viện LaTeX</button></div>
       <details class="nb-cheat"><summary>Cú pháp nhanh</summary>
         <table class="data"><tbody>
           <tr><td><code>[[Tên trang]]</code></td><td>Liên kết tới trang (chưa có thì bấm vào để tạo). <code>[[Tên|chữ hiện]]</code> để đổi chữ hiện.</td></tr>
@@ -300,10 +323,12 @@ export async function render(root, { params, query }) {
           <tr><td><code>&gt; [!idea] Tiêu đề</code></td><td>Callout: note, info, tip, idea, warning, danger, question, success.</td></tr>
           <tr><td><code>\`\`\`papers</code></td><td>Bảng paper lấy trực tiếp từ thư viện: ${escapeHtml(PAPER_QUERY_HELP)}.</td></tr>
           <tr><td><code>#tag</code></td><td>Gắn tag, bấm tag để lọc các trang cùng tag.</td></tr>
-          <tr><td><code>/</code></td><td>Mở danh sách khối: tiêu đề, việc cần làm, callout, bảng, khối code (chọn ngôn ngữ), công thức LaTeX, paper…</td></tr>
+          <tr><td><code>/</code></td><td>Mở danh sách khối theo nhóm (Cơ bản, Callout, Paper &amp; liên kết, Chèn, AI). Gõ tiếp để tìm hoặc dùng phím tắt: <code>/h1</code> <code>/h2</code> <code>/todo</code> <code>/ul</code> <code>/ol</code> <code>/bang</code> <code>/code</code> <code>/ct</code> (công thức) <code>/anh</code> <code>/paper</code> <code>/link</code> <code>/han</code> (hạn chót) <code>/gc</code> (callout ghi chú) <code>/ai</code> <code>/hoi</code> (hỏi AI với nguồn). Gõ tắt chữ đầu cũng được, ví dụ <code>/dsds</code> → Danh sách đánh số.</td></tr>
           <tr><td><code>\`\`\`python</code> … <code>\`\`\`</code></td><td>Khối code có khung riêng và tô màu theo ngôn ngữ (Python, C++, C#, Java, JS/TS, Rust, Go, SQL, Bash, LaTeX…).</td></tr>
           <tr><td><code>![mô tả|400](link)</code></td><td>Ảnh: dán (Ctrl+V), kéo thả file vào trang, hoặc <code>/</code> → Ảnh từ máy / Ảnh từ đường link. Số sau dấu | là độ rộng (px hoặc %). Bấm ảnh ở phần xem để phóng to.</td></tr>
           <tr><td><code>$x^2$</code> · <code>$$…$$</code></td><td>Công thức LaTeX cùng dòng / đứng riêng. Macro tự định nghĩa ở 📐 Thư viện LaTeX.</td></tr>
+          <tr><td>✨ AI nhanh</td><td>Bôi đen một đoạn (hoặc đặt con trỏ trong đoạn) rồi Ctrl+J, hoặc bấm ✨ cạnh đoạn ở phần xem: cải thiện, rút gọn, giải thích, dịch, chuyển thành bảng… Trên dòng trống: viết tiếp, dàn ý, brainstorm.</td></tr>
+          <tr><td>📚 Hỏi AI với nguồn</td><td>Nút ✨ AI trên đầu trang: hỏi dựa trên paper và trang ghi chú bạn chọn (tự tìm đoạn liên quan trong toàn văn), chèn câu trả lời kèm liên kết nguồn.</td></tr>
           <tr><td>Phím tắt</td><td>Ctrl+K tìm trang · Ctrl+S lưu · Ctrl+B / Ctrl+I đậm / nghiêng · Tab / Shift+Tab thụt lề danh sách · Ctrl+/ hướng dẫn.</td></tr>
         </tbody></table></details></div>`;
   }
@@ -318,6 +343,7 @@ export async function render(root, { params, query }) {
           <button type="button" class="nb-icon" id="nb-icon" title="Đổi biểu tượng">${p.icon ? escapeHtml(p.icon) : '<span class="hint">＋</span>'}</button>
           <input id="nb-title" class="nb-title" placeholder="Không tên" value="${escapeHtml(p.title || '')}">
           <div class="seg nb-mode" id="nb-mode"><button data-m="edit" title="Chỉ soạn">Viết</button><button data-m="split" title="Soạn và xem cạnh nhau">Chia đôi</button><button data-m="read" title="Chỉ xem, để đọc">Xem</button></div>
+          <button type="button" class="sm nb-ai-btn" id="nb-ai" title="Hỏi AI dựa trên paper và ghi chú bạn chọn, rồi chèn câu trả lời vào trang (Ctrl + J)">✨ AI</button>
           <button type="button" class="ghost sm" id="nb-help2" title="Hướng dẫn cú pháp và phím tắt (Ctrl + /)">❔</button>
           <button type="button" class="ghost sm nb-fav-btn ${p.fav ? 'on' : ''}" id="nb-fav" title="${p.fav ? 'Bỏ khỏi Yêu thích' : 'Thêm vào Yêu thích'}">${p.fav ? '★' : '☆'}</button>
           <span class="sel-pick"><button type="button" class="ghost sm" id="nb-more" aria-haspopup="menu">⋯</button>
@@ -546,6 +572,48 @@ export async function render(root, { params, query }) {
     ed.addEventListener('input', () => { markDirty(); previewSoon(); updatePop(); });
     ed.addEventListener('click', updatePop);
     ed.addEventListener('keydown', onEdKey);
+    ed.addEventListener('mouseup', () => setTimeout(showSelBtn, 0));
+    ed.addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift' || (e.ctrlKey && (e.key === 'a' || e.key === 'A'))) showSelBtn(); else hideSelBtn(); });
+    ed.addEventListener('input', hideSelBtn);
+    ed.addEventListener('scroll', hideSelBtn);
+    ed.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('nb-ed')) hideSelBtn(); }, 120));
+    // Nút ✨ cạnh từng đoạn ở phần xem (rê chuột vào đoạn): AI nhanh trên đúng đoạn nguồn của khối đó.
+    const prev = $('nb-prev');
+    const handle = document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'nb-blk-ai';
+    handle.textContent = '✨';
+    handle.title = 'AI cho đoạn này: cải thiện, tóm tắt, giải thích, dịch…';
+    handle.hidden = true;
+    prev.parentElement.appendChild(handle);
+    let hoverBlk = null;
+    prev.addEventListener('mousemove', (e) => {
+      const b = e.target.closest('#nb-prev > .nb-blk');
+      if (!b || b === hoverBlk) return;
+      hoverBlk = b;
+      const pr = prev.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      const z = pr.width / (prev.offsetWidth || pr.width) || 1;
+      handle.style.left = `${prev.offsetLeft + 2}px`;
+      handle.style.top = `${prev.offsetTop + (br.top - pr.top) / z + 2}px`;
+      handle.hidden = (br.top < pr.top - 4) || br.top > pr.bottom;
+    });
+    prev.addEventListener('mouseleave', (e) => { if (e.relatedTarget !== handle) { handle.hidden = true; hoverBlk = null; } });
+    prev.addEventListener('scroll', () => { handle.hidden = true; hoverBlk = null; });
+    handle.addEventListener('click', () => {
+      if (!hoverBlk) return;
+      const v = $('nb-ed').value;
+      const bl = blocks();
+      const i = bl.indexOf(hoverBlk);
+      const sLine = Number(hoverBlk.dataset.line);
+      const eLine = i >= 0 && i + 1 < bl.length ? Number(bl[i + 1].dataset.line) : v.split('\n').length;
+      let s = posOfLine(v, sLine);
+      let e = posOfLine(v, eLine);
+      while (e > s && /\s/.test(v[e - 1])) e--;
+      const br = hoverBlk.getBoundingClientRect();
+      handle.hidden = true;
+      quickAI({ range: [s, e], anchor: { x: br.left, y: Math.min(br.bottom, br.top + 60) } });
+    });
     // Dán ảnh (chụp màn hình rồi Ctrl+V, hoặc copy ảnh từ trang web).
     ed.addEventListener('paste', (e) => {
       const files = [...(e.clipboardData?.files || [])].filter((f) => /^image\//.test(f.type));
@@ -609,7 +677,8 @@ export async function render(root, { params, query }) {
     });
     $('nb-fav').addEventListener('click', async () => { await persist(); const p = await savePage({ ...pageById(cur), fav: !pageById(cur).fav }); $('nb-fav').textContent = p.fav ? '★' : '☆'; $('nb-fav').classList.toggle('on', !!p.fav); drawTree(); });
     $('nb-icon').addEventListener('click', pickIcon);
-    $('nb-help2').addEventListener('click', () => openGuide('md', { insert: insertSnippet }));
+    $('nb-help2').addEventListener('click', () => openGuide('start', { insert: insertSnippet }));
+    $('nb-ai').addEventListener('click', () => openAI());
     $('nb-more').addEventListener('click', (e) => { e.stopPropagation(); $('nb-menu').hidden = !$('nb-menu').hidden; });
     $('nb-menu').addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (b) { $('nb-menu').hidden = true; pageAction(b.dataset.act); } });
     $('nb-links').addEventListener('click', async (e) => {
@@ -701,34 +770,72 @@ export async function render(root, { params, query }) {
 
   /* ---------------- gợi ý khi gõ: [[ liên kết, / khối ---------------- */
 
+  // Menu "/": nhóm theo mức hay dùng. al = phím tắt gõ sau "/" (vd /h1, /todo, /bang), md = cú pháp Markdown tương đương.
   const SLASH = [
-    { k: 'h1', label: 'Tiêu đề 1', kw: 'heading tieu de h1', ins: '# ' },
-    { k: 'h2', label: 'Tiêu đề 2', kw: 'heading tieu de h2', ins: '## ' },
-    { k: 'h3', label: 'Tiêu đề 3', kw: 'heading tieu de h3', ins: '### ' },
-    { k: 'todo', label: 'Việc cần làm', kw: 'todo viec checkbox', ins: '- [ ] ' },
-    { k: 'ul', label: 'Danh sách', kw: 'list danh sach bullet', ins: '- ' },
-    { k: 'ol', label: 'Danh sách đánh số', kw: 'number danh sach so', ins: '1. ' },
-    { k: 'quote', label: 'Trích dẫn', kw: 'quote trich dan', ins: '> ' },
-    { k: 'note', label: 'Callout ghi chú', kw: 'callout note ghi chu', ins: '> [!note] ' },
-    { k: 'idea', label: 'Callout ý tưởng', kw: 'callout idea y tuong', ins: '> [!idea] ' },
-    { k: 'warn', label: 'Callout lưu ý', kw: 'callout warning luu y canh bao', ins: '> [!warning] ' },
-    { k: 'q', label: 'Callout câu hỏi', kw: 'callout question cau hoi', ins: '> [!question] ' },
-    { k: 'table', label: 'Bảng', kw: 'table bang', ins: '| Cột 1 | Cột 2 |\n| --- | --- |\n|  |  |\n' },
-    { k: 'code', label: 'Khối code (chọn ngôn ngữ)…', kw: 'code python cpp c++ java javascript rust go sql bash', dialog: 'code' },
-    { k: 'math', label: 'Công thức LaTeX đứng riêng…', kw: 'math cong thuc latex katex', dialog: 'math' },
-    { k: 'imath', label: 'Công thức LaTeX cùng dòng…', kw: 'math inline cong thuc latex', dialog: 'imath' },
-    { k: 'img', label: 'Ảnh từ máy…', kw: 'anh hinh image picture upload tai len', dialog: 'img' },
-    { k: 'imgurl', label: 'Ảnh từ đường link…', kw: 'anh hinh image url link', dialog: 'imgurl' },
-    { k: 'hr', label: 'Đường kẻ', kw: 'divider duong ke hr', ins: '---\n' },
-    { k: 'page', label: 'Liên kết trang', kw: 'link lien ket trang page', ins: '[[', reopen: true },
-    { k: 'paper', label: 'Nhắc tới paper', kw: 'paper lien ket bai', ins: '[[@', reopen: true },
-    { k: 'embed', label: 'Nhúng thẻ paper', kw: 'embed nhung paper the', ins: '![[@', reopen: true },
-    { k: 'query', label: 'Bảng paper từ thư viện…', kw: 'database bang paper query thu vien', dialog: 'query' },
-    { k: 'date', label: 'Ngày hôm nay', kw: 'date ngay hom nay', ins: () => localDate() },
-    { k: 'due', label: 'Hạn chót 📅 (hiện trên Lịch)', kw: 'han chot deadline due lich calendar ngay', ins: () => ` 📅 ${localDate()}` },
-    { k: 'sub', label: 'Trang con mới', kw: 'subpage trang con', sub: true },
+    { k: 'h1', g: 'Cơ bản', icon: 'H1', label: 'Tiêu đề 1', desc: 'Tiêu đề lớn của một phần', al: ['h1', 'td1'], md: '#', kw: 'heading tieu de lon', ins: '# ' },
+    { k: 'h2', g: 'Cơ bản', icon: 'H2', label: 'Tiêu đề 2', desc: 'Tiêu đề mục', al: ['h2', 'td2'], md: '##', kw: 'heading tieu de muc', ins: '## ' },
+    { k: 'h3', g: 'Cơ bản', icon: 'H3', label: 'Tiêu đề 3', desc: 'Tiêu đề nhỏ', al: ['h3', 'td3'], md: '###', kw: 'heading tieu de nho', ins: '### ' },
+    { k: 'todo', g: 'Cơ bản', icon: '☑', label: 'Việc cần làm', desc: 'Ô vuông đánh dấu xong', al: ['todo', 'viec', 'cb'], md: '- [ ]', kw: 'checkbox task checklist', ins: '- [ ] ' },
+    { k: 'ul', g: 'Cơ bản', icon: '•', label: 'Danh sách', desc: 'Gạch đầu dòng', al: ['ul', 'ds', 'list'], md: '-', kw: 'bullet danh sach gach dau dong', ins: '- ' },
+    { k: 'ol', g: 'Cơ bản', icon: '1.', label: 'Danh sách đánh số', desc: '1, 2, 3…', al: ['ol', 'so', 'num'], md: '1.', kw: 'number numbered danh sach so thu tu', ins: '1. ' },
+    { k: 'quote', g: 'Cơ bản', icon: '❝', label: 'Trích dẫn', desc: 'Đoạn trích, lời dẫn', al: ['quote', 'trich'], md: '>', kw: 'blockquote trich dan', ins: '> ' },
+    { k: 'hr', g: 'Cơ bản', icon: '—', label: 'Đường kẻ', desc: 'Ngăn cách hai phần', al: ['hr', 'ke', 'line'], md: '---', kw: 'divider duong ke phan cach', ins: '---\n' },
+
+    { k: 'note', g: 'Callout', icon: '📝', label: 'Ghi chú', desc: 'Khung ghi chú nổi bật', al: ['note', 'gc'], md: '> [!note]', kw: 'callout ghi chu', ins: '> [!note] ' },
+    { k: 'idea', g: 'Callout', icon: '💡', label: 'Ý tưởng', desc: 'Khung ý tưởng', al: ['idea', 'yt'], md: '> [!idea]', kw: 'callout y tuong idea', ins: '> [!idea] ' },
+    { k: 'warn', g: 'Callout', icon: '⚠️', label: 'Lưu ý', desc: 'Khung cảnh báo', al: ['warn', 'luuy'], md: '> [!warning]', kw: 'callout warning luu y canh bao', ins: '> [!warning] ' },
+    { k: 'q', g: 'Callout', icon: '❓', label: 'Câu hỏi', desc: 'Câu hỏi còn bỏ ngỏ', al: ['question', 'ch'], md: '> [!question]', kw: 'callout question cau hoi', ins: '> [!question] ' },
+
+    { k: 'paper', g: 'Paper & liên kết', icon: '📄', label: 'Nhắc tới paper', desc: 'Liên kết tới một paper trong thư viện', al: ['paper', 'p'], md: '[[@', kw: 'paper lien ket bai bao', ins: '[[@', reopen: true },
+    { k: 'embed', g: 'Paper & liên kết', icon: '🗂', label: 'Thẻ paper', desc: 'Nhúng thẻ tóm tắt một paper', al: ['embed', 'the'], md: '![[@', kw: 'embed nhung paper the card', ins: '![[@', reopen: true },
+    { k: 'query', g: 'Paper & liên kết', icon: '▦', label: 'Bảng paper từ thư viện…', desc: 'Lọc theo chủ đề, tag, năm; tự cập nhật', al: ['papers', 'query', 'db'], md: '```papers', kw: 'database bang paper query thu vien loc', dialog: 'query' },
+    { k: 'page', g: 'Paper & liên kết', icon: '🔗', label: 'Liên kết trang', desc: 'Trỏ tới một trang Sổ tay khác', al: ['link', 'lk'], md: '[[', kw: 'link lien ket trang page', ins: '[[', reopen: true },
+    { k: 'sub', g: 'Paper & liên kết', icon: '📑', label: 'Trang con mới', desc: 'Tạo trang con và chèn liên kết', al: ['sub', 'trangcon'], md: '', kw: 'subpage trang con', sub: true },
+
+    { k: 'table', g: 'Chèn', icon: '▤', label: 'Bảng', desc: 'Bảng Markdown 2 cột', al: ['bang', 'table', 'tb'], md: '| |', kw: 'table bang', ins: '| Cột 1 | Cột 2 |\n| --- | --- |\n|  |  |\n' },
+    { k: 'code', g: 'Chèn', icon: '</>', label: 'Khối code…', desc: 'Chọn ngôn ngữ, tô màu cú pháp', al: ['code', 'cd'], md: '```', kw: 'code python cpp c++ java javascript rust go sql bash', dialog: 'code' },
+    { k: 'math', g: 'Chèn', icon: '∑', label: 'Công thức đứng riêng…', desc: 'LaTeX trên một dòng riêng', al: ['math', 'ct', 'tex'], md: '$$', kw: 'math cong thuc latex katex equation', dialog: 'math' },
+    { k: 'imath', g: 'Chèn', icon: '𝑥', label: 'Công thức cùng dòng…', desc: 'LaTeX nằm trong câu', al: ['imath', 'ct1'], md: '$', kw: 'math inline cong thuc latex', dialog: 'imath' },
+    { k: 'img', g: 'Chèn', icon: '🖼', label: 'Ảnh từ máy…', desc: 'Hoặc dán / kéo thả ảnh vào trang', al: ['img', 'anh'], md: '![]()', kw: 'anh hinh image picture upload tai len', dialog: 'img' },
+    { k: 'imgurl', g: 'Chèn', icon: '🌐', label: 'Ảnh từ đường link…', desc: 'Dán địa chỉ ảnh', al: ['imgurl', 'anhlink'], md: '', kw: 'anh hinh image url link', dialog: 'imgurl' },
+    { k: 'date', g: 'Chèn', icon: '📆', label: 'Ngày hôm nay', desc: localDate(), al: ['date', 'ngay', 'today'], md: '', kw: 'date ngay hom nay', ins: () => localDate() },
+    { k: 'due', g: 'Chèn', icon: '📅', label: 'Hạn chót', desc: 'Việc có hạn, hiện trên Lịch', al: ['due', 'han', 'deadline'], md: '📅', kw: 'han chot deadline due lich calendar', ins: () => ` 📅 ${localDate()}` },
+
+    { k: 'ai', g: 'AI', icon: '✨', label: 'AI viết / chỉnh đoạn', desc: 'Viết tiếp, dàn ý, tóm tắt, brainstorm (Ctrl+J)', al: ['ai'], md: '', kw: 'ai tro ly gpt claude gemini viet tiep tom tat dan y', dialog: 'ai' },
+    { k: 'aifull', g: 'AI', icon: '📚', label: 'Hỏi AI với nguồn…', desc: 'Dựa trên paper và ghi chú bạn chọn', al: ['hoi', 'rag', 'ask'], md: '', kw: 'ai rag nguon paper ghi chu hoi', dialog: 'aifull' },
   ];
+  setGuideBlocks(SLASH);
   const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+  /** Xếp hạng khối theo chữ gõ sau "/": trùng phím tắt > phím tắt bắt đầu bằng > chữ đầu từ trong tên > có trong tên > từ khoá > gõ tắt theo thứ tự chữ. */
+  function slashMatches(raw) {
+    const q = fold(raw).trim();
+    if (!q) return SLASH.map((s) => ({ s, score: 0 }));
+    const qn = q.replace(/\s+/g, '');
+    const out = [];
+    SLASH.forEach((s, idx) => {
+      const label = fold(s.label);
+      const words = label.split(/[^a-z0-9]+/).filter(Boolean);
+      const kws = `${fold(s.kw)} ${fold(s.g)}`.split(/\s+/);
+      let score = 0;
+      if (s.al.includes(qn)) score = 100;
+      else if (s.al.some((a) => a.startsWith(qn))) score = 80;
+      else if (label.startsWith(q)) score = 70;
+      else if (words.some((w) => w.startsWith(q))) score = 60;
+      else if (kws.some((w) => w.startsWith(q))) score = 35;
+      else if (label.includes(q)) score = 20;
+      else if (kws.join(' ').includes(q)) score = 15;
+      else {
+        // gõ tắt theo thứ tự chữ: "dsds" khớp "danh sach danh so"
+        let i = 0;
+        for (const ch of label.replace(/\s+/g, '')) if (ch === qn[i]) i++;
+        if (i === qn.length && qn.length >= 2) score = 10;
+      }
+      if (score) out.push({ s, score: score - idx / 100 });
+    });
+    out.sort((a, b) => b.score - a.score);
+    // đã có khối khớp rõ (phím tắt / chữ đầu từ) thì bỏ các khối chỉ khớp lỏng cho danh sách gọn
+    return out[0]?.score >= 60 ? out.filter((x) => x.score >= 30) : out;
+  }
   let pop = null; // { kind, start, items, i }
 
   function caretXY(ta, pos) {
@@ -767,9 +874,8 @@ export async function render(root, { params, query }) {
     }
     m = /(^|\s)\/([\p{L}\p{N} ]{0,24})$/u.exec(before);
     if (m && !/\s{2}$/.test(m[2])) {
-      const q = fold(m[2]);
-      const items = SLASH.filter((s) => !q || fold(s.label).includes(q) || s.kw.includes(q)).map((s) => ({ type: 'slash', s, label: s.label }));
-      return showPop({ kind: 'slash', start: pos - m[2].length - 1, items });
+      const items = slashMatches(m[2]).map(({ s }) => ({ type: 'slash', s, label: s.label }));
+      return showPop({ kind: 'slash', start: pos - m[2].length - 1, items, q: m[2].trim() });
     }
     closePop();
   }
@@ -778,7 +884,17 @@ export async function render(root, { params, query }) {
     const box = $('nb-pop');
     if (!state.items.length) return closePop();
     pop = { ...state, i: Math.min(pop?.kind === state.kind ? pop.i : 0, state.items.length - 1) };
-    box.innerHTML = `<div class="nb-pop-h hint">${state.kind === 'slash' ? 'Chèn khối' : 'Liên kết · ↑↓ chọn · Enter chèn · Esc đóng'}</div>${state.items.map((it, i) => `<button type="button" class="nb-pop-i ${i === pop.i ? 'on' : ''}" data-i="${i}"><span>${escapeHtml(it.label)}</span>${it.sub ? `<span class="hint">${escapeHtml(it.sub)}</span>` : ''}</button>`).join('')}`;
+    if (state.kind === 'slash') {
+      // nhóm khi chưa gõ gì; khi đang tìm thì xếp theo độ khớp, kèm tên nhóm ở bên phải
+      let lastG = '';
+      const qa = fold(state.q || '').replace(/\s+/g, '');
+      box.innerHTML = `<div class="nb-pop-h hint">${state.q ? `Khối khớp “/${escapeHtml(state.q)}”` : 'Chèn khối · gõ để tìm, ví dụ /h1, /todo, /bang, /code, /ct, /ai'}</div>${state.items.map((it, i) => {
+        const s = it.s;
+        const head = !state.q && s.g !== lastG ? `<div class="nb-pop-g">${escapeHtml(s.g)}</div>` : '';
+        lastG = s.g;
+        return `${head}<button type="button" class="nb-pop-i nb-pop-s ${i === pop.i ? 'on' : ''}" data-i="${i}"><span class="nb-ps-ic">${escapeHtml(s.icon)}</span><span class="nb-ps-b"><span class="nb-ps-l">${escapeHtml(s.label)}</span><span class="nb-ps-d">${escapeHtml(s.desc || '')}</span></span><span class="nb-ps-k">${state.q ? `<em>${escapeHtml(s.g)}</em>` : ''}<kbd>/${escapeHtml((qa && s.al.find((x) => x.startsWith(qa))) || s.al[0])}</kbd>${s.md ? `<code>${escapeHtml(s.md)}</code>` : ''}</span></button>`;
+      }).join('')}<div class="nb-pop-f hint">↑↓ chọn · Enter chèn · Esc đóng</div>`;
+    } else box.innerHTML = `<div class="nb-pop-h hint">Liên kết · ↑↓ chọn · Enter chèn · Esc đóng</div>${state.items.map((it, i) => `<button type="button" class="nb-pop-i ${i === pop.i ? 'on' : ''}" data-i="${i}"><span>${escapeHtml(it.label)}</span>${it.sub ? `<span class="hint">${escapeHtml(it.sub)}</span>` : ''}</button>`).join('')}`;
     const ed = $('nb-ed');
     const xy = caretXY(ed, ed.selectionStart);
     box.hidden = false;
@@ -846,6 +962,131 @@ export async function render(root, { params, query }) {
     document.body.appendChild(ov);
   }
 
+  /** Trợ lý AI: nguồn mặc định là paper nhắc trong trang + chính trang này; chèn ở chỗ con trỏ hoặc thay đoạn đang chọn. */
+  function openAI() {
+    const p = pageById(cur);
+    if (!p) return;
+    const ed = $('nb-ed');
+    const s = ed ? ed.selectionStart : 0;
+    const e = ed ? ed.selectionEnd : 0;
+    const selection = ed && e > s ? ed.value.slice(s, e) : '';
+    aiDialog({
+      page: { ...p, content: ed ? ed.value : p.content },
+      selection,
+      onInsert: (md) => {
+        if (mode === 'read') setMode('split');
+        const box = $('nb-ed');
+        if (!box) return;
+        const at = selection ? e : (box.selectionStart ?? box.value.length);
+        // chèn thành khối riêng, cách đoạn trước / sau một dòng trống
+        const v = box.value;
+        const pre = at > 0 && !v.slice(0, at).endsWith('\n\n') ? (v[at - 1] === '\n' ? '\n' : '\n\n') : '';
+        insertAt(at, `${pre}${md}\n`, { block: true });
+      },
+      onReplace: (md) => {
+        const box = $('nb-ed');
+        if (!box) return;
+        box.value = box.value.slice(0, s) + md + box.value.slice(e);
+        box.focus();
+        box.setSelectionRange(s, s + md.length);
+        markDirty();
+        drawPreview();
+      },
+    });
+  }
+
+  /**
+   * AI nhanh (giống Notion AI). Có vùng chọn → làm việc trên vùng đó; con trỏ trên một đoạn → cả đoạn đó
+   * (các dòng liền nhau, ngăn bởi dòng trống); dòng trống → viết mới ở chỗ con trỏ. range = [s, e] để chỉ định sẵn.
+   */
+  function quickAI({ range = null, anchor = null } = {}) {
+    const p = pageById(cur);
+    const ed = $('nb-ed');
+    if (!p || !ed) return;
+    hideSelBtn();
+    const v = ed.value;
+    let [s, e] = range || [ed.selectionStart, ed.selectionEnd];
+    let kind = 'edit';
+    if (!range && s === e) {
+      const ls = v.lastIndexOf('\n', s - 1) + 1;
+      let le = v.indexOf('\n', s);
+      if (le < 0) le = v.length;
+      if (!v.slice(ls, le).trim()) kind = 'write';
+      else {
+        // mở rộng ra cả đoạn: lùi / tiến tới dòng trống gần nhất
+        let a = ls;
+        // đoạn dừng ở dòng trống hoặc tiêu đề (trừ khi con trỏ đang ở chính dòng tiêu đề)
+        const isHead = (s0, e0) => /^#{1,6}\s/.test(v.slice(s0, e0));
+        if (!isHead(ls, le)) {
+          while (a > 0) { const pl = v.lastIndexOf('\n', a - 2) + 1; if (!v.slice(pl, a - 1).trim() || isHead(pl, a - 1)) break; a = pl; }
+        }
+        let b = le;
+        while (b < v.length) { let nl = v.indexOf('\n', b + 1); if (nl < 0) nl = v.length; if (!v.slice(b + 1, nl).trim() || isHead(b + 1, nl)) break; b = nl; }
+        [s, e] = [a, b];
+        ed.setSelectionRange(s, e);
+      }
+    }
+    const text = v.slice(s, e);
+    let pt = anchor;
+    if (!pt) {
+      const r = ed.getBoundingClientRect();
+      const z = parseFloat(getComputedStyle(document.body).zoom) || 1;
+      const xy = caretXY(ed, kind === 'write' ? s : e);
+      pt = { x: r.left + Math.max(0, xy.x - ed.offsetLeft) * z, y: r.top + Math.min(ed.clientHeight, Math.max(0, xy.y - ed.offsetTop)) * z };
+    }
+    const spaced = (at, md) => {
+      const val = $('nb-ed').value;
+      const pre = at > 0 && !val.slice(0, at).endsWith('\n\n') ? (val[at - 1] === '\n' ? '\n' : '\n\n') : '';
+      return `${pre}${md}\n`;
+    };
+    openInlineAI({
+      x: pt.x, y: pt.y, kind, text,
+      page: { title: $('nb-title')?.value || p.title, content: v, cursor: s },
+      openFull: openAI,
+      apply: {
+        replace: (md) => {
+          const box = $('nb-ed');
+          box.value = box.value.slice(0, s) + md + box.value.slice(e);
+          box.focus();
+          box.setSelectionRange(s, s + md.length);
+          markDirty();
+          drawPreview();
+          toast('Đã thay đoạn bằng kết quả của AI. Ctrl+Z để hoàn tác.');
+        },
+        below: (md) => { if (mode === 'read') setMode('split'); insertAt(e, spaced(e, md), { block: true }); },
+        insert: (md) => { if (mode === 'read') setMode('split'); insertAt(s, md, { block: true }); },
+      },
+    });
+  }
+
+  /* Nút ✨ nổi cạnh vùng chữ đang bôi đen trong khung viết */
+  let selBtn = null;
+  function hideSelBtn() { if (selBtn) selBtn.hidden = true; }
+  function showSelBtn() {
+    const ed = $('nb-ed');
+    if (!ed || document.activeElement !== ed) return hideSelBtn();
+    const s = ed.selectionStart;
+    const e = ed.selectionEnd;
+    if (e - s < 3 || !ed.value.slice(s, e).trim()) return hideSelBtn();
+    if (!selBtn) {
+      selBtn = document.createElement('button');
+      selBtn.type = 'button';
+      selBtn.className = 'nb-sel-ai';
+      selBtn.innerHTML = '✨ AI <kbd>Ctrl J</kbd>';
+      selBtn.title = 'AI làm việc với đoạn đang chọn: cải thiện, rút gọn, giải thích, dịch… (Ctrl + J)';
+      selBtn.addEventListener('pointerdown', (ev) => ev.preventDefault()); // giữ vùng chọn
+      selBtn.addEventListener('click', () => quickAI());
+      document.body.appendChild(selBtn);
+    }
+    const r = ed.getBoundingClientRect();
+    const z = parseFloat(getComputedStyle(document.body).zoom) || 1;
+    const xy = caretXY(ed, e);
+    const y = Math.min(ed.clientHeight - 10, Math.max(0, xy.y - ed.offsetTop));
+    selBtn.style.left = `${Math.min(r.right / z - 90, r.left / z + Math.max(0, xy.x - ed.offsetLeft) + 6)}px`;
+    selBtn.style.top = `${r.top / z + y + 4}px`;
+    selBtn.hidden = false;
+  }
+
   /** Chèn text vào trình soạn thảo ở vị trí pos; khối (code, bảng, công thức đứng riêng) luôn nằm trên dòng riêng. */
   function insertAt(pos, text, { block = true } = {}) {
     const ed = $('nb-ed');
@@ -910,6 +1151,8 @@ export async function render(root, { params, query }) {
         closePop();
         markDirty();
         let txt = null;
+        if (s.dialog === 'ai') { ed.focus(); ed.setSelectionRange(at0, at0); quickAI(); return; }
+        if (s.dialog === 'aifull') { ed.focus(); ed.setSelectionRange(at0, at0); openAI(); return; }
         if (s.dialog === 'code') txt = await codeDialog();
         else if (s.dialog === 'query') { const src = await paperQueryBuilder(''); txt = src == null ? null : `\`\`\`papers\n${src}\n\`\`\``; }
         else if (s.dialog === 'img') { ed.focus(); ed.setSelectionRange(at0, at0); pickImages(); return; }
@@ -948,6 +1191,7 @@ export async function render(root, { params, query }) {
     }
     const mod = e.ctrlKey || e.metaKey;
     if (mod && (e.key === 's' || e.key === 'S')) { e.preventDefault(); dirty = true; persist(); return; }
+    if (mod && (e.key === 'j' || e.key === 'J')) { e.preventDefault(); quickAI(); return; }
     if (mod && (e.key === 'b' || e.key === 'i')) {
       e.preventDefault();
       const mark = e.key === 'b' ? '**' : '*';
@@ -1155,9 +1399,24 @@ export async function render(root, { params, query }) {
   document.addEventListener('keydown', onKey);
   // Nút Quay lại của trình duyệt đổi hash nên bộ định tuyến của app tự dựng lại trang với đúng trang con.
   // Trang thay đổi (tạo, xoá, khôi phục, đổi tên…): vẽ lại cây, trang chủ (Sửa gần đây) và rời trang đang mở nếu nó vừa bị xoá.
-  const unsub = onPagesChange(() => {
+  const unsub = onPagesChange((info) => {
     if (!$('nb-tree')) return;
     drawTree();
+    // Trang đang mở vừa được sửa ở khung chia đôi / tab khác: chưa sửa gì ở đây thì nạp bản mới, đang sửa dở thì báo.
+    const open = info?.external && cur ? pageById(cur) : null;
+    const ed = $('nb-ed');
+    if (open && ed && (open.content || '') !== ed.value) {
+      if (dirty) toast('Trang này vừa được sửa ở khung khác. Bạn đang sửa dở ở đây: lưu ở đây sẽ ghi đè bản kia.', 6000, 'err');
+      else {
+        const [a, b, y] = [ed.selectionStart, ed.selectionEnd, ed.scrollTop];
+        ed.value = open.content || '';
+        ed.setSelectionRange(Math.min(a, ed.value.length), Math.min(b, ed.value.length));
+        ed.scrollTop = y;
+        if ($('nb-title') && document.activeElement !== $('nb-title')) $('nb-title').value = open.title || '';
+        drawPreview();
+        toast('Đã cập nhật trang theo bản vừa sửa ở khung khác.', 2500);
+      }
+    }
     if (cur && !allPages().some((p) => p.id === cur)) { cur = null; dirty = false; history.replaceState(null, '', '#/notebook'); drawMain(); }
     else if (!cur && $('nb-main').querySelector('.nb-home')) drawHome();
   });
@@ -1177,6 +1436,9 @@ export async function render(root, { params, query }) {
     document.removeEventListener('keydown', onKey);
     window.removeEventListener('beforeunload', onUnload);
     unsub();
+    closeInlineAI();
+    selBtn?.remove();
+    nbMq.removeEventListener('change', onNbMq);
     if (dirty) persist();
   };
 }

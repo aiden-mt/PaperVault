@@ -277,20 +277,41 @@ export const SECTIONS = [
   <li><b>Bảng paper</b>: gõ <code>/</code> → ${ui('Bảng paper từ thư viện')} mở trình dựng bảng có các tab Lọc (tag, chủ đề, trạng thái, năm, từ khoá), Cột &amp; sắp xếp, Xem trước, Mã khối; bảng đã có thì bấm ${ui('⚙ Chỉnh bảng')}.</li>
   <li><b>Hướng dẫn</b>: nút ❔ (hoặc <kbd>Ctrl</kbd>+<kbd>/</kbd>) mở hướng dẫn có các tab Markdown, Liên kết &amp; paper, Khối đặc biệt, Bảng paper, Phím tắt, mỗi ví dụ có nút Copy và Chèn vào trang.</li>
   <li><b>🕸 Đồ thị</b>: mọi trang và paper được nhắc tới, nối theo liên kết (nét đứt là quan hệ trang cha / trang con). Bấm để xem, bấm đúp để mở, Esc bỏ chọn, Shift + Esc đóng.</li>
+  <li><b>✨ AI nhanh</b> (giống Notion AI): bôi đen một đoạn rồi bấm nút ✨ AI nổi cạnh đó, hoặc đặt con trỏ trong một đoạn rồi nhấn <kbd>Ctrl</kbd>+<kbd>J</kbd> (app tự chọn cả đoạn), hoặc rê chuột vào một đoạn ở phần xem rồi bấm ✨ bên trái. Menu có: cải thiện văn phong, sửa chính tả, viết ngắn / dài hơn, giọng học thuật, tóm tắt, giải thích, rút ý chính, chuyển thành bảng, câu hỏi ôn tập, phản biện, bổ sung dẫn chứng từ paper trong trang, dịch Anh / Việt. Gõ để lọc, hoặc gõ yêu cầu riêng rồi Enter. Kết quả hiện ngay: ${ui('Thay thế')}, ${ui('Chèn bên dưới')}, ${ui('Thử lại')}, hoặc gõ vào ô "Bảo AI sửa tiếp". Trên dòng trống, <kbd>Ctrl</kbd>+<kbd>J</kbd> (hoặc <code>/ai</code>) mở menu viết mới: viết tiếp, dàn ý, tóm tắt trang, brainstorm, bảng so sánh paper, việc cần làm. ${ui('⭐ Lưu thành prompt nhanh')} giữ yêu cầu bạn hay dùng trong nhóm "Prompt của tôi".</li>
+  <li><b>📚 Hỏi AI với nguồn</b>: nút ${ui('✨ AI')} trên đầu trang, <code>/</code> → Hỏi AI với nguồn, hoặc mục cuối của menu AI nhanh. AI trả lời dựa trên <b>nguồn bạn chọn</b>: paper trong thư viện (mặc định là các paper nhắc trong trang) và trang ghi chú trong Sổ tay (mặc định là trang đang viết). Bật <i>Tự tìm thêm paper liên quan</i> để app tự chọn thêm tối đa 5 paper khớp câu hỏi.
+    <ul>
+      <li><b>Mức ngữ cảnh</b>: <i>Chỉ ghi chú</i> (nhanh, rẻ), <i>Ghi chú + đoạn liên quan</i> (khuyên dùng: mỗi câu hỏi tìm thêm các đoạn khớp nhất trong toàn văn, giống RAG), <i>Toàn văn</i> (đầy đủ nhất, tốn token nhất).</li>
+      <li>Có sẵn các yêu cầu: tóm tắt nguồn, bảng so sánh, đoạn Related Work, giải thích đoạn đang bôi đen, viết tiếp trang, câu hỏi mở. Bấm ${ui('Hỏi tiếp')} để hỏi thêm với cùng nguồn.</li>
+      <li>Câu trả lời ghi nguồn sau từng ý; khi ${ui('Chèn vào trang')}, nguồn thành liên kết tới paper / trang (khối ✨ AI hoặc văn bản thường). Bôi đen một đoạn trước khi mở thì có thêm ${ui('Thay đoạn đã chọn')}.</li>
+    </ul></li>
 </ul>
 <p>Sổ tay được lưu trong cơ sở dữ liệu của app và có trong file sao lưu JSON.</p>`,
   },
   {
     id: 'calendar', title: 'Lịch kế hoạch', routes: ['calendar'],
     html: `
-<p>Trang ${ui('Lịch')} (nhóm Ghi chép, phím tắt <kbd>G</kbd> <kbd>K</kbd>) để lên kế hoạch đọc paper, thí nghiệm, viết bài, deadline, họp.</p>
+<p>Trang ${ui('Lịch')} (nhóm Cá nhân, phím tắt <kbd>G</kbd> <kbd>K</kbd>) để lên kế hoạch đọc paper, thí nghiệm, viết bài, deadline, họp.</p>
 <ul>
   <li><b>Ba chế độ</b>: Tháng, Tuần, Danh sách (60 ngày tới, kèm mục ⚠ Quá hạn chưa xong). Nút ‹ › và ${ui('Hôm nay')} để đi lại.</li>
-  <li><b>Thêm kế hoạch</b>: ${ui('+ Kế hoạch')}, bấm đúp một ngày, hoặc gõ vào ô ở bảng bên (ghi giờ ở đầu như <code>14:00 Họp nhóm</code>). Mỗi kế hoạch có giờ bắt đầu / kết thúc, loại (mỗi loại một màu), lặp lại hằng ngày / tuần / tháng (có thể đặt ngày kết thúc, hoặc bỏ riêng một lần), gắn một paper trong thư viện và một trang Sổ tay, ghi chú.</li>
+  <li><b>Thêm kế hoạch</b>: ${ui('+ Kế hoạch')}, bấm đúp một ngày, ở chế độ Tuần bấm một ô 30 phút (kéo khối để dời giờ, kéo mép dưới để đổi giờ kết thúc), hoặc bấm một khoảng trống / ${ui('Lên lịch')} ở bảng ngày bên phải. Mỗi kế hoạch có giờ bắt đầu / kết thúc, loại (mỗi loại một màu), lặp lại hằng ngày / tuần / tháng (có thể đặt ngày kết thúc, hoặc bỏ riêng một lần), gắn một paper trong thư viện và một trang Sổ tay, ghi chú.</li>
   <li><b>Dời ngày</b>: kéo một kế hoạch sang ô ngày khác. Bấm một kế hoạch để sửa; ô vuông ở bảng bên để đánh dấu xong.</li>
   <li><b>Nhật ký</b>: ngày có nhật ký hiện 📓. Bảng bên có ${ui('Mở')} / ${ui('+ Tạo nhật ký')} cho đúng ngày đang chọn. Trang nhật ký trong Sổ tay có thẻ 📅 Lịch của ngày đó: đánh dấu xong, thêm kế hoạch ngay trong trang.</li>
   <li><b>Việc có hạn trong Sổ tay</b>: viết <code>- [ ] việc 📅 2026-10-25</code> (hoặc gõ <code>/</code> → Hạn chót) ở bất kỳ trang nào, việc đó hiện trên Lịch; đánh dấu xong ở Lịch thì trang nguồn cũng được đánh dấu. Ở phần xem của trang, hạn hiện thành nhãn 📅 25/10 (đỏ khi quá hạn), bấm để mở Lịch ngày đó.</li>
   <li><b>Lọc</b>: bấm các nhãn loại để ẩn / hiện, nhãn ${ui('Việc trong Sổ tay')} để ẩn / hiện việc có hạn.</li>
+</ul>`,
+  },
+  {
+    id: 'split', title: 'Chia đôi màn hình', routes: [],
+    html: `
+<p>Mở hai chức năng cùng lúc: đọc paper bên trái và viết Sổ tay bên phải, hoặc Thư viện ở trên và Chat ở dưới.</p>
+<ul>
+  <li><b>Bật</b>: nút ◫ trên thanh trên cùng (hoặc <kbd>Ctrl</kbd> <kbd>\\</kbd>), chọn ${ui('Chia dọc')} (trái | phải) hoặc ${ui('Chia ngang')} (trên / dưới). Khung đang mở thành khung 1, khung 2 mở chức năng hay dùng kèm (đọc paper → Sổ tay, Thư viện → Chat…), đổi ở ô ${ui('Khung kia mở')}.</li>
+  <li><b>Chọn khung</b>: bấm vào khung nào thì khung đó được chọn (viền màu ở trên, số khung tô màu). Thanh bên trái, ô tìm kiếm, nút ${ui('Thêm paper')}, nút <b>?</b> và phím tắt (<kbd>G</kbd> rồi một phím…) đều điều khiển khung đang chọn.</li>
+  <li><b>Đổi tỉ lệ</b>: kéo thanh giữa hai khung, bấm đúp để về 50 : 50, hoặc chọn thanh rồi dùng phím mũi tên (mỗi lần 5%). Muốn số chính xác thì nhập % ở bảng ◫ hoặc bấm các mức có sẵn (60 : 40, 70 : 30…).</li>
+  <li><b>Mỗi khung</b> có ô ${ui('Mở…')} để chuyển chức năng, ⤢ để chỉ giữ khung đó (thoát chia đôi) và ✕ để đóng khung. ${ui('Đổi chỗ hai khung')} trong bảng ◫.</li>
+  <li><b>Alt + bấm</b> một link (paper, trang Sổ tay…) để mở nó ở khung bên kia.</li>
+  <li><b>Dữ liệu dùng chung</b>: lưu ở khung này thì khung kia tự cập nhật (thư viện, lịch, tổng quan vẽ lại khi bạn không thao tác ở đó). Paper tick chọn ở Thư viện khung này dùng được ngay ở So sánh khung kia.</li>
+  <li>Bố cục được nhớ, mở lại app vẫn giữ nguyên. Đóng khung khi còn việc chạy nền (trích xuất, bài giảng…) thì app hỏi lại trước, vì đóng khung sẽ dừng việc đó.</li>
 </ul>`,
   },
   {
@@ -315,6 +336,7 @@ export const SECTIONS = [
     html: `
 <p>Các nhóm cài đặt chính gồm:</p>
 <ul>
+  <li><b>Model riêng cho từng việc.</b> Trong thẻ Mô hình, mở ${ui('Model riêng cho từng việc')}: chọn nhà cung cấp và model khác cho Trích xuất, Chat &amp; Hỏi đáp, AI trong Sổ tay, Bài giảng, Phân tích &amp; tổng hợp, Tô câu đáng nhớ, Dịch bằng AI (ví dụ model rẻ cho Chat, model mạnh cho trích xuất). Chọn nhà cung cấp khác thì ô API key của nhà cung cấp đó hiện ra, kèm nhãn việc nào đang dùng nó. Nút ${ui('Thử')} gọi thử đúng model của việc đó. Để "Như mặc định" thì việc đó dùng model chính.</li>
   <li><b>Mô hình.</b> Chọn nhà cung cấp, model và key. Với Claude, mức effort điều chỉnh độ kỹ của mô hình, mức thấp rẻ và nhanh hơn. Với các model Claude có bộ lọc an toàn, app bật cơ chế chuyển model dự phòng phía máy chủ, nên khi một yêu cầu bị từ chối, API tự chạy lại trên model phù hợp thay vì trả về lỗi.</li>
   <li><b>Trích xuất.</b> Ngôn ngữ ghi chú, số ký tự tối đa gửi đi và cách xử lý PDF. Toàn văn dài hơn giới hạn sẽ bị lược phần giữa, giữ phần đầu và phần cuối vì Limitation thường nằm cuối bài.</li>
   <li><b>Bảng xếp hạng venue.</b> Xem phiên bản bảng CORE và SJR đang dùng, cập nhật trực tuyến và phân loại lại.</li>

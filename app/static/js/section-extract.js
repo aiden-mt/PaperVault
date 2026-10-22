@@ -2,7 +2,7 @@
 // trường của mục được chọn, các mục khác giữ nguyên, kể cả phần người dùng đã sửa tay.
 import { store, savePaper, paperById } from './store.js';
 import { fixLanguage } from './langfix.js';
-import { complete, NATIVE_PDF_PROVIDERS } from './llm.js';
+import { complete, NATIVE_PDF_PROVIDERS, settingsFor, modelLabel } from './llm.js';
 import { EXTRACTION_SCHEMA, normalizeExtraction } from './schema.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts.js';
 import { prepareSource } from './extract.js';
@@ -83,7 +83,7 @@ export async function reExtractSection(paperId, key, { label = '', hint = '', on
   const source = await prepareSource({ url: p.url, title: p.title, arxivId: p.arxivId, doi: p.doi, kind: t.kind || p.sourceKind, text: t.text || '', pdfId: p.pdfId, pdfName: p.pdfName }, { onStatus });
   // Viết đúng ngôn ngữ của bản ghi chú hiện có, không theo Cài đặt, để một bản ghi chú không lẫn hai thứ tiếng.
   const settings = { ...store.settings, language: sourceLang(current) };
-  const nativePdf = !!source.pdfBase64 && NATIVE_PDF_PROVIDERS.has(settings.provider) && settings.pdfMode !== 'text';
+  const nativePdf = !!source.pdfBase64 && NATIVE_PDF_PROVIDERS.has(settingsFor(settings, 'extract-section').provider) && settings.pdfMode !== 'text';
   if (!nativePdf && (source.text || '').trim().length < 120) throw new Error('Nội dung paper quá ngắn để trích xuất.');
   const previous = pickFields(current, fields);
   const user = [
@@ -95,7 +95,7 @@ export async function reExtractSection(paperId, key, { label = '', hint = '', on
     `Bản hiện tại của mục này, chỉ để tham khảo (có thể thiếu hoặc sai, đừng chép lại nguyên):\n${JSON.stringify(previous)}`,
     hint.trim() ? `Yêu cầu thêm của người đọc cho mục này: ${hint.trim()}` : '',
   ].filter((x) => x !== '').join('\n');
-  onStatus(`Đang gọi ${settings.provider}/${settings.models?.[settings.provider]}…`);
+  onStatus(`Đang gọi ${modelLabel(settings, 'extract-section')}…`);
   const out = await complete({
     settings, system: buildSystemPrompt(settings), user, schema: partialSchema(fields), schemaName: 'paper_section',
     pdfBase64: nativePdf ? source.pdfBase64 : null, task: 'extract-section', paperId,

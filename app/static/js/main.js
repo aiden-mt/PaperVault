@@ -22,6 +22,9 @@ import * as notebook from './views/notebook.js';
 import * as calendar from './views/calendar.js';
 import { loadMathLib } from './mathlib.js';
 import { syncTranslateButton } from './translate-popup.js';
+import { isEmbed, splitActive, initSplit, initEmbed, restore as restoreSplit, forward as forwardSplit, toggle as toggleSplit, openPanel as openSplitPanel, eachPane } from './split.js';
+import { initPaneSync } from './panesync.js';
+import { busyLabels } from './bgjobs.js';
 
 const routes = { '': dashboard, library, paper, add, compare, topics, settings, feed, chat, help, notes, notebook, calendar };
 let cleanup = null;
@@ -36,7 +39,24 @@ function parseHash() {
   return { name: segs[0] || '', params: segs.slice(1), query };
 }
 
+/** Tô mục đang mở ở thanh bên và trỏ nút Hướng dẫn tới đúng mục. */
+function setActive(name) {
+  const n = routes[name] ? name : '';
+  document.querySelectorAll('#nav a[data-route]').forEach((a) => a.classList.toggle('active', a.dataset.route === n));
+  $('btn-help').href = `#/help?s=${help.sectionForRoute(n)}`;
+  $('btn-help').hidden = n === 'help';
+}
+
+/** Gỡ trang đang hiện (trước khi chia đôi màn hình). */
+function teardown() {
+  if (typeof cleanup === 'function') { try { cleanup(); } catch (_) { /* bỏ qua */ } }
+  cleanup = null;
+  $('view').innerHTML = '';
+}
+
 export async function route() {
+  // Đang chia đôi: cửa sổ chính không vẽ trang, chuyển địa chỉ mới cho khung đang chọn.
+  if (splitActive()) { forwardSplit(location.hash || '#/'); $('nav').classList.remove('open'); return; }
   const { name, params, query } = parseHash();
   const view = routes[name] || dashboard;
   currentName = routes[name] ? name : '';
@@ -45,9 +65,7 @@ export async function route() {
   const root = $('view');
   root.className = 'view';
   root.innerHTML = '';
-  document.querySelectorAll('#nav a[data-route]').forEach((a) => a.classList.toggle('active', a.dataset.route === currentName));
-  $('btn-help').href = `#/help?s=${help.sectionForRoute(currentName)}`;
-  $('btn-help').hidden = currentName === 'help';
+  setActive(currentName);
   $('nav').classList.remove('open');
   try {
     cleanup = await view.render(root, { params, query });
@@ -78,6 +96,7 @@ $('theme-toggle').addEventListener('click', async () => {
   const next = currentTheme() === 'dark' ? 'light' : 'dark';
   applyTheme(next);
   try { localStorage.setItem('pv-theme', next); } catch (_) { /* bỏ qua */ }
+  eachPane((w) => w.pvApplyTheme?.(next));
 });
 
 /* ---------- Tìm kiếm toàn cục ---------- */
@@ -90,6 +109,8 @@ $('global-search').addEventListener('keydown', (e) => {
 });
 $('btn-quick-add').addEventListener('click', () => navigate('#/add'));
 $('nav-toggle').addEventListener('click', () => $('nav').classList.toggle('open'));
+window.addEventListener('pv:pane-pointerdown', () => $('nav').classList.remove('open'));
+$('btn-split').addEventListener('click', (e) => openSplitPanel(e.currentTarget));
 
 // Phím tắt chuyển trang: "g" rồi một phím (G D = Tổng quan…), riêng Thêm paper là "n".
 // Một bảng dùng chung cho cả xử lý phím lẫn nhãn phím tắt hiện cạnh mục menu.
@@ -112,6 +133,7 @@ $('btn-help').title = 'Hướng dẫn cho trang này (phím ?)';
 $('btn-translate').title = 'Dịch khi bôi đen: cài đặt nhanh, ghi chú & thẻ ghi nhớ (bôi đen rồi Ctrl+Shift+D để dịch ngay)';
 
 document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === '\\' && !isEmbed) { e.preventDefault(); toggleSplit(); return; }
   const tag = document.activeElement?.tagName;
   const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement?.isContentEditable;
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -177,6 +199,8 @@ async function initDesktop() {
 }
 
 (async function init() {
+  if (isEmbed) initEmbed({ route, busy: busyLabels, applyTheme });
+  else initSplit({ route, teardown, setActive });
   try { applyTheme(localStorage.getItem('pv-theme') || ''); } catch (_) { /* bỏ qua */ }
   applyAppearance(cachedAppearance()); // áp ngay bản đã nhớ, tránh nháy phông mặc định
   await initDesktop();
@@ -193,6 +217,10 @@ async function initDesktop() {
     $('view').innerHTML = `<div class="empty"><b>Không kết nối được máy chủ.</b><br>${e.message}<br><br>Chạy <code>python server.py</code> trong thư mục app rồi tải lại trang.</div>`;
     return;
   }
+  initPaneSync({
+    currentName: () => currentName,
+    rerender: async () => { if (splitActive()) return; const v = $('view'); const y = v.scrollTop; await route(); v.scrollTop = y; },
+  });
   window.addEventListener('hashchange', route);
-  await route();
+  if (!restoreSplit()) await route();
 })();

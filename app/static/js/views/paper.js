@@ -6,7 +6,7 @@ import { $, el, toast, confirmDialog, mdToHtml, ratingControl, topicBadge, setSt
 import { renderSections } from '../render.js';
 import { paperToMarkdown, quickNoteLine, bibtexOf } from '../markdown.js';
 import { normalizeExtraction } from '../schema.js';
-import { askPaper, NATIVE_PDF_PROVIDERS, hasCredentials, translateText, translateNotesAI } from '../llm.js';
+import { askPaper, NATIVE_PDF_PROVIDERS, hasCredentials, translateText, translateNotesAI, settingsFor, modelLabel } from '../llm.js';
 import { CHAT_LANGS } from '../prompts.js';
 import { s2Ident, pubTime, citeVelocity, fmtPub, citeRole, ROLE_LABELS, ROLE_HINTS, s2Key, ctxQuotes } from '../s2util.js';
 import { buildWhatsNew, whatsNewJob, removeWhatsNew, whatsNewHtml, whatsNewMarkdown, addQueryOf, bindWhatsNewChips } from '../whatsnew.js';
@@ -146,9 +146,17 @@ export async function render(root, { params, query }) {
   let tab = query.get('tab') || 'notes';
   let draft = null;
 
+  // Đầu trang thu gọn (chỉ còn tên + chủ đề, trạng thái): mặc định khi khung thấp hoặc hẹp, ví dụ khi chia đôi màn hình.
+  // Lựa chọn của người dùng nhớ riêng cho khung nhỏ và khung lớn.
+  const smallBox = window.innerHeight < 700 || window.innerWidth < 760;
+  const headKey = smallBox ? 'pv.ppHeadS' : 'pv.ppHead';
+  let headPref = null;
+  try { headPref = localStorage.getItem(headKey); } catch (_) { /* bỏ qua */ }
+  const compact = headPref ? headPref === 'compact' : smallBox;
   root.innerHTML = `<div class="paper-page">
-    <div class="paper-head">
+    <div class="paper-head ${compact ? 'compact' : ''}" id="pp-head">
       <div class="row"><a href="#/library/${p.topicId || 't_inbox'}" class="hint">← ${escapeHtml(topicOf(p)?.name || 'Thư viện')}</a><span class="spacer"></span>
+        <button id="pp-headt" class="sm ghost" title="Thu gọn / mở rộng phần đầu trang (tác giả, tag, venue)">${compact ? '▾ Chi tiết' : '▴ Thu gọn'}</button>
         <button id="pp-copy" class="sm">Copy Markdown</button>
         <button id="pp-reextract" class="sm" title="Chạy lại trích xuất từ nguồn đã lưu / PDF">Trích xuất lại</button>
         <button id="pp-del" class="sm danger">Xoá</button></div>
@@ -166,6 +174,14 @@ export async function render(root, { params, query }) {
     <div class="tabs page-tabs" id="pp-tabs">${TABS.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'active' : ''}">${l}</button>`).join('')}</div>
     <div id="pp-body"></div>
   </div>`;
+
+  $('pp-headt').addEventListener('click', () => {
+    const h = $('pp-head');
+    const on = !h.classList.contains('compact');
+    h.classList.toggle('compact', on);
+    $('pp-headt').textContent = on ? '▾ Chi tiết' : '▴ Thu gọn';
+    try { localStorage.setItem(headKey, on ? 'compact' : 'full'); } catch (_) { /* bỏ qua */ }
+  });
 
   const metaRow = () => {
     const e = p.extraction || {};
@@ -595,7 +611,7 @@ export async function render(root, { params, query }) {
           <select id="ah-level">${Object.entries(LEVELS).map(([k, v]) => `<option value="${k}" ${k === 'vua' ? 'selected' : ''}>${v.label} · khoảng ${budgetFor(pagesGuess, k)} câu</option>`).join('')}</select>
           <span class="hint">Số câu tính theo số trang nội dung, không tính danh mục tham khảo.</span></label>
         <ul class="hint" style="margin:0 0 0 18px;padding:0">
-          <li>Một lượt gọi model (${escapeHtml(store.settings.provider)}/${escapeHtml(store.settings.models?.[store.settings.provider] || '')}), gửi toàn văn nên tốn token gần bằng một lần trích xuất.</li>
+          <li>Một lượt gọi model (${escapeHtml(modelLabel(store.settings, 'highlight'))}), gửi toàn văn nên tốn token gần bằng một lần trích xuất.</li>
           <li>Câu nào model chép không khớp nguyên văn trong PDF thì bị bỏ, không tô đoán.</li>
           <li>${autoCount ? `<b>${autoCount}</b> câu AI đã tô trước đó sẽ được thay bằng lượt mới.` : 'Nét bạn tự tô và gạch chân được giữ nguyên.'} Tô xong vẫn hoàn tác được bằng ↶.</li>
         </ul>`,
@@ -821,7 +837,7 @@ export async function render(root, { params, query }) {
       'Viết 3 câu tóm tắt paper này để đưa vào related work.',
     ];
     body.innerHTML = `<div class="row" style="gap:8px;margin-bottom:6px"><span class="lang-label">Ngôn ngữ trả lời</span><select id="pp-ask-lang" style="width:auto" title="Dùng chung với trang Chat với paper">${CHAT_LANGS.map(([k, l]) => `<option value="${k}" ${(store.settings.chatLang || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-      <div class="hint" style="margin-bottom:8px">Hỏi model về paper này. Ngữ cảnh gồm ghi chú đã trích xuất${p.pdfId && NATIVE_PDF_PROVIDERS.has(store.settings.provider) ? ', và file PDF gửi kèm' : ''}, cùng nội dung nguồn đã lưu (nếu có). Lịch sử được lưu cùng paper.</div>
+      <div class="hint" style="margin-bottom:8px">Hỏi model về paper này. Ngữ cảnh gồm ghi chú đã trích xuất${p.pdfId && NATIVE_PDF_PROVIDERS.has(settingsFor(store.settings, 'ask').provider) ? ', và file PDF gửi kèm' : ''}, cùng nội dung nguồn đã lưu (nếu có). Lịch sử được lưu cùng paper.</div>
       <div class="chat" id="pp-chat">${qa.map((x) => `<div class="msg q">${escapeHtml(x.q)}</div><div class="msg a">${mdToHtml(readableChatMd(x.a))}</div>`).join('')}</div>
       <div class="suggest-q">${suggestions.map((s) => `<button data-q="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')}</div>
       <div class="chat-input"><textarea id="pp-q" placeholder="Câu hỏi của bạn… (Enter để gửi, Shift+Enter xuống dòng)"></textarea><button id="pp-ask" class="primary">Hỏi</button>${qa.length ? '<button id="pp-clear-chat" class="sm ghost">Xoá lịch sử</button>' : ''}</div>
@@ -839,7 +855,7 @@ export async function render(root, { params, query }) {
         const history = (cur.qa || []).flatMap((x) => [{ role: 'user', content: x.q }, { role: 'assistant', content: x.a }]).slice(-8);
         const text = (await api.getText(pid)).text || '';
         let pdfBase64 = null;
-        if (cur.pdfId && NATIVE_PDF_PROVIDERS.has(store.settings.provider) && store.settings.pdfMode !== 'text' && text.length < 2000) {
+        if (cur.pdfId && NATIVE_PDF_PROVIDERS.has(settingsFor(store.settings, 'ask').provider) && store.settings.pdfMode !== 'text' && text.length < 2000) {
           pdfBase64 = (await api.pdfBase64(cur.pdfId)).base64;
         }
         const a = await askPaper({ paper: cur, text, settings: store.settings, question: q, history, pdfBase64 });

@@ -3,6 +3,8 @@
 /** Tham số truy vấn cho kết quả khám phá Semantic Scholar: lấy mới ngay, hoặc tự lấy mới khi bản lưu cũ hơn N ngày. */
 const s2q = (refresh, maxAgeDays, limit = 0) => { const q = [refresh ? 'refresh=1' : '', maxAgeDays > 0 ? `maxAgeDays=${maxAgeDays}` : '', limit > 0 ? `limit=${limit}` : ''].filter(Boolean).join('&'); return q ? `?${q}` : ''; };
 
+const MUTATING = /^(papers|topics|settings|kv\/|pages|import|inbox|venue\/reclassify)/;
+
 async function req(method, path, body, { raw = false, headers = {} } = {}) {
   const opts = { method, headers: { ...headers } };
   if (body !== undefined) {
@@ -23,6 +25,8 @@ async function req(method, path, body, { raw = false, headers = {} } = {}) {
   let data;
   try { data = await res.json(); } catch (_) { throw new Error(`Máy chủ trả về lỗi HTTP ${res.status}.`); }
   if (!data.ok) throw new Error(data.error || `Lỗi HTTP ${res.status}`);
+  // Đã ghi dữ liệu: báo để các bản app khác đang mở (khung chia đôi, tab khác) nạp lại.
+  if (method !== 'GET' && MUTATING.test(path)) window.dispatchEvent(new CustomEvent('pv:mutated', { detail: { path } }));
   return data.data;
 }
 

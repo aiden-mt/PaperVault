@@ -356,6 +356,10 @@ DEFAULT_SETTINGS = {
     # Phông và cỡ chữ: uiFont/readFont rỗng = mặc định, uiScale/readScale tính bằng %, lineHeight 0 = mặc định.
     "appearance": {"uiFont": "", "uiScale": 100, "readFont": "", "readScale": 100, "lineHeight": 0},
     "s2ApiKey": "",
+    # Model riêng cho từng nhóm việc: {"chat": {"provider": "openai", "model": "gpt-4o-mini"}, ...}; thiếu = dùng model chính.
+    "taskModels": {},
+    "nbPrompts": [],
+    "onboardDismissed": False,  # đã tắt thẻ "Bắt đầu với PaperVault" ở Tổng quan  # prompt nhanh tự lưu của AI trong Sổ tay: [{"label", "p", "mode"}]
 }
 
 

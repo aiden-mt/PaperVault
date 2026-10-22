@@ -4,7 +4,7 @@
 // kết quả lưu trong paper.researchMap, bài tự chọn lưu trong paper.researchPins.
 import { api } from './api.js';
 import { store, savePaper, paperById } from './store.js';
-import { complete } from './llm.js';
+import { complete, modelLabel } from './llm.js';
 import { parseLooseJson, escapeHtml, uid } from './util.js';
 import { toast } from './ui.js';
 import { titleHtml, plainTitle } from './richtext.js';
@@ -425,7 +425,7 @@ export function buildResearchMap(paperId, { refresh = false, perKind = PER_KIND_
     job.of = 3 + Math.ceil(rest.length / BATCH_SIZE);
     const { system, user } = buildPrompt(paper, mainRefs, mainCits, extra, lang, settings, prevNotesForPrompt(prev, papersNow.filter((x) => mainSet.has(x.id))));
     const total = mainRefs.length + mainCits.length + extra.length;
-    emit(`Đang nhờ ${settings.provider}/${settings.models?.[settings.provider]} phân tích ${total} bài tiêu biểu${rest.length ? ` (còn ${rest.length} bài so sánh thêm theo đợt)` : ''}…`, 2);
+    emit(`Đang nhờ ${modelLabel(settings, 'research-map')} phân tích ${total} bài tiêu biểu${rest.length ? ` (còn ${rest.length} bài so sánh thêm theo đợt)` : ''}…`, 2);
     const out = await complete({
       settings, system, user, schema: SCHEMA, schemaName: 'research_map', task: 'research-map', paperId,
       maxTokens: Math.min(16000, 6000 + total * 300), effort: ['high', 'xhigh', 'max'].includes(settings.effort) ? 'medium' : settings.effort,

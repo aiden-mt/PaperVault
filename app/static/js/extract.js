@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import { fixLanguage } from './langfix.js';
 import { store, savePaper, saveTopic, findDuplicate, paperById } from './store.js';
-import { extractPaper, NATIVE_PDF_PROVIDERS, hasCredentials } from './llm.js';
+import { extractPaper, NATIVE_PDF_PROVIDERS, hasCredentials, settingsFor, modelLabel } from './llm.js';
 import { suggestTopic } from './topics.js';
 import { extractPdfText, readFile, estimatePages } from './pdf.js';
 import { bytesToBase64, uid } from './util.js';
@@ -17,7 +17,7 @@ export async function runExtraction(rawSource, { onStatus = () => {} } = {}) {
   const settings = store.settings;
   const source = await prepareSource(rawSource, { onStatus });
 
-  onStatus(`Đang gọi ${settings.provider}/${settings.models?.[settings.provider]}… (10–90 giây)`);
+  onStatus(`Đang gọi ${modelLabel(settings, 'extract')}… (10–90 giây)`);
   const { extraction, meta } = await extractPaper({
     source, settings, topicNames: store.topics.map((t) => t.name),
     onRetry: retryStatus(onStatus),
@@ -47,7 +47,7 @@ export async function prepareSource(rawSource, { onStatus = () => {} } = {}) {
   const settings = store.settings;
   if (!hasCredentials(settings)) throw new Error('Chưa có API key. Mở Cài đặt để nhập key trước.');
   const source = { ...rawSource };
-  const native = NATIVE_PDF_PROVIDERS.has(settings.provider) && settings.pdfMode !== 'text';
+  const native = NATIVE_PDF_PROVIDERS.has(settingsFor(settings, 'extract').provider) && settings.pdfMode !== 'text';
 
   if (source.pdfBytes || source.pdfId) {
     if (native) {
@@ -148,7 +148,7 @@ export async function resolveQuery(query, { onStatus = () => {}, wantPdf = true 
     venueHints: r.venueHints || {},
   };
   const settings = store.settings;
-  const native = NATIVE_PDF_PROVIDERS.has(settings.provider) && settings.pdfMode !== 'text';
+  const native = NATIVE_PDF_PROVIDERS.has(settingsFor(settings, 'extract').provider) && settings.pdfMode !== 'text';
   const needFullText = !/full text/i.test(source.kind || '');
   if (wantPdf && source.pdfUrl && (native || needFullText)) {
     try {

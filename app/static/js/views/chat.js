@@ -4,7 +4,8 @@ import { store, paperById, topicOf, inTopic, saveSettings } from '../store.js';
 import { escapeHtml, fmtRelative, download, norm, copyText, clampText, debounce, fixMixedScript } from '../util.js';
 import { $, toast, confirmDialog, mdToHtml, topicBadge, selectAllHtml, syncSelectAll, showProgress } from '../ui.js';
 import { unverifiedNumbers } from '../quality.js';
-import { streamChat, englishKeywords, hasCredentials } from '../llm.js';
+import { streamChat, hasCredentials } from '../llm.js';
+import { tokenize, chunksOf, bm25Pick, searchTerms } from '../rag.js';
 import { buildChatSystem, paperNotesText, CHAT_LANGS } from '../prompts.js';
 import { makeJob, trackJob } from '../bgjobs.js';
 import { readableChatMd } from '../readable.js';
@@ -25,12 +26,7 @@ const SUGGESTIONS = [
 ];
 const FULL_BUDGET = 600000;       // ký tự toàn văn tối đa cho chế độ Toàn văn
 const RETRIEVAL_BUDGET = 24000;   // ký tự đoạn trích mỗi câu hỏi
-const CHUNK = 1400;
-const OVERLAP = 200;
 const HAS_TEXT = 3000;            // từ ngưỡng này coi là có toàn văn
-const STOP = new Set('the a an of to in and or for on with by from as is are was were be been this that these those we our it its at which what how why when where who does do did can could should would will not no than then there their they them into using use used based via also such both each more most other only over under between about'.split(' ')
-  .concat('là và của các những cho với được trong một này khi thì mà có không để như về từ theo đã đang sẽ nào gì sao bao nhiêu hay hoặc thế tôi bạn paper bài'.split(' ')));
-
 const state = {
   chat: null, abort: null, list: [], texts: new Map(),
   streaming: null,      // hội thoại đang nhận câu trả lời (vẫn chạy khi người dùng sang trang khác)
@@ -79,64 +75,18 @@ function corpusText(c) {
 }
 const systemBlocks = (c) => [{ text: buildChatSystem(store.settings) }, { text: corpusText(c), cache: true }];
 
-function tokenize(s) {
-  return norm(s).split(/[^a-z0-9\u00c0-\u024f\u1e00-\u1eff]+/).filter((t) => t.length > 1 && !STOP.has(t));
-}
-function chunksOf(text) {
-  const out = [];
-  const t = String(text || '').replace(/\r/g, '');
-  for (let i = 0; i < t.length; i += CHUNK - OVERLAP) {
-    let end = Math.min(t.length, i + CHUNK);
-    const nl = t.lastIndexOf('\n', end);
-    if (nl > i + CHUNK * 0.6) end = nl;
-    out.push(t.slice(i, end).trim());
-    if (end >= t.length) break;
-  }
-  return out.filter((x) => x.length > 80);
-}
-
 /** BM25 trên các đoạn của toàn văn. Trả về [{ label, id, n, text }]. */
 function retrieve(c, queryTerms) {
   const docs = [];
-  for (const { label, id } of papersOf(c)) chunksOf(state.texts.get(id)).forEach((text, n) => docs.push({ label, id, n, text, terms: tokenize(text) }));
-  if (!docs.length || !queryTerms.length) return [];
-  const df = new Map();
-  for (const d of docs) for (const t of new Set(d.terms)) df.set(t, (df.get(t) || 0) + 1);
-  const avg = docs.reduce((a, d) => a + d.terms.length, 0) / docs.length;
-  const q = [...new Set(queryTerms)];
-  for (const d of docs) {
-    const tf = new Map();
-    for (const t of d.terms) tf.set(t, (tf.get(t) || 0) + 1);
-    let s = 0;
-    for (const t of q) {
-      const f = tf.get(t);
-      if (!f) continue;
-      const idf = Math.log(1 + (docs.length - df.get(t) + 0.5) / (df.get(t) + 0.5));
-      s += idf * (f * 2.2) / (f + 1.2 * (0.25 + 0.75 * d.terms.length / avg));
-    }
-    d.score = s;
-  }
-  const picked = [];
-  const perPaper = new Map();
-  let used = 0;
-  for (const d of docs.filter((x) => x.score > 0).sort((a, b) => b.score - a.score)) {
-    if ((perPaper.get(d.id) || 0) >= 4 || used + d.text.length > RETRIEVAL_BUDGET) continue;
-    picked.push(d);
-    used += d.text.length;
-    perPaper.set(d.id, (perPaper.get(d.id) || 0) + 1);
-    if (used > RETRIEVAL_BUDGET * 0.95) break;
-  }
-  return picked.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }) || a.n - b.n);
+  for (const { label, id } of papersOf(c)) chunksOf(state.texts.get(id)).forEach((text, n) => docs.push({ key: id, label, id, n, text }));
+  return bm25Pick(docs, queryTerms, { budget: RETRIEVAL_BUDGET, perKey: 4 })
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }) || a.n - b.n);
 }
 
 async function composeUserTurn(c, question) {
   if (c.mode !== 'retrieval') return { sent: question, refs: [] };
   await ensureTexts(c.paperIds);
-  let terms = tokenize(question);
-  // câu hỏi tiếng Việt, paper tiếng Anh -> xin model vài từ khoá tiếng Anh để tìm đoạn
-  if (/[àáảãạăắằẳẵặâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ]/i.test(question)) {
-    try { terms = terms.concat(tokenize((await englishKeywords({ settings: store.settings, question })).join(' '))); } catch (_) { /* vẫn tìm bằng từ gốc */ }
-  }
+  let terms = await searchTerms(question, store.settings);
   const prevQ = [...c.messages].reverse().find((m) => m.role === 'user');
   if (prevQ && terms.length < 4) terms = terms.concat(tokenize(prevQ.content));
   const hits = retrieve(c, terms);
@@ -286,8 +236,12 @@ export async function render(root, { params, query }) {
     state.chat = newChat();
   }
   state.picking = false;
+  // Khung hẹp (≤ 1000px, ví dụ một nửa màn hình chia đôi): bảng Nguồn là ngăn trượt đè lên khung chat, mặc định đóng.
+  const narrow = () => window.matchMedia('(max-width: 1000px)').matches;
+  if (narrow()) state.panelOpen = false;
 
   root.innerHTML = `<div class="chat-page ${state.panelOpen ? '' : 'no-panel'}">
+    <div class="ch-scrim" id="ch-scrim" title="Đóng"></div>
     <aside class="chat-side">
       <div class="side-head"><span>Hội thoại</span><button id="ch-new" class="ghost sm" title="Hội thoại mới">＋ Mới</button></div>
       <div id="ch-list" class="chat-list"></div>
@@ -331,7 +285,7 @@ export async function render(root, { params, query }) {
       const inp = $('pk-q');
       if (inp) { inp.focus(); inp.setSelectionRange(pos || inp.value.length, pos || inp.value.length); }
     }
-    $('ch-toggle').textContent = state.panelOpen ? 'Ẩn nguồn' : `Nguồn (${state.chat.paperIds.length})`;
+    $('ch-toggle').textContent = state.panelOpen ? 'Ẩn nguồn' : `📚 Nguồn (${state.chat.paperIds.length})`;
   };
 
   const drawMsgs = (keepScroll = false) => {
@@ -347,7 +301,7 @@ export async function render(root, { params, query }) {
     $('ch-compose').hidden = false;
     box.innerHTML = c.messages.length
       ? c.messages.map((m, i) => messageHtml(m, i, c)).join('')
-      : `<div class="chat-ready"><b>Sẵn sàng hỏi về ${c.paperIds.length} paper.</b><span class="hint">Chọn một câu gợi ý bên dưới hoặc tự đặt câu hỏi. Có thể thêm hoặc bỏ paper ở bảng Nguồn bất cứ lúc nào.</span>${!hasCredentials(store.settings) ? '<span class="status err">Chưa có API key. <a href="#/settings">Mở Cài đặt</a>.</span>' : ''}</div>`;
+      : `<div class="chat-ready"><b>Sẵn sàng hỏi về ${c.paperIds.length} paper.</b><span class="hint">Chọn một câu gợi ý bên dưới hoặc tự đặt câu hỏi. Có thể thêm hoặc bỏ paper ở bảng Nguồn bất cứ lúc nào.</span>${!hasCredentials(store.settings, 'chat') ? '<span class="status err">Chưa có API key. <a href="#/settings">Mở Cài đặt</a>.</span>' : ''}</div>`;
     c.messages.forEach((m, i) => {
       if (!m.pending || m.content || !m.stage) return;
       const node = box.querySelector(`.msg[data-i="${i}"] .md`);
@@ -398,7 +352,7 @@ export async function render(root, { params, query }) {
     if (!question) return;
     if (state.abort) return toast(state.streaming === c ? 'Đang trả lời câu trước, chờ xong hoặc bấm Dừng.' : 'Đang trả lời ở một hội thoại khác, chờ xong rồi hỏi tiếp.', 3500);
     if (!c.paperIds.length) { toast('Chọn ít nhất một paper trước.', 2500, 'err'); state.picking = true; state.panelOpen = true; drawAll(); return; }
-    if (!hasCredentials(store.settings)) return toast('Chưa có API key. Mở Cài đặt.', 3000, 'err');
+    if (!hasCredentials(store.settings, 'chat')) return toast('Chưa có API key. Mở Cài đặt.', 3000, 'err');
     if (retryIndex != null) c.messages.splice(retryIndex - 1, 2);
     if (!c.messages.length && (!c.title || c.title === 'Cuộc trò chuyện mới')) { c.title = question.slice(0, 70); $('ch-title').value = c.title; }
     $('ch-q').value = '';
@@ -492,6 +446,13 @@ export async function render(root, { params, query }) {
   $('ch-history').addEventListener('click', () => page.classList.toggle('show-history'));
   $('ch-msgs').addEventListener('pointerdown', () => page.classList.remove('show-history'));
   $('ch-toggle').addEventListener('click', () => { state.panelOpen = !state.panelOpen; page.classList.toggle('no-panel', !state.panelOpen); drawPanel(); });
+  const chMq = window.matchMedia('(max-width: 1000px)');
+  const onChMq = (ev) => { if (ev.matches && state.panelOpen) { state.panelOpen = false; state.picking = false; page.classList.add('no-panel'); drawPanel(); } page.classList.remove('show-history'); };
+  chMq.addEventListener('change', onChMq);
+  $('ch-scrim').addEventListener('click', () => {
+    page.classList.remove('show-history');
+    if (narrow() && state.panelOpen) { state.panelOpen = false; state.picking = false; page.classList.add('no-panel'); drawPanel(); }
+  });
 
   /* ---- sự kiện: bảng Nguồn + bộ chọn ---- */
   const panel = $('ch-panel');
@@ -580,5 +541,5 @@ export async function render(root, { params, query }) {
   });
 
   // Rời trang Chat không huỷ câu trả lời đang viết: nó chạy tiếp, xong thì lưu vào hội thoại (bảng nổi báo tiến độ).
-  return () => {};
+  return () => { chMq.removeEventListener('change', onChMq); };
 }

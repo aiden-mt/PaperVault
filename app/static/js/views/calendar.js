@@ -27,7 +27,11 @@ export async function render(root, { query }) {
     full: LS('pv.calFull') === '1',     // tuần: hiện cả 0–24h thay vì 7–23h
     side: LS('pv.calSide') !== '0',     // bảng ngày bên phải
   };
+  // Khung hẹp (≤ 1000px): bảng ngày bên phải thành ngăn trượt, mặc định đóng, bấm một ngày thì mở (không lưu lựa chọn này).
+  const narrow = () => window.matchMedia('(max-width: 1000px)').matches;
+  if (narrow()) st.side = false;
   root.innerHTML = `<div class="cal-page ${st.side ? '' : 'noside'}">
+    <div class="cal-scrim" title="Đóng"></div>
     <section class="cal-main">
       <div class="cal-head">
         <div class="cal-nav"><button type="button" class="sm" id="cal-prev" title="Trước">‹</button><button type="button" class="sm" id="cal-today">Hôm nay</button><button type="button" class="sm" id="cal-next" title="Sau">›</button></div>
@@ -410,7 +414,12 @@ export async function render(root, { query }) {
   $('cal-today').addEventListener('click', () => { st.cursor = new Date(); st.sel = todayStr; draw(); });
   $('cal-view').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; st.view = b.dataset.v; LS('pv.calView', st.view); if (st.view !== 'agenda') st.cursor = parseYmd(st.sel); draw(); });
   $('cal-add').addEventListener('click', () => editEvent({ date: st.sel }));
-  $('cal-side-t').addEventListener('click', () => { st.side = !st.side; LS('pv.calSide', st.side ? '1' : '0'); root.querySelector('.cal-page').classList.toggle('noside', !st.side); });
+  const setSide = (on, remember = !narrow()) => { st.side = on; if (remember) LS('pv.calSide', on ? '1' : '0'); root.querySelector('.cal-page').classList.toggle('noside', !on); };
+  $('cal-side-t').addEventListener('click', () => setSide(!st.side));
+  root.querySelector('.cal-scrim').addEventListener('click', () => setSide(false));
+  const calMq = window.matchMedia('(max-width: 1000px)');
+  const onCalMq = (ev) => setSide(ev.matches ? false : LS('pv.calSide') !== '0', false);
+  calMq.addEventListener('change', onCalMq);
   $('cal-body').addEventListener('click', (e) => { if (e.target.closest('#cw-full')) { st.full = !st.full; LS('pv.calFull', st.full ? '1' : '0'); drawWeek(); } });
   bindWeekDrag($('cal-body'));
   // Rê chuột trên lưới tuần: tô đậm ô 30 phút dưới con trỏ, kèm giờ, để biết bấm sẽ thêm việc vào đâu.
@@ -460,7 +469,7 @@ export async function render(root, { query }) {
     const di = e.target.closest('[data-diary]');
     if (di) { const p = await ensureDailyPage(di.dataset.diary); location.hash = `#/notebook/${p.id}`; return; }
     const cell = e.target.closest('[data-date]');
-    if (cell && !cell.classList.contains('cw-col') && !cell.classList.contains('cw-ev') && !e.target.closest('a, input, button, select')) { st.sel = cell.dataset.date; if (st.view === 'agenda') { draw(); return; } drawSide(); page.querySelectorAll('.cal-cell, .cw-col, .cw-dh').forEach((c) => c.classList.toggle('sel', c.dataset.date === st.sel)); }
+    if (cell && !cell.classList.contains('cw-col') && !cell.classList.contains('cw-ev') && !e.target.closest('a, input, button, select')) { st.sel = cell.dataset.date; if (st.view === 'agenda') { draw(); return; } drawSide(); page.querySelectorAll('.cal-cell, .cw-col, .cw-dh').forEach((c) => c.classList.toggle('sel', c.dataset.date === st.sel)); if (narrow() && !st.side) setSide(true); }
   });
   page.addEventListener('change', async (e) => {
     const ec = e.target.closest('[data-ev-cb]');
@@ -491,5 +500,5 @@ export async function render(root, { query }) {
   draw();
   const unsubA = onCalendarChange(() => { if ($('cal-body')) draw(); });
   const unsubB = onPagesChange(() => { if ($('cal-body')) draw(); });
-  return () => { unsubA(); unsubB(); };
+  return () => { unsubA(); unsubB(); calMq.removeEventListener('change', onCalMq); };
 }

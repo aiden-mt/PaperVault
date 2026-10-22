@@ -218,7 +218,18 @@ def notify(title, msg):
 
 
 def run_server_thread():
-    srv, url = server.start_server(port=int(os.environ.get("PV_PORT") or server.CONFIG.get("port") or 0))
+    # Cổng cố định (mặc định 8765, đổi bằng PV_PORT hoặc "port" trong config.json). Cổng phải giữ nguyên giữa các lần mở
+    # app: trình duyệt nhớ localStorage (giao diện, bố cục chia đôi, ô "Bắt đầu"…) theo địa chỉ http://127.0.0.1:<cổng>,
+    # đổi cổng là mất hết. 8765 cũng là địa chỉ extension dùng để đẩy paper sang app. Cổng bận thì thử vài cổng kế tiếp,
+    # cuối cùng mới để hệ điều hành chọn.
+    want = server.PORT
+    srv = url = None
+    for port in [want, *range(want + 1, want + 6), 0]:
+        try:
+            srv, url = server.start_server(port=port)
+            break
+        except OSError:
+            continue
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, url
 

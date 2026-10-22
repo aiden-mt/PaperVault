@@ -16,6 +16,8 @@
 | **Bản đồ tài liệu.** Từ một bài, app vẽ các bài liên quan theo cụm tương đồng hoặc theo dòng thời gian trích dẫn. Màu theo năm, cỡ theo số trích dẫn, viền xanh là bài đã có trong thư viện. | <img src="docs/screenshots/litmap.png" alt="Bản đồ tài liệu" width="520"> |
 | **Sổ tay nghiên cứu.** Viết Markdown với công thức LaTeX, khối code tô màu, bảng paper lấy thẳng từ thư viện, liên kết `[[trang]]` và `[[@paper]]`. Chế độ chia đôi viết / xem giống Overleaf. | <img src="docs/screenshots/notebook.png" alt="Sổ tay nghiên cứu" width="520"> |
 | **Lịch kế hoạch.** Xem theo tháng, tuần hoặc danh sách. Bấm một ô 30 phút để thêm việc, kéo để dời giờ. Lịch nối với nhật ký và việc có hạn trong Sổ tay, gợi ý khung giờ trống để đọc paper. | <img src="docs/screenshots/calendar.png" alt="Lịch tuần" width="520"> |
+| **Chia đôi màn hình.** Hai chức năng cạnh nhau: đọc paper bên trái, viết Sổ tay bên phải, hoặc Thư viện ở trên, Chat ở dưới. Có sẵn bố cục nhanh, kéo thanh giữa hay nhập % để chỉnh tỉ lệ. Lưu ở khung này thì khung kia tự cập nhật. | <img src="docs/screenshots/split.png" alt="Chia đôi màn hình" width="520"> |
+| **AI ngay trong Sổ tay.** Bôi đen một đoạn rồi `Ctrl + J` để cải thiện, rút gọn, giải thích, dịch, chuyển thành bảng, giống Notion AI. Hoặc hỏi với nguồn: chọn paper và trang ghi chú (hoặc để app tự tìm paper liên quan), AI tìm đoạn khớp nhất trong toàn văn rồi trả lời có ghi nguồn, chèn vào trang thành liên kết bấm được. | <img src="docs/screenshots/ai-dialog.png" alt="Hỏi AI trong Sổ tay" width="520"> |
 | **So sánh nhiều paper.** Bảng so sánh theo hàng hoặc theo cột, chọn thông số cần xem, xuất Markdown, CSV, BibTeX, LaTeX hoặc Word. | <img src="docs/screenshots/compare.png" alt="So sánh paper" width="520"> |
 
 ---
@@ -25,7 +27,7 @@
 1. **Tải app.** Vào [Releases](../../releases/latest), tải `PaperVault-windows.zip`, giải nén ra thư mục bất kỳ rồi chạy `PaperVault.exe`.
    - Windows có thể hiện cảnh báo SmartScreen vì app chưa ký số. Bấm **More info → Run anyway**.
    - App cần WebView2 Runtime. Windows 11 có sẵn. Nếu Windows 10 không mở được app, cài *Microsoft Edge WebView2 Runtime* từ trang của Microsoft.
-2. **Nhập API key.** Mở **Cài đặt**, chọn Claude, OpenAI hoặc Gemini rồi dán key, bấm **Kiểm tra kết nối**. Ghi thêm một câu mô tả đề tài của bạn: AI dùng nó để viết mục "liên quan tới bài của tôi".
+2. **Nhập API key.** Mở **Cài đặt**, chọn Claude, OpenAI hoặc Gemini rồi dán key, bấm **Kiểm tra kết nối**. Ghi thêm một câu mô tả đề tài của bạn: AI dùng nó để viết mục "liên quan tới bài của tôi". Muốn dùng model khác cho từng việc (ví dụ model rẻ cho Chat, model mạnh cho trích xuất), mở **Model riêng cho từng việc** ngay dưới đó.
 3. **Thêm paper đầu tiên.** Bấm **+ Thêm paper** (phím `N`), dán link arXiv, DOI hoặc thả file PDF. App tự tải toàn văn, PDF và viết ghi chú.
 
 > Không dùng Windows? Cài Python 3.10 trở lên, tải repo về rồi chạy `python app/server.py` và mở `http://127.0.0.1:8765` trong trình duyệt. Không cần cài thêm thư viện nào. Muốn chạy trong cửa sổ riêng: `pip install -r app/requirements.txt` rồi `python app/desktop.py`.
@@ -34,7 +36,7 @@
 
 ## Tính năng
 
-Thanh bên trái của app chia thành ba nhóm. Mỗi trang có nút **?** mở đúng mục hướng dẫn.
+Thanh bên trái của app chia thành ba nhóm. Mỗi trang có nút **?** mở đúng mục hướng dẫn. Nút ◫ trên thanh trên cùng (hoặc `Ctrl + \`) chia màn hình thành hai khung dọc hoặc ngang, mỗi khung mở một chức năng.
 
 ### Thư viện
 
@@ -55,7 +57,7 @@ Thanh bên trái của app chia thành ba nhóm. Mỗi trang có nút **?** mở
 
 ### Cá nhân
 
-- **Sổ tay**: trang Markdown lồng nhau, mẫu trang có sẵn (ghi chú đọc paper, họp nhóm, kế hoạch thí nghiệm…), thư viện macro LaTeX nhập từ file `.tex` / `.sty`, chèn ảnh bằng dán hoặc kéo thả, đồ thị liên kết giữa các trang.
+- **Sổ tay**: trang Markdown lồng nhau, mẫu trang có sẵn (ghi chú đọc paper, họp nhóm, kế hoạch thí nghiệm…), thư viện macro LaTeX nhập từ file `.tex` / `.sty`, chèn ảnh bằng dán hoặc kéo thả, đồ thị liên kết giữa các trang. Nút **✨ AI** (hoặc `/ai`, `Ctrl + J`) hỏi AI dựa trên paper và ghi chú bạn chọn.
 - **Lịch**: kế hoạch theo ngày giờ, lặp lại hằng ngày, tuần hoặc tháng, nối với nhật ký và việc có hạn (`- [ ] việc 📅 2026-10-30`) trong Sổ tay.
 - **Thẻ ghi nhớ**: gom các đoạn bạn lưu khi đọc PDF (bôi đen → *+ Ghi chú*) và các trích dẫn thêm tay, ôn lại bằng cách lật thẻ.
 

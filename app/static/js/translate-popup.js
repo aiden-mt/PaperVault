@@ -63,3 +63,6 @@ function open() {
 
 btn?.addEventListener('click', () => (pop ? close() : open()));
 window.addEventListener('hashchange', close);
+// Bấm vào một khung chia đôi (iframe: cửa sổ này không nhận được mousedown) hoặc cửa sổ mất tiêu điểm: cũng đóng.
+window.addEventListener('pv:pane-pointerdown', close);
+window.addEventListener('blur', () => { if (pop && !pop.contains(document.activeElement)) close(); });

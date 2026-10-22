@@ -192,7 +192,36 @@ async function callGemini({ apiKey, model, system, messages, maxTokens, schema, 
 
 /* ------------------------- Entry point ----------------------- */
 
-export function pickCredentials(settings) {
+/* ------------------- Model riêng cho từng việc ------------------- */
+
+/** Nhóm việc chọn được model riêng trong Cài đặt: [khoá, tên, mô tả, các task gửi tới complete/streamChat]. */
+export const TASK_GROUPS = [
+  ['extract', 'Trích xuất ghi chú', 'Đọc paper và điền ghi chú theo template, trích xuất lại từng mục', ['extract', 'extract-section']],
+  ['chat', 'Chat & Hỏi đáp', 'Trang Chat với paper, tab Hỏi đáp của một paper', ['chat', 'chat-keywords', 'ask']],
+  ['notebook', 'AI trong Sổ tay', 'Hỏi AI với nguồn và AI nhanh trên từng đoạn', ['notebook-ai', 'notebook-inline']],
+  ['lecture', 'Bài giảng', 'Viết bài giảng tám phần từ toàn văn', ['lecture']],
+  ['research', 'Phân tích & tổng hợp', 'Hướng nghiên cứu, Có gì mới, tổng hợp related work', ['research-map', 'research-map-fill', 'whats-new', 'synthesis']],
+  ['highlight', 'Tô câu đáng nhớ', 'Chọn câu quan trọng trong PDF', ['highlight']],
+  ['translate', 'Dịch bằng AI', 'Dịch ghi chú, dịch đoạn bôi đen bằng AI', ['translate', 'translate-notes']],
+];
+export const DEFAULT_MODELS = { anthropic: 'claude-opus-5', openai: 'gpt-4o', gemini: 'gemini-2.0-flash' };
+const groupOf = (task) => (TASK_GROUPS.find((g) => g[3].includes(task)) || [''])[0];
+
+/**
+ * Cài đặt thực dùng cho một task: nếu nhóm của task có model riêng (settings.taskModels[nhóm] = { provider, model })
+ * thì đổi provider / model, key lấy theo provider đó. Không có thì trả về settings như cũ.
+ */
+export function settingsFor(settings, task = '') {
+  const o = settings?.taskModels?.[groupOf(task)];
+  if (!o?.provider || !PROVIDERS[o.provider]) return settings;
+  const model = (o.model || '').trim() || (o.provider === settings.provider ? settings.models?.[o.provider] : '') || settings.models?.[o.provider] || DEFAULT_MODELS[o.provider];
+  return { ...settings, provider: o.provider, models: { ...settings.models, [o.provider]: model } };
+}
+/** "provider/model" đang dùng cho một task (để hiện trong thông báo tiến độ). */
+export const modelLabel = (settings, task = '') => { const s = settingsFor(settings, task); return `${s.provider}/${s.models?.[s.provider] || ''}`; };
+
+export function pickCredentials(settings, task = '') {
+  settings = settingsFor(settings, task);
   const provider = settings.provider || 'anthropic';
   const apiKey = (settings.apiKeys?.[provider] || '').trim();
   const model = (settings.models?.[provider] || '').trim();
@@ -201,8 +230,8 @@ export function pickCredentials(settings) {
   return { provider, apiKey, model };
 }
 
-export function hasCredentials(settings) {
-  try { pickCredentials(settings); return true; } catch (_) { return false; }
+export function hasCredentials(settings, task = '') {
+  try { pickCredentials(settings, task); return true; } catch (_) { return false; }
 }
 
 /**
@@ -210,6 +239,7 @@ export function hasCredentials(settings) {
  * Trả về { text, usage, model, provider }.
  */
 export async function complete({ settings, system, user, messages, schema = null, schemaName = 'output', pdfBase64 = null, maxTokens, effort, task = '', paperId = '', onRetry, cacheSystem = false }) {
+  settings = settingsFor(settings, task);
   const { provider, apiKey, model } = pickCredentials(settings);
   const args = {
     apiKey, model, system,
@@ -228,6 +258,7 @@ export async function complete({ settings, system, user, messages, schema = null
 
 /** Trích xuất ghi chú theo template. source: { url, title, authors, venue, year, arxivId, kind, text, pdfBase64 } */
 export async function extractPaper({ source, settings, topicNames = [], onRetry }) {
+  settings = settingsFor(settings, 'extract');
   const { provider } = pickCredentials(settings);
   const hasPdf = !!source?.pdfBase64;
   const nativePdf = hasPdf && NATIVE_PDF_PROVIDERS.has(provider) && settings.pdfMode !== 'text';
@@ -349,8 +380,8 @@ export async function synthesize({ papers, settings, focus = '' }) {
 }
 
 /** Gọi thử một request nhỏ để kiểm tra key/model. */
-export async function testConnection(settings) {
-  const out = await complete({ settings, system: 'Trả lời đúng một từ.', user: 'Nói: OK', maxTokens: 64, effort: 'low', task: 'test' });
+export async function testConnection(settings, task = 'test') {
+  const out = await complete({ settings, system: 'Trả lời đúng một từ.', user: 'Nói: OK', maxTokens: 64, effort: 'low', task });
   return `Kết nối OK với ${out.model}.`;
 }
 
@@ -472,6 +503,7 @@ async function streamGemini({ apiKey, model, system, messages, maxTokens, onText
  * onText(chunk) được gọi mỗi khi có chữ mới. Trả về { usage, model, provider, stopReason }.
  */
 export async function streamChat({ settings, system, messages, onText, signal, task = 'chat', onRetry }) {
+  settings = settingsFor(settings, task);
   const { provider, apiKey, model } = pickCredentials(settings);
   const maxTokens = provider === 'anthropic' ? 64000 : Math.min(settings.maxOutputTokens || 8000, provider === 'gemini' ? 8192 : 16000);
   const fn = { anthropic: streamAnthropic, openai: streamOpenAI, gemini: streamGemini }[provider];

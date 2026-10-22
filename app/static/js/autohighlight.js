@@ -2,7 +2,7 @@
 // mỗi câu thuộc một loại (một màu) và kèm một dòng "vì sao". App tự dò lại câu đó trong PDF: câu trích phải khớp
 // nguyên văn mới được tô, số trang model khai chỉ là gợi ý. Câu không dò ra thì bỏ, không đoán.
 import { store, savePaper, paperById } from './store.js';
-import { complete } from './llm.js';
+import { complete, modelLabel } from './llm.js';
 import { parseLooseJson } from './util.js';
 import { pdfPages } from './pdftext.js';
 
@@ -178,7 +178,7 @@ export async function autoHighlight(paperId, { level = 'vua', onStatus = () => {
   const total = budgetFor(pages.length, level);
   const settings = store.settings;
   const user = `Tiêu đề: ${paper.title}\n\n${pages.map((p) => `=== Trang ${p.n} ===\n${p.text}`).join('\n\n')}`;
-  onStatus(`Đang nhờ ${settings.provider}/${settings.models?.[settings.provider]} chọn khoảng ${total} câu…`, 1);
+  onStatus(`Đang nhờ ${modelLabel(settings, 'highlight')} chọn khoảng ${total} câu…`, 1);
   const out = await complete({
     settings, system: systemPrompt(total, settings), user, schema: SCHEMA, schemaName: 'highlights',
     maxTokens: Math.min(16000, total * 170 + 1200), effort: settings.effort === 'xhigh' ? 'high' : settings.effort, task: 'highlight', paperId,

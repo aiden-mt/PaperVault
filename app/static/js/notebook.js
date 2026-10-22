@@ -14,7 +14,9 @@ import { codeBlockHtml } from './highlight.js';
 let pages = null;
 let loading = null;
 const subs = new Set();
-const emit = () => { for (const fn of [...subs]) { try { fn(); } catch (e) { console.error(e); } } };
+const emit = (info) => { for (const fn of [...subs]) { try { fn(info); } catch (e) { console.error(e); } } };
+/** Gọi sau khi nạp lại trang từ máy chủ vì một khung / tab khác vừa sửa (xem panesync.js). */
+export const pagesChangedElsewhere = () => emit({ external: true });
 export const onPagesChange = (fn) => { subs.add(fn); return () => subs.delete(fn); };
 
 export async function loadPages(force = false) {
@@ -229,7 +231,7 @@ export async function toggleDatedTask(pageId, line) {
 const inlineMd = (s) => mdWithImages(s).replace(/^<p>|<\/p>$/g, '');
 const CALLOUT = {
   note: ['📝', 'Ghi chú'], info: ['ℹ️', 'Thông tin'], tip: ['💡', 'Mẹo'], idea: ['💡', 'Ý tưởng'], important: ['❗', 'Quan trọng'],
-  warning: ['⚠️', 'Lưu ý'], danger: ['⛔', 'Nguy cơ'], question: ['❓', 'Câu hỏi'], quote: ['❝', 'Trích dẫn'], todo: ['☑️', 'Việc cần làm'], success: ['✅', 'Đã xong'],
+  ai: ['✨', 'AI'], warning: ['⚠️', 'Lưu ý'], danger: ['⛔', 'Nguy cơ'], question: ['❓', 'Câu hỏi'], quote: ['❝', 'Trích dẫn'], todo: ['☑️', 'Việc cần làm'], success: ['✅', 'Đã xong'],
 };
 
 function paperEmbedHtml(id) {

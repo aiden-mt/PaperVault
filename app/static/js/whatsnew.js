@@ -3,7 +3,7 @@
 // Chỉ một lượt gọi mô hình với vài chục bản tóm tắt ngắn, rẻ hơn một lần trích xuất. Kết quả lưu trong paper.whatsNew.
 import { api } from './api.js';
 import { store, savePaper, paperById } from './store.js';
-import { complete } from './llm.js';
+import { complete, modelLabel } from './llm.js';
 import { parseLooseJson, escapeHtml } from './util.js';
 import { titleHtml, plainTitle, rich } from './richtext.js';
 import { normalizeExtraction, splitLimitations } from './schema.js';
@@ -128,7 +128,7 @@ export function buildWhatsNew(paperId) {
     const settings = store.settings;
     const lang = settings.language === 'en' ? 'en' : 'vi';
     const { system, user, limits } = buildPrompt(paper, picked, lang);
-    emit(`Đang nhờ ${settings.provider}/${settings.models?.[settings.provider]} đọc ${picked.length} bài…`, 1);
+    emit(`Đang nhờ ${modelLabel(settings, 'whats-new')} đọc ${picked.length} bài…`, 1);
     const out = await complete({
       settings, system, user, schema: SCHEMA, schemaName: 'whats_new', task: 'whats-new', paperId,
       maxTokens: 6000, effort: ['high', 'xhigh', 'max'].includes(settings.effort) ? 'medium' : settings.effort,

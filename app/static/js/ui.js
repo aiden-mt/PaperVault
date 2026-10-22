@@ -117,7 +117,9 @@ export function mdToHtml(md) {
     ? `<code>${escapeHtml(seg.slice(1, -1))}</code>`
     : subSup(escapeHtml(seg))
       .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>'))).join('');
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+      .replace(/~~(?=\S)([^~\n]+?)(?<=\S)~~/g, '<s>$1</s>')
+      .replace(/==(?=\S)([^=\n]+?)(?<=\S)==/g, '<mark>$1</mark>'))).join('');
   // Link Markdown và link trần đều thành hyperlink; tách trước để dấu * hay _ trong URL không bị hiểu là in nghiêng.
   const mdInline = (s) => linkify(s, mdText);
   // Công thức tách ra trước, phần chữ mới đi qua Markdown (để * và _ trong công thức không bị hiểu là in nghiêng).

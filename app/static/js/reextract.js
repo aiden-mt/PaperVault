@@ -2,7 +2,7 @@
 // với nút Dừng, vẫn chạy tiếp khi chuyển sang trang khác trong app.
 import { api } from './api.js';
 import { store, paperById } from './store.js';
-import { hasCredentials } from './llm.js';
+import { hasCredentials, modelLabel } from './llm.js';
 import { runExtraction, savePaperFromExtraction } from './extract.js';
 import { escapeHtml } from './util.js';
 import { toast, dialog } from './ui.js';
@@ -25,7 +25,7 @@ export async function reextractPapers(ids) {
     title: 'Trích xuất lại ghi chú', width: 540,
     body: `<p>Chạy lại trích xuất theo template cho <b>${papers.length}</b> paper từ toàn văn hoặc PDF đã lưu. Ghi chú cá nhân, trích dẫn theo đoạn, trạng thái, đánh giá và thư mục được giữ nguyên.</p>
       <ul class="hint" style="margin:0 0 8px 18px;padding:0">
-        <li>Mỗi paper là một lượt gọi model (${escapeHtml(store.settings.provider)}/${escapeHtml(store.settings.models?.[store.settings.provider] || '')}), tốn token như khi thêm paper.</li>
+        <li>Mỗi paper là một lượt gọi model (${escapeHtml(modelLabel(store.settings, 'extract'))}), tốn token như khi thêm paper.</li>
         <li>Paper chưa có toàn văn hay PDF được bỏ qua, app báo lại ở cuối.</li>
         <li>Có thể chuyển sang trang khác trong lúc chạy, bảng tiến trình ở góc dưới có nút Dừng.</li>
       </ul>

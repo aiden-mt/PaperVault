@@ -3,12 +3,18 @@ import { api } from '../api.js';
 import { store, saveSettings, loadAll } from '../store.js';
 import { escapeHtml, download } from '../util.js';
 import { $, toast, setStatus, spinner, showProgress, confirmDialog } from '../ui.js';
-import { testConnection, PROVIDERS } from '../llm.js';
+import { testConnection, PROVIDERS, TASK_GROUPS, DEFAULT_MODELS } from '../llm.js';
 import { TRANSLATE_LANGS, translateConfig } from '../translate.js';
 import { buildLibraryFiles } from '../markdown.js';
 import { isDesktop, desktop } from '../desktop.js';
 import { applyAppearance, normalizeAppearance, DEFAULT_APPEARANCE, UI_FONTS, READ_FONTS, LINE_HEIGHTS } from '../appearance.js';
 
+/** Gợi ý model cho ô nhập (datalist); người dùng vẫn gõ được model id bất kỳ. */
+const MODEL_SUGGEST = {
+  anthropic: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
+  openai: ['gpt-4o', 'gpt-4o-mini'],
+  gemini: ['gemini-2.0-flash', 'gemini-1.5-pro'],
+};
 const MODEL_HINTS = {
   anthropic: 'Gợi ý: claude-opus-5 (chất lượng cao nhất), claude-sonnet-5 (rẻ hơn), claude-haiku-4-5 (nhanh, rẻ).',
   openai: 'Gợi ý: gpt-4o, gpt-4o-mini. Nhập đúng model id mà key của bạn dùng được.',
@@ -38,6 +44,20 @@ export async function render(root) {
       </div>
       ${Object.entries(PROVIDERS).map(([k, v]) => `<div class="key-row" data-p="${k}"><label class="field"><span class="label-text">${v.label} API key</span><input type="password" id="st-key-${k}" value="${escapeHtml(s.apiKeys?.[k] || '')}" autocomplete="off"><span class="hint">Lấy tại <a href="${v.keyUrl}" target="_blank" rel="noopener">${v.keyUrl.replace('https://', '')}</a>. Key lưu trong file dữ liệu SQLite trên máy bạn.</span></label></div>`).join('')}
       <div class="row"><button id="st-test" class="sm">Kiểm tra kết nối</button><span id="st-test-status" class="status"></span></div>
+      <details class="tm-box" ${Object.values(s.taskModels || {}).some((o) => o?.provider) ? 'open' : ''}>
+        <summary><b>Model riêng cho từng việc</b> <span class="hint">tuỳ chọn: ví dụ model rẻ, nhanh cho Chat và dịch; model mạnh cho trích xuất và bài giảng</span></summary>
+        <div class="table-wrap"><table class="data tm-table"><thead><tr><th>Việc</th><th>Nhà cung cấp</th><th>Model</th><th></th></tr></thead><tbody>
+        ${TASK_GROUPS.map(([g, label, desc]) => {
+    const o = s.taskModels?.[g] || {};
+    return `<tr data-g="${g}"><td><b>${escapeHtml(label)}</b><div class="hint">${escapeHtml(desc)}</div></td>
+          <td><select data-tm-p><option value="">Như mặc định</option>${Object.entries(PROVIDERS).map(([k, v]) => `<option value="${k}" ${o.provider === k ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}</select></td>
+          <td><input type="text" data-tm-m value="${escapeHtml(o.model || '')}" autocomplete="off"><div class="tm-res" data-tm-res></div></td>
+          <td><button type="button" class="sm" data-tm-test title="Gọi thử model của việc này, kết quả hiện ngay dưới ô Model">Thử</button></td></tr>`;
+  }).join('')}
+        </tbody></table></div>
+        ${Object.entries(MODEL_SUGGEST).map(([k, list]) => `<datalist id="dl-${k}">${list.map((m) => `<option value="${m}">`).join('')}</datalist>`).join('')}
+        <p class="hint" style="margin:6px 0 0">Chọn nhà cung cấp khác với mặc định thì ô API key của nhà cung cấp đó hiện ở trên. Để trống ô Model để dùng model đang đặt cho nhà cung cấp đó. Nút <b>Thử</b> gọi thử đúng model của hàng đó, kết quả hiện ngay dưới ô Model.</p>
+      </details>
     </section>
 
     <section class="card"><h2>Đề tài của bạn</h2>
@@ -164,19 +184,63 @@ export async function render(root) {
   });
 
   const models = { ...s.models };
+  const taskModels = () => Object.fromEntries([...document.querySelectorAll('.tm-table tr[data-g]')].map((tr) => {
+    const provider = tr.querySelector('[data-tm-p]').value;
+    return [tr.dataset.g, provider ? { provider, model: tr.querySelector('[data-tm-m]').value.trim() } : null];
+  }).filter(([, v]) => v));
+  /** Ô API key hiện cho mọi nhà cung cấp đang dùng: nhà cung cấp chính và các nhà cung cấp chọn riêng cho từng việc. */
+  const syncKeys = () => {
+    const main = $('st-provider').value;
+    const uses = { [main]: ['mặc định'] };
+    for (const [g, o] of Object.entries(taskModels())) (uses[o.provider] ||= []).push(TASK_GROUPS.find((x) => x[0] === g)[1]);
+    document.querySelectorAll('.key-row').forEach((r) => {
+      const u = uses[r.dataset.p];
+      r.classList.toggle('active', !!u);
+      const lab = r.querySelector('.label-text');
+      lab.innerHTML = `${escapeHtml(PROVIDERS[r.dataset.p].label)} API key${u && r.dataset.p !== main ? ` <span class="tm-for">dùng cho: ${escapeHtml(u.join(', '))}</span>` : ''}`;
+      const inp = r.querySelector('input');
+      inp.classList.toggle('need', !!u && !inp.value.trim());
+    });
+    document.querySelectorAll('.tm-table tr[data-g]').forEach((tr) => {
+      const p = tr.querySelector('[data-tm-p]').value;
+      const m = tr.querySelector('[data-tm-m]');
+      m.disabled = !p;
+      if (!p) m.value = ''; // về "Như mặc định" thì bỏ model đã gõ, tránh hiểu nhầm là vẫn dùng model đó
+      m.setAttribute('list', p ? `dl-${p}` : '');
+      m.placeholder = p ? (models[p] || DEFAULT_MODELS[p]) : `${main} / ${models[main] || ''}`;
+      tr.classList.toggle('on', !!p);
+    });
+  };
   const syncProvider = () => {
     const p = $('st-provider').value;
-    document.querySelectorAll('.key-row').forEach((r) => r.classList.toggle('active', r.dataset.p === p));
     $('st-model').value = models[p] || '';
     $('st-model-hint').textContent = MODEL_HINTS[p];
+    syncKeys();
   };
   syncProvider();
-  $('st-model').addEventListener('input', (e) => { models[$('st-provider').value] = e.target.value.trim(); });
+  $('st-model').addEventListener('input', (e) => { models[$('st-provider').value] = e.target.value.trim(); syncKeys(); });
   $('st-provider').addEventListener('change', syncProvider);
+  document.querySelector('.tm-table').addEventListener('change', syncKeys);
+  document.querySelectorAll('.key-row input').forEach((i) => i.addEventListener('input', syncKeys));
+  document.querySelector('.tm-table').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-tm-test]');
+    if (!b) return;
+    const tr = b.closest('tr');
+    const g = tr.dataset.g;
+    const task = TASK_GROUPS.find((x) => x[0] === g)[3][0];
+    const res = tr.querySelector('[data-tm-res]');
+    b.disabled = true;
+    const show = (html, kind = '') => { res.className = `tm-res status ${kind}`; res.innerHTML = html; };
+    show(spinner('Đang gọi thử…'));
+    try { show(`✓ ${escapeHtml(await testConnection({ ...s, ...collect() }, task))}`, 'ok'); }
+    catch (err) { show(`✕ ${escapeHtml(String(err.message).replace(/ Mở Cài đặt để nhập key\.?/, ' Nhập key ở ô phía trên rồi bấm Thử lại.'))}`, 'err'); }
+    finally { b.disabled = false; }
+  });
 
   const collect = () => ({
     provider: $('st-provider').value,
     models,
+    taskModels: taskModels(),
     apiKeys: Object.fromEntries(Object.keys(PROVIDERS).map((k) => [k, $(`st-key-${k}`).value.trim()])),
     myResearch: $('st-research').value,
     language: $('st-lang').value,

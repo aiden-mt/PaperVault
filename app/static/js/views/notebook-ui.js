@@ -224,82 +224,176 @@ export async function paperQueryBuilder(src = '') {
 
 const EX = {
   md: [
-    ['Tiêu đề', '# Tiêu đề lớn\n## Tiêu đề mục\n### Tiêu đề nhỏ'],
-    ['Chữ', '**đậm**, *nghiêng*, `code ngắn`, [liên kết web](https://arxiv.org)'],
-    ['Danh sách', '- ý thứ nhất\n- ý thứ hai\n  - ý con (thụt 2 dấu cách hoặc Tab)\n\n1. bước một\n2. bước hai'],
-    ['Trích dẫn', '> Một câu trích từ paper.'],
-    ['Khối code', '```python\nloss = criterion(logits, labels)  # tính loss\nloss.backward()\n```', 'Gõ / → Khối code để chọn ngôn ngữ và xem trước. Hỗ trợ python, cpp, c, csharp, java, javascript, typescript, rust, go, sql, bash, json, yaml, latex, r, matlab, html.'],
-    ['Khối code C++', '```cpp\n#include <vector>\nint main() {\n  std::vector<int> v{1, 2, 3};\n  return v.size();\n}\n```'],
-    ['Bảng', '| Dataset | Accuracy |\n| --- | --- |\n| VQAv2 | 78.2 |\n| OK-VQA | 55.1 |'],
-    ['Công thức LaTeX', 'Cùng dòng: $\\mathcal{L} = -\\sum_i \\log p(y_i)$\n\n$$\nP(Q, A \\mid I) = \\prod_{t} P(w_t \\mid w_{<t}, I)\n$$', 'Gõ / → Công thức LaTeX để có bảng ký hiệu và xem trước. Macro tự định nghĩa (\\R, \\norm…) đặt ở 📐 Thư viện LaTeX, dùng được trong mọi công thức.'],
-    ['Công thức nhiều dòng', '```math\n\\begin{aligned}\n\\theta^* &= \\arg\\min_\\theta \\mathcal{L}(\\theta) \\\\\n&= \\arg\\min_\\theta \\sum_i \\ell(f_\\theta(x_i), y_i)\n\\end{aligned}\n```', 'Khối ```math cũng là công thức đứng riêng, tiện cho công thức dài nhiều dòng.'],
-    ['Đường kẻ', '---'],
+    ['Tiêu đề', '# Tiêu đề lớn\n## Tiêu đề mục\n### Tiêu đề nhỏ', 'Dấu # ở đầu dòng, cách một dấu cách. Không nên dùng # trong trang vì tên trang đã là tiêu đề lớn nhất.'],
+    ['Đoạn văn', 'Đoạn thứ nhất.\nDòng này nối vào đoạn trên.\n\nĐoạn thứ hai (cách một dòng trống).', 'Xuống dòng một lần vẫn cùng đoạn; để trống một dòng để sang đoạn mới.'],
+    ['Chữ', '**đậm**, *nghiêng*, ~~gạch ngang~~, ==tô sáng==, `code ngắn`', 'Bôi đen chữ rồi Ctrl+B / Ctrl+I để in đậm / nghiêng nhanh.'],
+    ['Liên kết web', '[arXiv](https://arxiv.org) hoặc dán thẳng https://arxiv.org/abs/2010.11929', 'Link trần cũng bấm được.'],
+    ['Danh sách', '- ý thứ nhất\n- ý thứ hai\n  - ý con (thụt 2 dấu cách hoặc Tab)\n\n1. bước một\n2. bước hai', 'Enter ở cuối một mục tự thêm mục mới cùng kiểu; Enter ở mục trống để thoát danh sách. Tab / Shift+Tab thụt vào / lùi ra.'],
+    ['Trích dẫn', '> Một câu trích từ paper.\n> Dòng thứ hai của trích dẫn.'],
+    ['Bảng', '| Dataset | Accuracy |\n| --- | --- |\n| VQAv2 | 78.2 |\n| OK-VQA | 55.1 |', 'Gõ /bang để chèn khung bảng. Kéo mép tiêu đề cột ở phần xem để đổi độ rộng cột.'],
+    ['Đường kẻ', 'Phần trên\n\n---\n\nPhần dưới'],
   ],
   link: [
-    ['Liên kết trang', 'Xem thêm [[Phương pháp đánh giá]].\nĐổi chữ hiện: [[Phương pháp đánh giá|cách đánh giá]].', 'Gõ [[ rồi chọn trong danh sách. Trang chưa có thì hiện chữ mờ, bấm vào để tạo.'],
-    ['Nhắc tới paper', 'Bài gốc: [[@', 'Gõ [[@ rồi gõ vài chữ của tên paper, chọn trong danh sách. App chèn [[@mã-paper|tên ngắn]]. Trang paper (tab Ghi chú) sẽ hiện các trang nhắc tới nó.'],
+    ['Liên kết trang', 'Xem thêm [[Phương pháp đánh giá]].\nĐổi chữ hiện: [[Phương pháp đánh giá|cách đánh giá]].', 'Gõ [[ rồi chọn trong danh sách. Trang chưa có thì hiện chữ mờ, bấm vào để tạo. Đổi tên trang thì liên kết ở mọi trang khác tự đổi theo.'],
+    ['Nhắc tới paper', 'Bài gốc: [[@', 'Gõ [[@ rồi vài chữ của tên paper, chọn trong danh sách. App chèn [[@mã-paper|tên ngắn]]. Trang paper (tab Ghi chú) sẽ hiện các trang nhắc tới nó.'],
     ['Nhúng thẻ paper', '![[@', 'Gõ ![[@ rồi chọn paper. Dòng này hiện thành thẻ: tên, tác giả, năm, venue, ý chính, trạng thái đọc, tag.'],
     ['Nhúng một trang khác', '![[Phương pháp đánh giá]]', 'Hiện nguyên nội dung của trang kia ngay tại đây (một cấp, không lồng nhau).'],
-    ['Tag', 'Bài này thuộc #vqa và #self-training', 'Bấm một tag để lọc mọi trang có tag đó. Tag phải bắt đầu bằng chữ cái.'],
+    ['Tag', 'Bài này thuộc #vqa và #self-training', 'Bấm một tag để lọc mọi trang có tag đó. Tag phải bắt đầu bằng chữ cái. Danh sách tag ở mục TAG của thanh bên.'],
   ],
   block: [
     ['Việc cần làm', '- [ ] Chạy lại baseline\n- [x] Đọc phần 3\n  - [ ] việc con', 'Bấm ô vuông ở phần xem để đánh dấu xong.'],
-    ['Callout', '> [!idea] Ý tưởng\n> Dùng teacher sinh cả câu hỏi lẫn câu trả lời.', 'Loại: note, info, tip, idea, important, warning, danger, question, quote, todo, success.'],
+    ['Callout', '> [!idea] Ý tưởng\n> Dùng teacher sinh cả câu hỏi lẫn câu trả lời.', 'Loại: note, info, tip, idea, important, warning, danger, question, quote, todo, success, ai. Nội dung trong callout dùng được danh sách, bảng, công thức.'],
     ['Callout cảnh báo', '> [!warning] Rủi ro\n> Pseudo-label có thể nhiễu.'],
     ['Callout câu hỏi', '> [!question] Còn chưa rõ\n> Vì sao top-p = 0.92?'],
+    ['Callout của AI', '> [!ai] Tóm tắt\n> Câu trả lời AI chèn vào trang ở dạng khối này.', 'AI trong Sổ tay chèn câu trả lời ở dạng này (hoặc văn bản thường, tuỳ chọn khi chèn).'],
+  ],
+  code: [
+    ['Khối code', '```python\nloss = criterion(logits, labels)  # tính loss\nloss.backward()\n```', 'Gõ /code để chọn ngôn ngữ và xem trước. Hỗ trợ python, cpp, c, csharp, java, javascript, typescript, rust, go, sql, bash, json, yaml, latex, r, matlab, html. Khối code có nút Copy ở góc.'],
+    ['Khối code C++', '```cpp\n#include <vector>\nint main() {\n  std::vector<int> v{1, 2, 3};\n  return v.size();\n}\n```'],
+    ['Công thức cùng dòng', 'Hàm mất mát $\\mathcal{L} = -\\sum_i \\log p(y_i)$ được tối ưu bằng SGD.', 'Gõ /ct1 để có bảng ký hiệu và xem trước.'],
+    ['Công thức đứng riêng', '$$\nP(Q, A \\mid I) = \\prod_{t} P(w_t \\mid w_{<t}, I)\n$$', 'Gõ /ct để có bảng ký hiệu và xem trước.'],
+    ['Công thức nhiều dòng', '```math\n\\begin{aligned}\n\\theta^* &= \\arg\\min_\\theta \\mathcal{L}(\\theta) \\\\\n&= \\arg\\min_\\theta \\sum_i \\ell(f_\\theta(x_i), y_i)\n\\end{aligned}\n```', 'Khối ```math cũng là công thức đứng riêng, tiện cho công thức dài nhiều dòng.'],
+    ['Dùng macro tự định nghĩa', '$\\R^d$, $\\norm{x}$', 'Macro đặt ở 📐 Thư viện LaTeX (cuối thanh bên): gõ tay, chọn bộ có sẵn, hoặc nhập từ file .tex / .sty (đọc \\newcommand, \\DeclareMathOperator). Dùng được trong mọi công thức của app.'],
+  ],
+  img: [
+    ['Ảnh có chú thích', '![Logo PaperVault]({ICON})', 'Ảnh đứng riêng một dòng hiện kèm chú thích bên dưới. Bấm ảnh ở phần xem để phóng to.'],
+    ['Đặt độ rộng', '![Logo nhỏ|64]({ICON})', 'Số sau dấu | là độ rộng: 64 (px) hoặc 50% (theo bề rộng trang).'],
   ],
 };
 const KEYS = [
   ['Ctrl + K', 'Mở nhanh một trang (gõ tên chưa có rồi Enter để tạo)'],
   ['Ctrl + S', 'Lưu ngay (bình thường tự lưu sau khi ngừng gõ)'],
   ['Ctrl + B / Ctrl + I', 'In đậm / in nghiêng chữ đang chọn'],
+  ['Ctrl + J', 'AI nhanh cho đoạn đang chọn hoặc đoạn có con trỏ; trên dòng trống: AI viết mới'],
+  ['Ctrl + Enter', 'Trong hộp thoại Hỏi AI: tạo câu trả lời'],
   ['Ctrl + /', 'Mở hướng dẫn này'],
-  ['/', 'Danh sách khối để chèn (tiêu đề, việc cần làm, callout, bảng, code, công thức, paper…)'],
+  ['/', 'Danh sách khối để chèn; gõ tiếp để tìm, ví dụ /h1, /todo, /bang, /code, /ct, /ai'],
   ['[[  ·  [[@  ·  ![[@', 'Liên kết trang · nhắc tới paper · nhúng thẻ paper'],
   ['↑ ↓ · Enter / Tab · Esc', 'Chọn trong danh sách gợi ý · chèn · đóng danh sách'],
   ['Enter (trong danh sách)', 'Tự thêm dòng mới cùng kiểu (-, 1., - [ ], >). Enter ở dòng trống thì thoát danh sách'],
   ['Tab / Shift + Tab', 'Thụt vào / lùi ra một cấp danh sách'],
+  ['Ctrl + V', 'Dán ảnh (chụp màn hình, copy ảnh từ web) thẳng vào trang'],
   ['Bấm đúp (chế độ Chia đôi)', 'Bấm đúp một chữ ở phần xem để nhảy tới đúng chữ đó ở phần viết'],
   ['G rồi B', 'Mở Sổ tay từ bất kỳ trang nào của app'],
+  ['Ctrl + \\', 'Bật / tắt chia đôi màn hình (ví dụ đọc paper bên trái, viết Sổ tay bên phải)'],
+  ['Alt + bấm link', 'Khi chia đôi: mở paper / trang ở khung bên kia'],
   ['Esc · Shift + Esc (Đồ thị)', 'Bỏ chọn · đóng đồ thị'],
 ];
 
-/** Hướng dẫn có các tab: Markdown, Liên kết & paper, Khối đặc biệt, Bảng paper, Phím tắt. insert(text) nếu có thì hiện nút "Chèn vào trang". */
-export function openGuide(tab = 'md', { insert = null } = {}) {
-  const exRows = (list) => `<table class="data nbg-ex"><thead><tr><th style="width:30%">Bạn gõ</th><th>Hiện ra</th></tr></thead><tbody>${list.map(([label, code, note], i) => `<tr>
+/** Danh sách lệnh "/" của trình soạn (truyền từ views/notebook.js để hướng dẫn luôn khớp với menu thật). */
+let guideBlocks = [];
+export function setGuideBlocks(list) { guideBlocks = list || []; }
+
+/** Hướng dẫn nhiều tab. insert(text) nếu có thì hiện nút "Chèn vào trang" ở các ví dụ. */
+export function openGuide(tab = 'start', { insert = null } = {}) {
+  const exRows = (list) => `<table class="data nbg-ex"><thead><tr><th style="width:34%">Bạn gõ</th><th>Hiện ra</th></tr></thead><tbody>${list.map(([label, code, note]) => `<tr>
       <td><div class="nbg-label">${escapeHtml(label)}</div><pre class="code">${escapeHtml(code)}</pre><div class="nbg-acts"><button type="button" class="sm ghost" data-copy="${escapeHtml(code)}">Copy</button>${insert ? `<button type="button" class="sm ghost" data-ins="${escapeHtml(code)}">Chèn vào trang</button>` : ''}</div></td>
       <td><div class="nb-prev md nbg-out">${renderNote(code, { qc: false })}</div>${note ? `<div class="hint">${escapeHtml(note)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`;
   const tags = [...tagIndex()].sort((a, b) => b[1].length - a[1].length).slice(0, 24).map(([t]) => t);
   const queryEx = `\`\`\`papers\ntag: ${tags[0] || 'vqa'}\nstatus: reading, done\nsort: year\ncols: title, year, venue, status\nlimit: 10\n\`\`\``;
+  const kbd = (k) => k.split(/(\s·\s|\s\/\s|\s\+\s)/).map((x) => (/^\s[·/+]\s$/.test(x) ? escapeHtml(x) : `<kbd>${escapeHtml(x)}</kbd>`)).join('');
+  let lastG = '';
+  const slashRows = guideBlocks.map((s) => {
+    const head = s.g !== lastG ? `<tr class="nbg-grp"><td colspan="4">${escapeHtml(s.g)}</td></tr>` : '';
+    lastG = s.g;
+    return `${head}<tr><td><span class="nb-ps-ic nbg-ic">${escapeHtml(s.icon)}</span></td><td><b>${escapeHtml(s.label)}</b><div class="hint">${escapeHtml(s.desc || '')}</div></td><td>${s.al.map((a) => `<kbd>/${escapeHtml(a)}</kbd>`).join(' ')}</td><td>${s.md ? `<code>${escapeHtml(s.md)}</code>` : '<span class="hint">—</span>'}</td></tr>`;
+  }).join('');
   const panes = {
-    md: `<p class="hint">Sổ tay dùng Markdown: gõ ký hiệu, phần xem bên phải hiện định dạng. Các ví dụ dưới đây được dựng trực tiếp bằng bộ hiển thị của sổ tay.</p>${exRows(EX.md)}`,
+    start: `<div class="nbg-start">
+      <p>Sổ tay là nơi ghi chép nghiên cứu: mỗi trang viết bằng Markdown, nối với nhau bằng liên kết hai chiều (kiểu Obsidian), có khối đặc biệt và bảng paper lấy thẳng từ thư viện (kiểu Notion). Mọi thứ tự lưu sau khi bạn ngừng gõ.</p>
+      <div class="nbg-cards">
+        <div class="nbg-card"><b>📄 Trang và cây trang</b><ul>
+          <li><b>+ Trang mới</b> mở bộ chọn mẫu: trang trống, ghi chú đọc paper, tổng quan một chủ đề, kế hoạch thí nghiệm, nhật ký…</li>
+          <li>Nút <b>+</b> cạnh một trang trong cây để thêm trang con; kéo thả một trang lên trang khác để chuyển vào trong.</li>
+          <li><b>☆</b> trên đầu trang để đưa vào mục Yêu thích; <b>⋯</b> để nhân bản, di chuyển, copy / tải Markdown, đưa vào thùng rác.</li>
+          <li><b>☑ Chọn</b> ở thanh bên để chọn nhiều trang rồi di chuyển hoặc xoá cùng lúc. <b>Thùng rác</b> giữ trang đã xoá để khôi phục.</li>
+          <li>Khung hẹp (ví dụ khi chia đôi màn hình): nút <b>☰</b> mở / đóng danh sách trang.</li></ul></div>
+        <div class="nbg-card"><b>✍️ Viết và xem</b><ul>
+          <li><b>Viết</b> chỉ có khung soạn, <b>Xem</b> chỉ có bản hiển thị, <b>Chia đôi</b> có cả hai cạnh nhau (giống Overleaf).</li>
+          <li>Ở Chia đôi: nút ▶ / ◀ ở giữa nhảy tới đúng chỗ tương ứng bên kia, nút ⇅ bật / tắt cuộn đồng bộ; bấm đúp một chữ ở phần xem để tới đúng chữ đó ở phần viết.</li>
+          <li>Gõ <code>/</code> để chèn khối (tab <b>Lệnh /</b>), <code>[[</code> để liên kết trang, <code>[[@</code> để nhắc tới paper.</li>
+          <li>Cuối trang có <b>Liên kết tới trang này</b>, các trang nhắc tên mà chưa liên kết, trang con và paper trong trang.</li></ul></div>
+        <div class="nbg-card"><b>🔎 Tìm và điều hướng</b><ul>
+          <li><kbd>Ctrl</kbd> + <kbd>K</kbd>: mở nhanh một trang theo tên; gõ tên chưa có rồi Enter để tạo.</li>
+          <li>Ô tìm ở thanh bên tìm cả trong nội dung và tag (<code>#tag</code>).</li>
+          <li><b>🕸</b> mở đồ thị: mọi trang và paper, nối theo liên kết.</li>
+          <li><b>📅 Hôm nay</b> mở trang nhật ký của ngày (xem tab <b>Việc & lịch</b>).</li></ul></div>
+        <div class="nbg-card"><b>✨ AI</b><ul>
+          <li>Bôi đen một đoạn rồi <kbd>Ctrl</kbd> + <kbd>J</kbd>: cải thiện, rút gọn, giải thích, dịch, chuyển thành bảng…</li>
+          <li>Nút <b>✨ AI</b> trên đầu trang: hỏi dựa trên paper và ghi chú bạn chọn, trả lời có nguồn.</li>
+          <li>Chi tiết ở tab <b>AI</b>.</li></ul></div>
+      </div></div>`,
+    md: `<p class="hint">Sổ tay dùng Markdown: gõ ký hiệu, phần xem hiện định dạng. Các ví dụ dưới đây được dựng trực tiếp bằng bộ hiển thị của sổ tay; bấm <b>Chèn vào trang</b> để thêm ví dụ vào chỗ con trỏ.</p>${exRows(EX.md)}`,
+    slash: `<p>Gõ <code>/</code> ở đầu dòng (hoặc sau một dấu cách) để mở danh sách khối. Gõ tiếp để tìm: phím tắt (ví dụ <code>/h2</code>), chữ đầu của tên (<code>/tieu</code> ra cả ba tiêu đề), từ khoá (<code>/callout</code>), hoặc gõ tắt chữ đầu (<code>/dsds</code> → Danh sách đánh số). <kbd>↑</kbd> <kbd>↓</kbd> chọn, <kbd>Enter</kbd> chèn, <kbd>Esc</kbd> đóng. Cột cuối là cú pháp Markdown tương đương, gõ thẳng cũng được.</p>
+      <table class="data nbg-slash"><thead><tr><th></th><th>Khối</th><th>Phím tắt</th><th>Markdown</th></tr></thead><tbody>${slashRows || '<tr><td colspan="4" class="hint">Mở hướng dẫn từ trong một trang Sổ tay để xem danh sách.</td></tr>'}</tbody></table>`,
     link: `<p class="hint">Liên kết hai chiều kiểu Obsidian: trang được liên kết tới sẽ thấy trang kia trong mục <b>Liên kết tới trang này</b>. Đổi tên trang thì liên kết ở mọi trang khác tự đổi theo.</p>${exRows(EX.link)}`,
     block: `<p class="hint">Các khối riêng của sổ tay, ngoài Markdown thường.</p>${exRows(EX.block)}`,
-    query: `<p>Khối <code>\`\`\`papers</code> dựng một bảng paper lấy trực tiếp từ thư viện, giống một database của Notion. Cách dễ nhất: gõ <code>/</code> → <b>Bảng paper từ thư viện</b> để mở trình dựng bảng có các tab chọn bộ lọc, cột và sắp xếp. Bảng đã có trong trang thì bấm <b>⚙ Chỉnh bảng</b> ở góc bảng.</p>
+    code: `<p class="hint">Khối code có khung riêng và tô màu theo ngôn ngữ; công thức dựng bằng KaTeX, chạy offline.</p>${exRows(EX.code)}`,
+    img: `<p>Ba cách thêm ảnh, ảnh được lưu trong thư mục dữ liệu của app (<code>data/images</code>):</p>
+      <ul><li><b>Dán</b>: chụp màn hình rồi <kbd>Ctrl</kbd> + <kbd>V</kbd> trong khung viết, hoặc copy ảnh từ trang web rồi dán.</li>
+      <li><b>Kéo thả</b> file ảnh (PNG, JPG, GIF, WebP) vào khung viết.</li>
+      <li><b>Gõ</b> <code>/anh</code> → Ảnh từ máy, hoặc <code>/anhlink</code> → Ảnh từ đường link.</li></ul>
+      ${exRows(EX.img.map(([l, c, n]) => [l, c.replaceAll('{ICON}', `${location.origin}/icons/icon128.png`), n]))}
+      <p class="hint">Bản sao lưu JSON không chứa file ảnh: khi chuyển máy, chép thêm thư mục <code>data/images</code>.</p>`,
+    query: `<p>Khối <code>\`\`\`papers</code> dựng một bảng paper lấy trực tiếp từ thư viện, giống một database của Notion. Cách dễ nhất: gõ <code>/papers</code> → <b>Bảng paper từ thư viện</b> để mở trình dựng bảng có các tab chọn bộ lọc, cột và sắp xếp. Bảng đã có trong trang thì bấm <b>⚙ Chỉnh bảng</b> ở góc bảng.</p>
       <p class="hint">Hoặc gõ tay, mỗi dòng một tuỳ chọn <code>tên: giá trị</code>:</p>
       ${exRows([['Ví dụ', queryEx, 'Bảng tự cập nhật khi thư viện thay đổi (thêm paper, đổi trạng thái…).']])}
       <table class="data nbq-help"><thead><tr><th>Tuỳ chọn</th><th>Giá trị có thể dùng</th></tr></thead><tbody>
-        <tr><td><code>tag</code></td><td>Tag trong thư viện, cách nhau bởi dấu phẩy. Tag đang có: ${tags.map((t) => `<code>${escapeHtml(t)}</code>`).join(' ') || '<span class="hint">chưa có</span>'}</td></tr>
-        <tr><td><code>topic</code></td><td>Tên chủ đề: ${store.topics.map((t) => `<code>${escapeHtml(t.name)}</code>`).join(' ')}</td></tr>
-        <tr><td><code>status</code></td><td>${STATUS_ORDER.map((s) => `<code>${s}</code> (${escapeHtml(STATUS_LABEL[s])})`).join(', ')}</td></tr>
+        <tr><td><code>tag</code></td><td>Tag trong thư viện, cách nhau bởi dấu phẩy. Tag đang có: ${tags.map((x) => `<code>${escapeHtml(x)}</code>`).join(' ') || '<span class="hint">chưa có</span>'}</td></tr>
+        <tr><td><code>topic</code></td><td>Tên chủ đề: ${store.topics.map((x) => `<code>${escapeHtml(x.name)}</code>`).join(' ')}</td></tr>
+        <tr><td><code>status</code></td><td>${STATUS_ORDER.map((x) => `<code>${x}</code> (${escapeHtml(STATUS_LABEL[x])})`).join(', ')}</td></tr>
         <tr><td><code>year</code></td><td><code>2020-2024</code>, <code>2023</code>, <code>2022-</code> (từ 2022)</td></tr>
         <tr><td><code>q</code></td><td>Từ khoá tìm trong tên, ý chính, tag</td></tr>
         <tr><td><code>sort</code></td><td>${QUERY_SORTS.map(([k, l]) => `<code>${k}</code> (${escapeHtml(l)})`).join(', ')}</td></tr>
         <tr><td><code>cols</code></td><td>${QUERY_COLS.map(([k, l]) => `<code>${k}</code> (${escapeHtml(l)})`).join(', ')}</td></tr>
         <tr><td><code>limit</code></td><td>Số dòng tối đa (1–500, mặc định 50)</td></tr>
       </tbody></table>`,
-    keys: `<table class="data"><thead><tr><th style="width:34%">Phím</th><th>Tác dụng</th></tr></thead><tbody>${KEYS.map(([k, d]) => `<tr><td>${k.split(/(\s·\s|\s\/\s|\s\+\s)/).map((x) => (/^\s[·/+]\s$/.test(x) ? escapeHtml(x) : `<kbd>${escapeHtml(x)}</kbd>`)).join('')}</td><td>${escapeHtml(d)}</td></tr>`).join('')}</tbody></table>`,
+    ai: `<div class="nbg-cards">
+        <div class="nbg-card"><b>✨ AI nhanh trên từng đoạn</b> <span class="hint">(giống Notion AI)</span><ul>
+          <li><b>Mở</b>: bôi đen chữ rồi bấm nút <b>✨ AI</b> nổi cạnh đó, hoặc đặt con trỏ trong một đoạn rồi <kbd>Ctrl</kbd> + <kbd>J</kbd> (app tự chọn cả đoạn, dừng ở dòng trống hoặc tiêu đề), hoặc rê chuột vào một đoạn ở phần xem rồi bấm ✨ bên trái.</li>
+          <li><b>Chỉnh đoạn</b>: cải thiện văn phong, sửa chính tả & ngữ pháp, viết ngắn lại, viết chi tiết hơn, giọng văn học thuật, viết dễ hiểu hơn.</li>
+          <li><b>Tạo từ đoạn</b>: tóm tắt, giải thích, rút ý chính, chuyển thành bảng, câu hỏi ôn tập, phản biện, bổ sung dẫn chứng từ paper trong trang. <b>Dịch</b> sang tiếng Anh / tiếng Việt.</li>
+          <li>Gõ để lọc, hoặc gõ yêu cầu riêng rồi <kbd>Enter</kbd>. Kết quả hiện ngay: <b>Thay thế</b>, <b>Chèn bên dưới</b>, <b>Thử lại</b>, <b>Copy</b>, hoặc gõ vào ô <i>Bảo AI sửa tiếp</i> (ví dụ "ngắn hơn", "thêm ví dụ").</li>
+          <li><b>Trên dòng trống</b> (<kbd>Ctrl</kbd> + <kbd>J</kbd> hoặc <code>/ai</code>): viết tiếp, lập dàn ý, tóm tắt cả trang, brainstorm ý tưởng, bảng so sánh paper trong trang, danh sách việc cần làm.</li>
+          <li><b>⭐ Lưu thành prompt nhanh</b>: giữ yêu cầu bạn hay dùng trong nhóm "Prompt của tôi" (bấm ✕ để xoá).</li></ul></div>
+        <div class="nbg-card"><b>📚 Hỏi AI với nguồn</b> <span class="hint">(giống RAG)</span><ul>
+          <li><b>Mở</b>: nút <b>✨ AI</b> trên đầu trang, <code>/hoi</code>, hoặc mục cuối của menu AI nhanh.</li>
+          <li><b>Nguồn</b>: paper (mặc định là paper nhắc trong trang; thêm bằng ô tìm hoặc lấy paper đang tick ở Thư viện) và trang ghi chú (mặc định là trang đang viết). Bật <i>Tự tìm thêm paper liên quan</i> để app tự chọn thêm tối đa 5 paper khớp câu hỏi; bấm <b>Giữ</b> để dùng tiếp.</li>
+          <li><b>Mức ngữ cảnh</b>: <i>Chỉ ghi chú</i> (nhanh, rẻ), <i>Ghi chú + đoạn liên quan</i> (khuyên dùng: mỗi câu hỏi tìm thêm các đoạn khớp nhất trong toàn văn), <i>Toàn văn</i> (đầy đủ nhất, tốn token nhất).</li>
+          <li>Yêu cầu có sẵn: tóm tắt nguồn, bảng so sánh, Related Work, giải thích đoạn chọn, viết tiếp trang, câu hỏi mở. <b>Hỏi tiếp</b> giữ cùng nguồn.</li>
+          <li><b>Chèn vào trang</b> ở dạng khối ✨ AI hoặc văn bản thường; nguồn sau mỗi ý thành liên kết tới paper / trang. Bôi đen trước khi mở thì có thêm <b>Thay đoạn đã chọn</b>.</li></ul></div>
+        <div class="nbg-card"><b>⚙️ Model dùng cho AI trong Sổ tay</b><ul>
+          <li>Mặc định dùng model chính trong Cài đặt. Muốn dùng model khác (ví dụ model rẻ, nhanh cho viết lại đoạn), vào <b>Cài đặt → Mô hình → Model riêng cho từng việc → AI trong Sổ tay</b>.</li></ul></div>
+      </div>`,
+    task: `<div class="nbg-cards">
+        <div class="nbg-card"><b>☑ Việc có hạn</b><ul>
+          <li>Thêm <code>📅 YYYY-MM-DD</code> vào cuối một việc: <code>- [ ] Nộp abstract 📅 2026-11-01</code>. Gõ <code>/han</code> để chèn ngày hôm nay rồi sửa.</li>
+          <li>Ở phần xem, hạn hiện thành nhãn 📅 01/11 (đỏ khi quá hạn); bấm để mở Lịch ngày đó.</li>
+          <li>Việc có hạn ở mọi trang hiện trên <b>Lịch</b> (nhóm Cá nhân, <kbd>G</kbd> rồi <kbd>K</kbd>); đánh dấu xong ở Lịch thì trang nguồn cũng được đánh dấu.</li></ul></div>
+        <div class="nbg-card"><b>📅 Nhật ký</b><ul>
+          <li><b>📅 Hôm nay</b> ở thanh bên mở (hoặc tạo) trang <i>Nhật ký YYYY-MM-DD</i>, gom trong trang <i>Nhật ký</i>.</li>
+          <li>Trang nhật ký có thẻ <b>Lịch của ngày</b>: các kế hoạch trong Lịch, đánh dấu xong, thêm kế hoạch ngay trong trang (ghi giờ ở đầu, ví dụ <code>14:00 Họp nhóm</code>).</li>
+          <li>Ở Lịch, chọn một ngày rồi bấm <b>Mở</b> / <b>+ Tạo nhật ký</b> để tới trang nhật ký của ngày đó.</li></ul></div>
+      </div>
+      ${exRows([['Việc có hạn', '- [ ] Chạy pre-train MAE 📅 2026-10-25\n- [x] Chuẩn bị dữ liệu 📅 2026-10-22']])}`,
+    keys: `<table class="data"><thead><tr><th style="width:34%">Phím</th><th>Tác dụng</th></tr></thead><tbody>${KEYS.map(([k, d]) => `<tr><td>${kbd(k)}</td><td>${escapeHtml(d)}</td></tr>`).join('')}</tbody></table>`,
   };
-  const TABS = [['md', 'Markdown'], ['link', 'Liên kết & paper'], ['block', 'Khối đặc biệt'], ['query', 'Bảng paper'], ['keys', 'Phím tắt']];
+  const TABS = [['start', 'Bắt đầu'], ['md', 'Markdown'], ['slash', 'Lệnh /'], ['link', 'Liên kết & paper'], ['block', 'Khối đặc biệt'], ['code', 'Code & công thức'], ['img', 'Ảnh'], ['query', 'Bảng paper'], ['ai', 'AI'], ['task', 'Việc & lịch'], ['keys', 'Phím tắt']];
+  if (!TABS.some(([k]) => k === tab)) tab = 'start';
   dialog({
-    title: 'Hướng dẫn Sổ tay', width: 960,
-    body: `<div class="seg nbg-tabs">${TABS.map(([k, l]) => `<button data-gt="${k}" class="${k === tab ? 'active' : ''}">${l}</button>`).join('')}</div>
+    title: 'Hướng dẫn Sổ tay', width: 980,
+    body: `<div class="nbg-tabs">${TABS.map(([k, l]) => `<button type="button" data-gt="${k}" class="${k === tab ? 'active' : ''}">${l}</button>`).join('')}</div>
       ${TABS.map(([k]) => `<div class="nbg-pane" data-gp="${k}" ${k === tab ? '' : 'hidden'}>${panes[k]}</div>`).join('')}`,
     buttons: [{ label: 'Đóng', value: null }],
     onOpen: (body, close) => {
       body.addEventListener('click', async (e) => {
         const t = e.target.closest('[data-gt]');
-        if (t) { body.querySelectorAll('[data-gt]').forEach((x) => x.classList.toggle('active', x === t)); body.querySelectorAll('[data-gp]').forEach((p) => { p.hidden = p.dataset.gp !== t.dataset.gt; }); return; }
+        if (t) {
+          body.querySelectorAll('[data-gt]').forEach((x) => x.classList.toggle('active', x === t));
+          body.querySelectorAll('[data-gp]').forEach((p) => { p.hidden = p.dataset.gp !== t.dataset.gt; });
+          body.closest('.modal-body')?.scrollTo?.(0, 0);
+          return;
+        }
         const c = e.target.closest('[data-copy]');
         if (c) { await copyText(c.dataset.copy); toast('Đã copy.'); return; }
         const i = e.target.closest('[data-ins]');

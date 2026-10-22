@@ -151,3 +151,11 @@ function render() {
 function startTimer() { if (!timer) timer = setInterval(render, 1000); }
 function stopTimer() { clearInterval(timer); timer = 0; }
 window.addEventListener('hashchange', () => setTimeout(render, 50));
+
+/** Tên các việc nền đang chạy trong cửa sổ này (dùng để hỏi lại trước khi đóng một khung chia đôi). */
+export function busyLabels() {
+  const out = [];
+  for (const [key, t] of tracked) if (!t.job.done) out.push(t.label || key);
+  for (const [key, j] of jobs) if (!j.done && !tracked.has(key)) out.push('Việc nền đang chạy');
+  return [...new Set(out)];
+}
