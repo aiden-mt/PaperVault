@@ -417,9 +417,17 @@ async function streamAnthropic({ apiKey, model, system, messages, maxTokens, eff
     model, max_tokens: maxTokens, stream: true,
     // Khối ngữ cảnh lớn (danh sách paper) được đánh dấu cache: các lượt hỏi sau chỉ tốn phí đọc cache.
     system: system.map((b) => ({ type: 'text', text: b.text, ...(b.cache ? { cache_control: { type: 'ephemeral' } } : {}) })),
-    messages: messages.map((m, i) => (i === messages.length - 1 && m.role === 'user'
-      ? { role: 'user', content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }] }
-      : { role: m.role, content: m.content })),
+    messages: messages.map((m, i) => {
+      const last = i === messages.length - 1 && m.role === 'user';
+      const imgs = m.role === 'user' ? (m.images || []) : [];
+      if (!last && !imgs.length) return { role: m.role, content: m.content };
+      return { role: m.role, content: [
+        ...imgs.map((im) => (im.mime === 'application/pdf'
+          ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: im.data } }
+          : { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })),
+        { type: 'text', text: m.content, ...(last ? { cache_control: { type: 'ephemeral' } } : {}) },
+      ] };
+    }),
   };
   if (effort && anthropicSupportsEffort(model)) body.output_config = { effort };
   const res = await anthropicFetch(apiKey, body, { signal });
@@ -453,7 +461,11 @@ async function streamOpenAI({ apiKey, model, system, messages, maxTokens, onText
   const usesCompletionTokens = /^(o\d|gpt-5)/.test(model || '');
   const body = {
     model, stream: true, stream_options: { include_usage: true },
-    messages: [{ role: 'system', content: system.map((b) => b.text).join('\n\n') }, ...messages.map((m) => ({ role: m.role, content: m.content }))],
+    messages: [{ role: 'system', content: system.map((b) => b.text).join('\n\n') }, ...messages.map((m) => (m.role === 'user' && m.images?.length
+      ? { role: 'user', content: [{ type: 'text', text: m.content }, ...m.images.map((im) => (im.mime === 'application/pdf'
+        ? { type: 'file', file: { filename: im.name || 'file.pdf', file_data: `data:application/pdf;base64,${im.data}` } }
+        : { type: 'image_url', image_url: { url: `data:${im.mime};base64,${im.data}` } }))] }
+      : { role: m.role, content: m.content }))],
   };
   body[usesCompletionTokens ? 'max_completion_tokens' : 'max_tokens'] = maxTokens;
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -478,7 +490,7 @@ async function streamGemini({ apiKey, model, system, messages, maxTokens, onText
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
   const body = {
     systemInstruction: { parts: [{ text: system.map((b) => b.text).join('\n\n') }] },
-    contents: messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+    contents: messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [...(m.role === 'user' ? (m.images || []) : []).map((im) => ({ inlineData: { mimeType: im.mime, data: im.data } })), { text: m.content }] })),
     generationConfig: { maxOutputTokens: maxTokens },
   };
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal });

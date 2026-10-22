@@ -1,393 +1,521 @@
-// Hướng dẫn sử dụng trong app: mục lục, tìm kiếm, mở đúng mục theo trang đang xem.
+// Hướng dẫn sử dụng trong app: mục lục theo nhóm, tìm kiếm, ảnh minh hoạ có đánh số bước, mở đúng mục theo trang đang xem.
+// Ảnh nằm ở static/img/help/ (chụp từ dữ liệu mẫu, số ①②③ trên ảnh khớp với danh sách bước bên dưới ảnh).
 import { escapeHtml, norm } from '../util.js';
 import { $ } from '../ui.js';
 
 const ui = (s) => `<span class="ui">${s}</span>`;
 const k = (s) => `<kbd>${s}</kbd>`;
+/** Ảnh minh hoạ; bấm để phóng to. */
+const fig = (name, caption) => `<figure class="hp-fig"><img src="img/help/${name}.webp" alt="${escapeHtml(caption)}" loading="lazy" data-zoom><figcaption>${caption}</figcaption></figure>`;
+/** Danh sách bước, số khớp với số đánh dấu trên ảnh ngay phía trên. */
+const steps = (list) => `<ol class="hp-steps">${list.map((s, i) => `<li><span class="hp-n">${i + 1}</span><div>${s}</div></li>`).join('')}</ol>`;
+const step = (n, title) => `<h3 class="hp-step"><span class="hp-badge">Bước ${n}</span>${title}</h3>`;
+
+export const GROUPS = [
+  ['start', 'Bắt đầu'],
+  ['lib', 'Thư viện'],
+  ['explore', 'Khám phá & phân tích'],
+  ['me', 'Cá nhân'],
+  ['tools', 'Công cụ & cài đặt'],
+];
 
 export const SECTIONS = [
+  /* ============================== Bắt đầu ============================== */
   {
-    id: 'start', title: 'Bắt đầu nhanh', routes: [''],
+    id: 'start', group: 'start', title: 'Bắt đầu nhanh', routes: [''],
     html: `
-<p>PaperVault giúp chúng ta thu thập paper, trích xuất ghi chú của mỗi paper theo template đọc paper bằng mô hình ngôn ngữ, sắp xếp chúng thành thư viện có chủ đề và hạng venue, rồi so sánh hoặc hỏi đáp trên nhiều paper cùng lúc. Lần đầu dùng app, chúng ta cần làm theo thứ tự các bước sau:</p>
-<ol>
-  <li>Vào ${ui('Cài đặt')}, chọn nhà cung cấp (Claude, OpenAI hoặc Gemini), dán API key rồi bấm ${ui('Kiểm tra kết nối')}. Key chỉ lưu trong tệp dữ liệu trên máy.</li>
-  <li>Cũng trong ${ui('Cài đặt')}, mô tả ngắn đề tài đang làm ở mục ${ui('Đề tài của bạn')}. App dùng mô tả này để viết phần ý tưởng áp dụng, trả lời trong Chat và soạn bản nháp Related Work, nên mô tả càng cụ thể thì các phần đó càng sát bài.</li>
-  <li>Vào ${ui('Thêm paper')}, dán một arXiv ID hoặc link, bấm ${ui('Tra cứu')} rồi ${ui('Trích xuất ghi chú')} và ${ui('Lưu vào thư viện')}.</li>
-  <li>Mở paper vừa lưu để đọc ghi chú, đọc PDF kèm dịch khi bôi đen, ghi chú cá nhân và hỏi đáp.</li>
-</ol>
-<p>Nếu đã có dữ liệu trong extension PaperVault, chúng ta xuất thư viện extension ra JSON rồi nhập vào app ở ${ui('Cài đặt')}, mục ${ui('Sao lưu & nhập dữ liệu')}. Khi app đang chạy, nút ${ui('→ Đồng bộ sang App')} trong thư viện extension làm việc này trực tiếp.</p>
-<p>Ghi chú trích xuất đi theo template đọc paper. Năm mục cũ Problem, Bottleneck, Key Idea, Validation, Limitation được gộp vào các mục tương ứng nên không lặp lại:</p>
+<p>PaperVault giúp thu thập paper, để AI đọc và viết ghi chú theo template, sắp xếp thành thư viện có chủ đề và hạng venue, rồi so sánh, hỏi đáp, ghi chép và lên kế hoạch đọc. Lần đầu dùng app, làm theo ba bước dưới đây.</p>
+${step(1, 'Nhập API key và mô tả đề tài')}
+<p>Mở ${ui('Cài đặt')} ở cuối thanh bên trái.</p>
+${fig('settings', 'Trang Cài đặt, thẻ Mô hình và Đề tài của bạn')}
+${steps([
+    `Chọn <b>nhà cung cấp</b>: Claude (Anthropic), OpenAI hoặc Google Gemini.`,
+    `Gõ tên <b>model</b> mà key của bạn dùng được (dòng gợi ý bên dưới ô có vài tên phổ biến).`,
+    `Dán <b>API key</b>. Key chỉ lưu trong tệp dữ liệu trên máy bạn, app không gửi đi đâu khác ngoài nhà cung cấp đã chọn.`,
+    `Bấm ${ui('Kiểm tra kết nối')}: app gọi thử một câu rất ngắn, báo "Kết nối OK" nếu key và model đúng.`,
+    `Viết 2–3 câu về <b>đề tài của bạn</b>. App dùng đoạn này để viết mục "liên quan tới bài của tôi", trả lời trong Chat và gợi ý hướng nghiên cứu, nên càng cụ thể càng tốt.`,
+    `Bấm ${ui('Lưu cài đặt')}.`,
+  ])}
+${step(2, 'Thêm paper đầu tiên')}
+<p>Bấm ${ui('Thêm paper')} (góc trên bên phải, hoặc phím ${k('N')}).</p>
+${fig('add', 'Trang Thêm paper')}
+${steps([
+    `Chọn cách thêm: link / arXiv / DOI, file PDF, dán text, hàng loạt, hoặc nhập từ Zotero (.bib / .ris).`,
+    `Dán arXiv ID (ví dụ <code>2006.11239</code>), link arXiv, DOI hoặc link trang paper.`,
+    `Bấm ${ui('Tra cứu')}. App tự lấy tiêu đề, tác giả, venue, số trích dẫn, toàn văn và PDF nếu có.`,
+  ])}
+${fig('add-result', 'Kết quả tra cứu, sẵn sàng trích xuất ghi chú')}
+${steps([
+    `Xem lại thông tin: tiêu đề, tác giả, năm, venue, loại toàn văn tìm được, TL;DR.`,
+    `Bấm ${ui('Trích xuất ghi chú')}: AI đọc paper (10–90 giây) và điền ghi chú theo template. Xem lại bản ghi chú, chọn chủ đề rồi bấm ${ui('Lưu vào thư viện')}.`,
+    `Hoặc ${ui('Lưu chỉ metadata')} để lưu ngay mà không tốn token; ghi chú trích xuất sau bằng nút ${ui('Trích xuất lại')} trong trang paper.`,
+  ])}
+${step(3, 'Đọc và làm việc với paper')}
+<p>Mở paper vừa lưu từ ${ui('Thư viện')}: đọc ghi chú, đọc PDF kèm dịch khi bôi đen, hỏi đáp, xem bản đồ tài liệu, ghi chép vào Sổ tay. Xem mục <a href="#/help?s=paper">Trang paper</a>.</p>
+<p class="hint">Đã có dữ liệu trong extension PaperVault? Trong thư viện extension bấm ${ui('→ Đồng bộ sang App')} khi app đang chạy, hoặc xuất JSON rồi nhập ở ${ui('Cài đặt')} → ${ui('Sao lưu & nhập dữ liệu')}.</p>
+<details class="hp-more"><summary>Ghi chú theo template gồm những mục nào?</summary>
 <ul>
-  <li><b>1–2. Paper, Venue/Year</b> là tên, tác giả, nơi công bố và năm.</li>
-  <li><b>3. Problem &amp; Motivation</b> là bài toán cụ thể (input, output, bối cảnh) và lý do bài toán quan trọng.</li>
-  <li><b>4. Research Gap</b> (Bottleneck cũ) là hạn chế của các nghiên cứu trước và vấn đề còn bỏ ngỏ.</li>
-  <li><b>5. Research Question/Objective</b> là mục tiêu và giả thuyết nghiên cứu.</li>
-  <li><b>6. Method</b> (Key Idea cũ) gồm ý tưởng cốt lõi, các bước pipeline, mô hình và kỹ thuật, điểm khác biệt so với phương pháp trước.</li>
-  <li><b>7. Contribution</b> là các đóng góp mới.</li>
-  <li><b>8. Dataset</b> là bảng tên, nguồn, quy mô, đặc điểm và tiền xử lý của từng dataset.</li>
-  <li><b>9. Experiments</b> và <b>10. Findings</b> (Validation cũ) gồm thiết lập thí nghiệm, baseline, metric, ablation, các con số chính, phát hiện chính và kết quả hỗ trợ contribution.</li>
-  <li><b>11. Limitations</b> tách hạn chế tác giả thừa nhận với hạn chế mô hình nhận thấy khi phân tích, kèm vấn đề chưa giải quyết và chi phí tính toán.</li>
-  <li><b>12. Relevance to Our Work</b> nối paper với đề tài trong ${ui('Cài đặt')}: liên quan phần nào, kế thừa được gì, mở rộng ở đâu, trích dẫn để hỗ trợ luận điểm nào.</li>
-  <li><b>References</b> và <b>Important Evidence</b> gồm DOI, link code, và bảng claim kèm vị trí trong paper (Section, Table, trang) cùng mục đích trích dẫn.</li>
-</ul>`,
+  <li><b>1–2. Paper, Venue/Year</b>: tên, tác giả, nơi công bố và năm.</li>
+  <li><b>3. Problem &amp; Motivation</b>: bài toán cụ thể (input, output, bối cảnh) và lý do bài toán quan trọng.</li>
+  <li><b>4. Research Gap</b>: hạn chế của các nghiên cứu trước và vấn đề còn bỏ ngỏ.</li>
+  <li><b>5. Research Question/Objective</b>: mục tiêu và giả thuyết nghiên cứu.</li>
+  <li><b>6. Method</b>: ý tưởng cốt lõi, các bước pipeline, mô hình và kỹ thuật, điểm khác biệt so với phương pháp trước.</li>
+  <li><b>7. Contribution</b>: các đóng góp mới.</li>
+  <li><b>8. Dataset</b>: bảng tên, nguồn, quy mô, đặc điểm và tiền xử lý của từng dataset.</li>
+  <li><b>9. Experiments</b> và <b>10. Findings</b>: thiết lập thí nghiệm, baseline, metric, ablation, các con số chính và phát hiện chính.</li>
+  <li><b>11. Limitations</b>: hạn chế tác giả thừa nhận và hạn chế mô hình nhận thấy, vấn đề chưa giải quyết, chi phí tính toán.</li>
+  <li><b>12. Relevance to Our Work</b>: liên hệ với đề tài trong Cài đặt: liên quan phần nào, kế thừa được gì, mở rộng ở đâu.</li>
+  <li><b>References</b> và <b>Important Evidence</b>: DOI, link code, bảng claim kèm vị trí trong paper và mục đích trích dẫn.</li>
+</ul></details>`,
   },
   {
-    id: 'add', title: 'Thêm một paper', routes: ['add'],
+    id: 'ui', group: 'start', title: 'Làm quen giao diện', routes: [],
     html: `
-<p>Trang ${ui('Thêm paper')} có nhiều cách đưa một paper vào thư viện, tuỳ nguồn chúng ta đang có:</p>
+${fig('overview', 'Thanh bên trái và thanh trên cùng')}
+${steps([
+    `<b>Thư viện</b>: ${ui('Tổng quan')} (số liệu, paper gần đây, hàng đợi đọc), ${ui('Thư viện')}, ${ui('Thêm paper')}, ${ui('Chủ đề')}.`,
+    `<b>Khám phá &amp; phân tích</b>: ${ui('Paper mới')} (theo dõi arXiv), ${ui('Chat với paper')}, ${ui('So sánh')}.`,
+    `<b>Cá nhân</b>: ${ui('Sổ tay')} nghiên cứu, ${ui('Lịch')} kế hoạch, ${ui('Thẻ ghi nhớ')}.`,
+    `<b>Tìm kiếm</b> trong cả thư viện, kể cả toàn văn đã lưu. Phím ${k('/')} để nhảy vào ô này.`,
+    `<b>Chia đôi màn hình</b>: mở hai chức năng cạnh nhau (xem mục <a href="#/help?s=split">Chia đôi màn hình</a>).`,
+    `<b>Dịch khi bôi đen</b>: cài đặt nhanh ngôn ngữ đích, cách bật, và mở trang Thẻ ghi nhớ.`,
+    `<b>Hướng dẫn</b> cho đúng trang đang xem (phím ${k('?')}).`,
+    `<b>Thêm paper</b> (phím ${k('N')}).`,
+  ])}
+<p>Mỗi mục ở thanh bên có phím tắt hiện mờ bên cạnh: gõ ${k('G')} rồi một phím, ví dụ ${k('G')} ${k('L')} mở Thư viện, ${k('G')} ${k('B')} mở Sổ tay, ${k('G')} ${k('K')} mở Lịch. Danh sách đầy đủ ở mục <a href="#/help?s=keys">Phím tắt</a>.</p>`,
+  },
+
+  /* ============================== Thư viện ============================== */
+  {
+    id: 'add', group: 'lib', title: 'Thêm một paper', routes: ['add'],
+    html: `
+<p>Trang ${ui('Thêm paper')} có nhiều cách đưa một paper vào thư viện, tuỳ nguồn đang có (ảnh minh hoạ ở mục <a href="#/help?s=start">Bắt đầu nhanh</a>, bước 2):</p>
 <ul>
-  <li>${ui('Link / arXiv / DOI')} nhận arXiv ID, link arXiv, DOI, link OpenReview, ACL Anthology hoặc trang paper bất kỳ. Máy chủ của app tự tải abstract, toàn văn HTML của arXiv và file PDF nếu có, nên không bị trình duyệt chặn như extension.</li>
-  <li>${ui('File PDF')} nhận một file PDF từ máy. Bấm vào ô chọn file hoặc kéo PDF thả đúng vào ô đó. Chọn nhiều file cùng lúc thì app chuyển sang chế độ hàng loạt. PDF thả ở các trang khác sẽ không được nhập, để tránh thêm nhầm paper.</li>
-  <li>${ui('Dán text')} dùng khi chỉ có abstract hoặc đoạn văn copy từ đâu đó. Nút ${ui('Tạo note trống')} tạo paper để tự điền tay, không gọi mô hình.</li>
+  <li>${ui('Link / arXiv / DOI')} nhận arXiv ID, link arXiv, DOI, link OpenReview, ACL Anthology hoặc trang paper bất kỳ. Máy chủ của app tự tải abstract, toàn văn HTML của arXiv và file PDF nếu có.</li>
+  <li>${ui('File PDF')} nhận một file PDF từ máy: bấm vào ô chọn file hoặc kéo PDF thả đúng vào ô đó. Chọn nhiều file cùng lúc thì app chuyển sang chế độ hàng loạt. PDF thả ở trang khác không được nhập, để tránh thêm nhầm.</li>
+  <li>${ui('Dán text')} dùng khi chỉ có abstract hoặc một đoạn văn. Nút ${ui('Tạo note trống')} tạo paper để tự điền tay, không gọi mô hình.</li>
   <li>${ui('Zotero / .bib / .ris')} đọc tệp xuất từ Zotero, Mendeley hoặc Google Scholar.</li>
 </ul>
-<p>Sau khi trích xuất, app hiện bản ghi chú để kiểm tra trước khi lưu, gợi ý thư mục chủ đề và báo nếu paper đã có trong thư viện. Khi trùng, chúng ta chọn cập nhật bản cũ (giữ ghi chú, trạng thái và đánh giá) hoặc lưu thành bản mới. Nút ${ui('Lưu chỉ metadata')} lưu ngay tiêu đề, tác giả, venue mà không tốn token, còn ghi chú có thể trích xuất sau bằng nút ${ui('Trích xuất lại')} trong trang paper.</p>
+<p>Sau khi trích xuất, app hiện bản ghi chú để kiểm tra trước khi lưu, gợi ý thư mục chủ đề và báo nếu paper đã có trong thư viện. Khi trùng, chọn cập nhật bản cũ (giữ ghi chú, trạng thái, đánh giá) hoặc lưu thành bản mới.</p>
 <p>Với Claude và Gemini, file PDF được gửi thẳng cho mô hình nên bảng kết quả và hình cũng được đọc. OpenAI không nhận PDF qua API này, nên app trích text từ PDF trước. PDF bản scan không có lớp chữ chỉ dùng được với Claude hoặc Gemini.</p>`,
   },
   {
-    id: 'batch', title: 'Thêm hàng loạt: lọc link và nhiều PDF', routes: ['add'],
+    id: 'batch', group: 'lib', title: 'Thêm hàng loạt', routes: ['add'],
     html: `
-<p>Tab ${ui('Hàng loạt')} dành cho lúc có nhiều paper cùng lúc, chẳng hạn một email reading list, một trang ghi chú hoặc một thư mục PDF. Quy trình gồm ba bước hiện ở đầu trang, mỗi bước có trạng thái riêng để chúng ta biết đang ở đâu:</p>
-<ol>
-  <li><b>Đưa nguồn vào.</b> Dán văn bản bất kỳ rồi bấm ${ui('Tìm paper trong văn bản')} (hoặc ${k('Ctrl')}+${k('Enter')}), hoặc thả nhiều file PDF, cả thư mục, vào ô bên phải. App nhận arXiv ID (kể cả dạng trần như 2401.12345), DOI, link OpenReview, ACL Anthology, Hugging Face Papers, link PDF, trang nhà xuất bản và mục BibTeX. Link trùng nhau được gộp, link không giống paper như GitHub hay YouTube được để riêng trong mục ${ui('link không giống paper đã được bỏ qua')} và vẫn thêm được nếu cần.</li>
-  <li><b>Duyệt và chọn.</b> App tự tra tiêu đề, tác giả, năm, venue kèm hạng, số trích dẫn và đoạn tóm tắt cho từng mục, không tốn token. Mỗi paper hiện thành một thẻ có hai nút ${ui('✓ Thêm')} và ${ui('Bỏ qua')}. Paper đã có trong thư viện hoặc trùng với mục khác trong danh sách được chuyển sẵn sang ${ui('Bỏ qua')}, kèm lời giải thích trên thẻ.</li>
-  <li><b>Lưu vào thư viện.</b> Thanh dưới cùng cho biết bao nhiêu paper sẽ được thêm. Bấm ${ui('Lưu … paper vào thư viện')} để lưu tất cả paper đang chọn ${ui('Thêm')}. Ô ${ui('Trích xuất ghi chú bằng AI')} bật sẵn khi đã có API key. Tắt ô này thì app chỉ lưu thông tin cơ bản, ghi chú có thể trích xuất sau trong trang paper.</li>
-</ol>
-<p>Các tab ${ui('Tất cả')}, ${ui('Sẽ thêm')}, ${ui('Đã có / trùng')}, ${ui('Cần xử lý')} và ${ui('Đã lưu')} giúp xem riêng từng nhóm, số đếm cạnh tên tab cho biết còn bao nhiêu mục. Nút ${ui('Thêm tất cả')}, ${ui('Bỏ qua tất cả')} và ô ${ui('Đặt thư mục cho các paper đã chọn')} tác động lên các thẻ trong tab đang mở. Mỗi thẻ đang chọn ${ui('Thêm')} có ô ${ui('Thư mục')} riêng, để nguyên thì app dùng thư mục gợi ý tự động.</p>
-<p>Khi chọn ${ui('Thêm')} cho một paper đã có trong thư viện và bật trích xuất, app cập nhật bản cũ (giữ ghi chú, trạng thái, đánh giá) chứ không tạo bản thứ hai. Mục gặp lỗi nằm ở tab ${ui('Cần xử lý')} với nút ${ui('Thử lại')}. Danh sách được lưu lại, đóng app mở lại vẫn còn, và nút ${ui('Dừng')} dừng sau mục đang xử lý mà không mất kết quả đã xong.</p>`,
+<p>Tab ${ui('Hàng loạt')} dành cho lúc có nhiều paper cùng lúc: một email reading list, một trang ghi chú hoặc một thư mục PDF. Quy trình có ba bước hiện ở đầu trang:</p>
+${steps([
+    `<b>Đưa nguồn vào.</b> Dán văn bản bất kỳ rồi bấm ${ui('Tìm paper trong văn bản')} (hoặc ${k('Ctrl')}+${k('Enter')}), hoặc thả nhiều file PDF, cả thư mục, vào ô bên phải. App nhận arXiv ID (kể cả dạng trần như 2401.12345), DOI, link OpenReview, ACL Anthology, Hugging Face Papers, link PDF, trang nhà xuất bản và mục BibTeX. Link không giống paper (GitHub, YouTube) được để riêng, vẫn thêm được nếu cần.`,
+    `<b>Duyệt và chọn.</b> App tự tra tiêu đề, tác giả, năm, venue kèm hạng, số trích dẫn cho từng mục, không tốn token. Mỗi paper là một thẻ có ${ui('✓ Thêm')} và ${ui('Bỏ qua')}. Paper đã có trong thư viện được chuyển sẵn sang ${ui('Bỏ qua')}, kèm lời giải thích.`,
+    `<b>Lưu vào thư viện.</b> Thanh dưới cùng cho biết bao nhiêu paper sẽ được thêm. Ô ${ui('Trích xuất ghi chú bằng AI')} bật sẵn khi đã có API key; tắt thì app chỉ lưu thông tin cơ bản.`,
+  ])}
+<p>Các tab ${ui('Tất cả')}, ${ui('Sẽ thêm')}, ${ui('Đã có / trùng')}, ${ui('Cần xử lý')}, ${ui('Đã lưu')} giúp xem riêng từng nhóm. Mục lỗi nằm ở ${ui('Cần xử lý')} với nút ${ui('Thử lại')}. Danh sách được lưu lại, đóng app mở lại vẫn còn; ${ui('Dừng')} dừng sau mục đang xử lý mà không mất kết quả đã xong.</p>`,
   },
   {
-    id: 'read', title: 'Đọc, ghi chú và hỏi đáp một paper', routes: ['paper'],
+    id: 'library', group: 'lib', title: 'Thư viện, tìm kiếm và dọn dẹp', routes: ['library'],
     html: `
-<p>Trang của một paper gồm các tab:</p>
+${fig('library', 'Trang Thư viện')}
+${steps([
+    `<b>Chủ đề</b>: bấm để lọc. Kéo một paper thả vào tên chủ đề để chuyển thư mục. Cuối danh sách là ${ui('Thùng rác')} (giữ 30 ngày).`,
+    `<b>Lọc và tìm</b>: ô lọc tìm cả trong ghi chú, ghi chú cá nhân, tag và <b>toàn văn đã lưu</b> (đoạn khớp được tô sáng). Các ô bên cạnh lọc theo trạng thái, loại venue, hạng, đánh giá; ô sắp xếp có ${ui('Hạng venue')} và ${ui('Trích dẫn nhiều')}.`,
+    `<b>Kiểu xem</b>: danh sách, kanban theo trạng thái đọc (kéo thẻ giữa các cột để đổi trạng thái) và bảng.`,
+    `<b>Chọn tất cả</b> kiểu Gmail. Mũi tên bên cạnh chọn nhanh theo điều kiện: ${ui('Chưa đọc')}, ${ui('Có PDF')}, ${ui('Chưa trích xuất')}, ${ui('Đảo lựa chọn')}…`,
+    `<b>Thẻ paper</b>: bấm để mở; ô vuông để tick. Phím ${k('j')} ${k('k')} di chuyển, ${k('Enter')} mở, ${k('x')} tick.`,
+  ])}
+<p>Khi có paper được tick, thanh chọn hiện ${ui('Chat')}, ${ui('So sánh')}, ${ui('Chuyển thư mục')}, ${ui('Xoá')}, và ${ui('Khác')} gồm ${ui('Đổi trạng thái')}, ${ui('Gắn nhãn phụ')}, ${ui('Xuất')}, ${ui('Tìm & tải PDF')}, ${ui('Trích xuất lại ghi chú (AI)')}. Trích xuất lại chạy lần lượt từng paper, có bảng tiến trình và nút ${ui('Dừng')} ở góc dưới, vẫn chạy tiếp khi sang trang khác; ghi chú cá nhân, trạng thái, đánh giá được giữ nguyên.</p>
+<p>${ui('Dọn trùng')} gom các paper trùng arXiv ID, DOI hoặc tên, giữ bản mới nhất và gộp ghi chú, đánh giá, PDF, nhãn từ các bản còn lại. Một paper có một chủ đề chính và có thể mang thêm nhãn phụ, nên hiện ở cả hai chủ đề.</p>`,
+  },
+  {
+    id: 'paper', group: 'lib', title: 'Trang paper và ghi chú', routes: ['paper'],
+    html: `
+${fig('paper', 'Trang của một paper, tab Ghi chú')}
+${steps([
+    `<b>Tên paper</b>: bấm để sửa. Phía trên có ${ui('Copy Markdown')}, ${ui('Trích xuất lại')}, ${ui('Xoá')}, và ${ui('▴ Thu gọn')} để ẩn tác giả, tag (hữu ích khi chia đôi màn hình).`,
+    `<b>Chủ đề và trạng thái đọc</b> (Chưa đọc, Đang đọc, Đã đọc), thêm nhãn phụ, đánh giá sao.`,
+    `<b>Các tab</b>: Ghi chú, PDF, Bài giảng, Hỏi đáp, Liên quan, Hướng nghiên cứu, Trích dẫn, Chỉnh sửa, Nguồn. Khung hẹp thì lăn chuột trên thanh tab để cuộn ngang.`,
+    `<b>Ngôn ngữ ghi chú</b>: xem bằng tiếng Việt hoặc tiếng Anh (xem mục <a href="#/help?s=notes-lang">Ghi chú hai ngôn ngữ</a>).`,
+    `<b>Kiểm tra ghi chú</b>: đối chiếu số liệu với toàn văn và bắt câu chung chung (xem mục <a href="#/help?s=quality">Kiểm tra ghi chú</a>).`,
+    `<b>↻ ở góc mỗi mục</b>: trích xuất lại riêng mục đó, có thể ghi thêm yêu cầu; các mục khác giữ nguyên, có ${ui('Hoàn tác')}.`,
+  ])}
+<p>Các tab:</p>
 <ul>
-  <li>${ui('Ghi chú')} hiện venue và hạng, ghi chú theo template (mục 1–12, References, Important Evidence), ghi chú cá nhân và phần trích dẫn theo đoạn. Phím ${k('Ctrl')}+${k('Enter')} lưu nhanh ghi chú cá nhân. Nút ${ui('Tiếng Việt')} / ${ui('English')} ở đầu tab đổi ngôn ngữ hiển thị ghi chú, xem chi tiết bên dưới. Nút ${ui('↻')} ở góc phải tiêu đề mỗi mục trích xuất lại riêng mục đó: mô hình đọc lại paper nhưng chỉ viết lại mục được chọn, các mục khác giữ nguyên. Có thể ghi thêm yêu cầu cho mục, và sau khi xong có nút ${ui('Hoàn tác')}.</li>
-  <li>${ui('Cài đặt')} → ${ui('Phông chữ & cỡ chữ')} đổi phông và cỡ chữ của giao diện, cùng phông, cỡ chữ và giãn dòng riêng cho phần nội dung để đọc (ghi chú, bài giảng, Hỏi đáp, Chat). Đổi là thấy ngay và được lưu luôn. Mục ${ui('Phông khác…')} cho gõ tên bất kỳ phông nào đã cài trên máy.</li>
-  <li>Ghi chú, bài giảng, Hỏi đáp và Chat hiển thị công thức LaTeX viết trong <code>$...$</code> hoặc <code>$$...$$</code> (dựng bằng KaTeX đóng gói sẵn, không cần mạng). Ghi chú cũ viết công thức kiểu chữ thường như <code>D_Aug</code>, <code>P_θ</code>, <code>x^2</code> được hiện chỉ số dưới, chỉ số trên. Đoạn liệt kê viết liền "1) … 2) … 3) …" được tách thành danh sách đánh số, và mọi đường link đều bấm được. Ghi chú trích xuất trước khi có tính năng này chưa có LaTeX, bấm ↻ ở mục cần làm lại để mô hình viết lại công thức.</li>
-  <li>Mọi bảng trong app (ghi chú, bài giảng, so sánh, câu trả lời Chat) đổi được độ rộng cột: rê chuột tới mép phải tiêu đề cột cho tới khi con trỏ thành mũi tên hai chiều rồi kéo. App nhớ độ rộng theo bộ tiêu đề cột, nên bảng cùng loại ở paper khác cũng dùng lại. Bấm đúp vào mép cột để về độ rộng tự động. Chiều cao hàng tự co giãn theo nội dung.</li>
-  <li>${ui('Chỉnh sửa')} cho sửa mọi trường. Bảng metric nhập mỗi dòng dạng <code>metric | dataset | baseline | đề xuất | Δ</code>, dataset nhập dạng <code>tên | source | scale | đặc điểm | tiền xử lý</code>, Important Evidence nhập dạng <code>claim | vị trí | mục đích</code>, còn ý tưởng kế thừa nhập dạng <code>ý tưởng :: cách áp dụng :: công sức</code>.</li>
-  <li>${ui('PDF')} đọc file ngay trong app, bôi đen chữ để dịch, tô sáng hoặc gạch chân. Xem mục ${ui('Dịch khi đọc PDF')} và ${ui('Tô sáng, gạch chân và tìm PDF')} bên dưới. Paper chưa có PDF thì app tự tìm bản PDF công khai để tải.</li>
-  <li>Ô ${ui('Ngôn ngữ trả lời')} ở trang ${ui('Chat với paper')} (khung Nguồn) và ở đầu tab ${ui('Hỏi đáp')} chọn AI trả lời bằng tiếng Việt, tiếng Anh, theo ngôn ngữ của câu hỏi, hoặc theo ngôn ngữ trích xuất trong Cài đặt (mặc định). Hai chỗ dùng chung một lựa chọn, áp dụng từ câu hỏi tiếp theo. Thuật ngữ, tên phương pháp, dataset, metric luôn giữ tiếng Anh.</li>
-  <li>${ui('Hỏi đáp')} hỏi mô hình về riêng paper này, dùng ghi chú và toàn văn đã lưu làm ngữ cảnh. Muốn hỏi trên nhiều paper thì dùng trang ${ui('Chat với paper')}.</li>
-  <li>${ui('Liên quan')} gợi ý paper cùng tag hoặc dataset trong thư viện, và lấy gợi ý, danh sách trích dẫn, tài liệu tham khảo từ Semantic Scholar. Với ${ui('Trích dẫn')} và ${ui('Tài liệu tham khảo')}, mỗi paper kèm nguyên văn câu trích dẫn, mục đích trích dẫn (nền tảng, phương pháp, so sánh kết quả) và nhãn ảnh hưởng lớn. Tick ${ui('Chỉ bài có câu trích dẫn')} để lọc. Kết quả được lưu 7 ngày, bấm ${ui('Tải lại')} để lấy mới.</li>
-  <li>Ba danh sách Semantic Scholar có bộ lọc chung: khoảng thời gian (6 tháng, 1 năm, 2 năm gần đây), sắp xếp (mới nhất, nhiều trích dẫn nhất, đang được chú ý tính bằng số trích dẫn mỗi tháng từ lúc đăng), và ẩn bài đã có trong thư viện hoặc đã xem. Nút ${ui('Đã xem')} dùng chung với trang Theo dõi paper mới. Mỗi bài hiện TLDR một câu của Semantic Scholar khi có, không thì hiện abstract.</li>
-  <li>Thẻ ${ui('Có gì mới kể từ bài này')} nhờ mô hình đọc tóm tắt và câu trích dẫn của tối đa 30 paper dẫn bài này, rồi tổng hợp giới hạn nào của bài đã được giải quyết (dựa vào mục Limitations của ghi chú), kết quả mới trên cùng dataset, hướng mở rộng, phản biện và bài nên đọc tiếp. Mỗi ý có mã C1, C2…, bấm vào để mở thẻ chi tiết của bài đó (tác giả, năm, venue, cách dẫn bài gốc, số trích dẫn, câu trích dẫn, TLDR) kèm nút Mở link và Thêm vào thư viện. Một lượt gọi mô hình, bấm ${ui('Cập nhật')} sau vài tháng để làm mới.</li>
-  <li>Nút ${ui('🗺 Bản đồ tài liệu')} mở bản đồ 2D gộp ba cách nhìn: <b>Cụm tương đồng</b> (kiểu Connected Papers: hai bài đứng gần nhau khi dẫn nhiều bài chung hoặc hay được cùng một bài dẫn, nên bài cùng hướng vẫn gần nhau dù không dẫn trực tiếp nhau; thanh ${ui('Liên kết ≥')} bớt các liên kết yếu), <b>Dòng thời gian</b> (kiểu Litmaps: trục ngang là ngày đăng, trục dọc là số trích dẫn, cạnh là quan hệ dẫn) và <b>nhiều bài gốc</b> (kiểu ResearchRabbit: bấm một bài rồi ${ui('🌱 Thêm làm bài gốc')} để mở rộng bản đồ theo hướng đó; bài liên quan tới nhiều bài gốc được xếp cao hơn). Màu nhạt là bài cũ, đậm là bài mới, cỡ nút theo số trích dẫn, viền xanh là bài đã có trong thư viện. Cột phải có các danh sách ${ui('Liên quan nhất')}, ${ui('Nền tảng')} (bài được nhiều bài trên bản đồ cùng dẫn), ${ui('Phát triển')} (bài dẫn nhiều bài trên bản đồ) và ${ui('Trong thư viện')}; bấm một bài để xem chi tiết, thêm vào thư viện hoặc đưa vào so sánh ở tab Hướng nghiên cứu. Lọc theo năm, số bài hiện (40–300), tìm theo tên / tác giả, ẩn bài đã có, lưu ảnh PNG. Các bài gốc và chế độ xem được lưu theo paper.</li>
-  <li>Nút ${ui('🕸 Đồ thị 3D')} mở đồ thị trích dẫn toàn màn hình: bài đang xem ở giữa, các bài nó dẫn (xanh dương), các bài dẫn nó (cam), bài đã có trong thư viện (tím), và cạnh tím nối hai bài trong đồ thị có dẫn nhau. Cỡ nút theo số trích dẫn. Kéo để xoay, cuộn để phóng, bấm một bài để xem chi tiết, thêm vào thư viện hoặc bay tới. Rê chuột vào một bài để xem thẻ thông tin (tác giả, năm, số trích dẫn, số bài nó dẫn và số bài dẫn nó trong đồ thị, TLDR). Mũi tên đi từ bài được dẫn sang bài dẫn nó, tức theo dòng ý tưởng được kế thừa. Khi rê chuột, mũi tên ra (bài đó được bài kia dẫn) tô xanh lá, mũi tên vào (bài đó dẫn bài kia) tô hồng, có hạt chạy theo chiều mũi tên, các bài khác mờ đi. Có lọc theo loại, chỉ giữ bài nối với nhau, ô tìm tiêu đề và nút Vừa khung. Tô màu theo loại, theo năm (chia tối đa sáu nhóm năm, mỗi nhóm một màu rõ khác nhau), hoặc theo chủ đề / từ khoá: app tự tìm tối đa bảy chủ đề từ tiêu đề và TLDR, hoặc bạn tự gõ từ khoá cách nhau bởi dấu phẩy. Bấm một chủ đề trong chú thích để làm nổi các bài thuộc chủ đề đó. Cột trái liệt kê các bài đang có trong đồ thị, sắp xếp theo trích dẫn, năm, số liên kết hoặc tên, và lọc theo ô tìm hoặc chủ đề đang chọn. Rê vào một bài trong danh sách để làm nổi nó trên đồ thị, bấm để mở chi tiết và bay tới. Phía trên danh sách có bộ lọc: gõ tên bài, năm từ – đến, chủ đề (tự tìm hoặc theo từ khoá tự đặt) và số trích dẫn tối thiểu. Có thêm ô lọc theo từ khoá / chủ đề (tìm trong tiêu đề, TLDR, tóm tắt, venue và tên chủ đề, nhiều từ cách nhau bởi dấu phẩy). Tick ${ui('Liên kết với đồ thị')} (mặc định bật) để bộ lọc áp lên cả đồ thị, khi đó danh sách và đồ thị luôn hiện cùng một tập bài và góc nhìn được giữ nguyên khi lọc. Bỏ tick thì chỉ danh sách được lọc, đồ thị giữ nguyên. Danh sách sắp xếp được theo trích dẫn, năm, số liên kết, tên hoặc hạng venue (CORE A*..C, SJR Q1..Q4, tra bằng bảng xếp hạng của app). Nút ◀ ẩn danh sách. Hàng ${ui('Mở rộng')} tăng số bài dẫn lấy về (100, 300, 500, 1000, hoặc Tự nhập từ 10 tới 5000; trên 1000 bài app lấy theo nhiều trang) và thêm bài nền chung: bài nằm ngoài đồ thị nhưng được ít nhất 2, 3, 5 hoặc 8 bài trong đồ thị cùng dẫn, thường là công trình nền tảng của cả hướng (tô vàng). Đồ thị lớn thì lần đầu tải lâu hơn, kết quả được lưu đệm 7 ngày.</li>
-  <li>Nút ${ui('🔔 Theo dõi')} tạo bộ theo dõi bài mới dẫn bài này, hoặc bài mới của từng tác giả, trong trang ${ui('Theo dõi paper mới')}.</li>
-  <li>Danh sách ${ui('Paper dẫn bài này')} có dòng thời gian, bấm vào một cột để chỉ hiện các bài đăng trong kỳ đó, bấm thêm cột khác để gộp nhiều kỳ, bấm lại một cột (hoặc nút ✕ của kỳ đó) để bỏ kỳ đó, và ${ui('Bỏ lọc toàn bộ')} để bỏ hết. Dòng thời gian gồm số bài dẫn theo tháng (hoặc quý, năm), mỗi màu một cách dùng bài gốc, rê chuột vào cột để xem số, có bảng thay thế.</li>
-  <li>${ui('Paper dẫn bài này')} được chia theo cách họ dùng bài này: ${ui('Kế thừa phương pháp')} (dùng hoặc mở rộng cách làm), ${ui('So sánh kết quả')} (lấy bài này làm baseline, thường là chỗ có kết quả mới), ${ui('Chỉ nhắc tới')} và ${ui('Chưa rõ')} (không có câu trích dẫn). ${ui('Tài liệu tham khảo')} chia tương tự theo cách bài này dùng bài được dẫn. Nhãn dựa vào câu trích dẫn nên đôi khi sai, rê chuột vào nhãn để xem lý do.</li>
-  <li>${ui('Trích dẫn')} cho BibTeX và trích dẫn APA bản thứ 7. Mục tài liệu tham khảo hiện đúng định dạng: tên tác giả dạng họ kèm chữ cái đầu, tiêu đề kiểu sentence case, in nghiêng tên tạp chí hoặc kỷ yếu (với preprint thì in nghiêng tiêu đề), thụt lề treo. ${ui('Copy có định dạng')} giữ in nghiêng khi dán vào Word hay Google Docs. Bên dưới có sẵn hai dạng trích dẫn trong bài. App chưa lưu số tập, số kỳ, số trang nên các phần đó cần bổ sung tay.</li>
-  <li>${ui('Nguồn')} hiện toàn văn đã gửi cho mô hình. Bôi đen một đoạn rồi bấm ${ui('Ghi chú đoạn đã chọn')} để lưu đoạn đó kèm nhận xét và số trang.</li>
+  <li>${ui('Ghi chú')}: venue và hạng, ghi chú theo template, ghi chú cá nhân (${k('Ctrl')}+${k('Enter')} lưu nhanh), trích dẫn theo đoạn, câu đáng nhớ, và thẻ ${ui('📓 Trong sổ tay nghiên cứu')} liệt kê các trang nhắc tới bài này.</li>
+  <li>${ui('PDF')}: đọc file ngay trong app, bôi đen để dịch, tô sáng, gạch chân, AI tô câu đáng nhớ. Paper chưa có PDF thì app tự tìm bản công khai. Xem các mục <a href="#/help?s=translate">Dịch khi đọc PDF</a>, <a href="#/help?s=marks">Tô sáng và tìm PDF</a>, <a href="#/help?s=autohl">Tô câu đáng nhớ</a>.</li>
+  <li>${ui('Bài giảng')}: bản giải thích dài tám phần (xem mục <a href="#/help?s=lecture">Bài giảng</a>).</li>
+  <li>${ui('Hỏi đáp')}: hỏi mô hình về riêng paper này, dùng ghi chú và toàn văn đã lưu. Ô ${ui('Ngôn ngữ trả lời')} dùng chung với Chat.</li>
+  <li>${ui('Liên quan')}: Semantic Scholar, bản đồ tài liệu, đồ thị 3D, Có gì mới, Theo dõi (xem mục <a href="#/help?s=related">Liên quan, bản đồ, đồ thị</a>).</li>
+  <li>${ui('Hướng nghiên cứu')}: đặt bài giữa các bài nó dẫn và các bài dẫn nó, chỉ ra phần còn bỏ ngỏ (xem mục <a href="#/help?s=research">Hướng nghiên cứu</a>).</li>
+  <li>${ui('Trích dẫn')}: BibTeX và APA bản thứ 7; ${ui('Copy có định dạng')} giữ in nghiêng khi dán vào Word hay Google Docs. App chưa lưu số tập, số kỳ, số trang nên phần đó cần bổ sung tay.</li>
+  <li>${ui('Chỉnh sửa')}: sửa mọi trường. Bảng metric nhập mỗi dòng <code>metric | dataset | baseline | đề xuất | Δ</code>, dataset nhập <code>tên | source | scale | đặc điểm | tiền xử lý</code>, Important Evidence nhập <code>claim | vị trí | mục đích</code>.</li>
+  <li>${ui('Nguồn')}: toàn văn đã gửi cho mô hình. Bôi đen một đoạn rồi ${ui('Ghi chú đoạn đã chọn')} để lưu kèm nhận xét và số trang.</li>
 </ul>
-<p>Nút ${ui('Trích xuất lại')} chạy lại phần ghi chú theo template từ toàn văn hoặc PDF đã lưu, giữ nguyên ghi chú cá nhân, trích dẫn theo đoạn, trạng thái và đánh giá. Paper trích xuất trước khi có template cũng dùng nút này để có đủ các mục mới. Đây cũng là cách hoàn thiện các paper nhập dạng metadata.</p>`,
+<p>Ghi chú, bài giảng, Hỏi đáp và Chat hiển thị công thức LaTeX trong <code>$...$</code> / <code>$$...$$</code> (KaTeX, chạy offline), đoạn liệt kê viết liền "1) … 2) …" được tách thành danh sách, mọi link đều bấm được. Mọi bảng đổi được độ rộng cột: kéo mép phải tiêu đề cột, bấm đúp để về tự động. Phông và cỡ chữ đổi ở ${ui('Cài đặt')} → ${ui('Phông chữ & cỡ chữ')}.</p>`,
   },
   {
-    id: 'quality', title: 'Kiểm tra ghi chú: số liệu và câu chung chung', routes: [],
+    id: 'quality', group: 'lib', title: 'Kiểm tra ghi chú', routes: [],
     html: `
-<p>Đầu tab ${ui('Ghi chú')} có thẻ ${ui('Kiểm tra ghi chú')}. App tự chạy hai phép kiểm cơ học trên bản trích xuất, không gọi mô hình và không tốn token.</p>
+<p>Đầu tab ${ui('Ghi chú')} có thẻ ${ui('Kiểm tra ghi chú')} (số ⑤ ở ảnh trang paper). App tự chạy hai phép kiểm cơ học, không gọi mô hình và không tốn token:</p>
 <ul>
-  <li><b>Đối chiếu số liệu.</b> Mọi con số trong ghi chú được dò trong toàn văn đã lưu. Con số không thấy được liệt kê kèm mục chứa nó. Nguyên nhân có thể là mô hình ghi nhầm, mô hình tự tính, hoặc con số nằm trong bảng mà bộ bóc chữ bỏ sót. Nên mở PDF đối chiếu trước khi trích dẫn. Tên mô hình như Qwen2.5-7B, số bảng, số mục, năm và cột Δ không bị tính là số liệu.</li>
-  <li><b>Câu chung chung.</b> App bắt các câu đúng nhưng không mang thông tin, ví dụ nói "cải thiện" mà không nói bằng cách nào hay bao nhiêu, cụm kiểu "đóng vai trò quan trọng", câu dài không có cơ chế hay con số, và mô tả kỹ thuật chỉ lặp lại tên của nó.</li>
+  <li><b>Đối chiếu số liệu.</b> Mọi con số trong ghi chú được dò trong toàn văn đã lưu. Con số không thấy được liệt kê kèm mục chứa nó: có thể mô hình ghi nhầm, tự tính, hoặc con số nằm trong bảng mà bộ bóc chữ bỏ sót. Nên mở PDF đối chiếu trước khi trích dẫn. Tên mô hình như Qwen2.5-7B, số bảng, năm và cột Δ không bị tính là số liệu.</li>
+  <li><b>Câu chung chung.</b> Bắt các câu đúng nhưng không mang thông tin: nói "cải thiện" mà không nói bằng cách nào hay bao nhiêu, cụm kiểu "đóng vai trò quan trọng", câu dài không có cơ chế hay con số, mô tả chỉ lặp lại tên kỹ thuật.</li>
 </ul>
-<p>Paper có PDF mà chưa có toàn văn dạng chữ thì app tự đọc chữ từ PDF để đối chiếu, rồi lưu luôn làm toàn văn. Nhờ đó tìm kiếm toàn văn và Chat cũng dùng được paper này. Paper chỉ có abstract thì app báo rõ là không đủ để đối chiếu.</p>
-<p>Trong ${ui('Chat với paper')}, mỗi câu trả lời cũng được dò số liệu với ghi chú, toàn văn và đoạn trích đã gửi cho mô hình. Con số không thấy hiện thành dòng cảnh báo dưới câu trả lời. Câu mô hình tự ghi "(ngoài tài liệu)" được bỏ qua.</p>
-<p>Hai phép kiểm chỉ cảnh báo, không sửa và không chặn gì. Cuối bản ghi chú còn có hai mục do mô hình viết lúc trích xuất: ${ui('Chuỗi lập luận')} gồm 6–10 mắt xích từ tiền đề đến kết luận, và ${ui('Lưu ý khi đọc')} nêu chỗ dễ hiểu nhầm hoặc khẳng định mạnh hơn bằng chứng. Paper trích xuất trước đây cần ${ui('Trích xuất lại')} để có hai mục này.</p>
-<p>Nút ${ui('Dịch bằng AI')} ở trình đọc PDF và ở phần dịch ghi chú dùng bộ luật dịch học thuật: thuật ngữ mặc định giữ tiếng Anh và gọi thống nhất, giữ đúng mức khẳng định (may là "có thể", suggests là "cho thấy"), giữ từ nối lập luận, không đổi số liệu, phủ định hay chiều so sánh.</p>`,
+<p>Paper có PDF mà chưa có toàn văn dạng chữ thì app tự đọc chữ từ PDF để đối chiếu rồi lưu luôn làm toàn văn. Trong ${ui('Chat với paper')}, mỗi câu trả lời cũng được dò số liệu, con số không thấy hiện thành dòng cảnh báo. Cuối bản ghi chú còn có ${ui('Chuỗi lập luận')} (6–10 mắt xích từ tiền đề đến kết luận) và ${ui('Lưu ý khi đọc')} (chỗ dễ hiểu nhầm hoặc khẳng định mạnh hơn bằng chứng).</p>`,
   },
   {
-    id: 'notes-lang', title: 'Xem ghi chú bằng tiếng Việt hoặc tiếng Anh', routes: [],
+    id: 'notes-lang', group: 'lib', title: 'Ghi chú hai ngôn ngữ', routes: [],
     html: `
-<p>Ghi chú được trích xuất một lần theo ${ui('Ngôn ngữ khi trích xuất')} trong ${ui('Cài đặt')}. Muốn đọc bằng ngôn ngữ kia, bấm ${ui('Tiếng Việt')} hoặc ${ui('English')} ở đầu tab ${ui('Ghi chú')} của paper. Lựa chọn này áp dụng cho mọi paper và cũng đổi được ở ${ui('Cài đặt')} → ${ui('Hiển thị ghi chú bằng')}.</p>
+<p>Ghi chú được trích xuất một lần theo ${ui('Ngôn ngữ khi trích xuất')} trong ${ui('Cài đặt')}. Muốn đọc bằng ngôn ngữ kia, bấm ${ui('Tiếng Việt')} hoặc ${ui('English')} ở đầu tab ${ui('Ghi chú')} (số ④ ở ảnh trang paper). Lựa chọn áp dụng cho mọi paper.</p>
 <ul>
-  <li>Lần đầu xem một paper bằng ngôn ngữ khác, app dịch các trường văn bản bằng Google miễn phí, không tốn token, rồi lưu bản dịch vào paper. Lần sau mở ra là có ngay.</li>
-  <li>Tên paper, tác giả, venue, tên dataset, tên thành phần, metric, con số và link được giữ nguyên. Nhãn các mục cũng đổi theo ngôn ngữ đang xem.</li>
-  <li>Nút ${ui('Dịch bằng AI cho chính xác hơn')} dịch lại toàn bộ bằng mô hình đang dùng, sát văn phong học thuật hơn và có tốn token.</li>
-  <li>Sửa ghi chú ở tab ${ui('Chỉnh sửa')} hoặc trích xuất lại thì bản dịch cũ tự hết hiệu lực, app dịch lại khi cần.</li>
-  <li>${ui('Copy Markdown')} ở đầu trang copy theo ngôn ngữ đang hiển thị ở tab ${ui('Ghi chú')}. Xuất thư viện ra thư mục, bảng so sánh và Chat vẫn dùng bản gốc.</li>
+  <li>Lần đầu xem bằng ngôn ngữ khác, app dịch bằng Google miễn phí, không tốn token, rồi lưu bản dịch vào paper.</li>
+  <li>Tên paper, tác giả, venue, tên dataset, metric, con số và link được giữ nguyên.</li>
+  <li>${ui('Dịch bằng AI cho chính xác hơn')} dịch lại bằng mô hình đang dùng, sát văn phong học thuật hơn và có tốn token.</li>
+  <li>Sửa ghi chú hoặc trích xuất lại thì bản dịch cũ tự hết hiệu lực. ${ui('Copy Markdown')} copy theo ngôn ngữ đang hiển thị.</li>
 </ul>`,
   },
   {
-    id: 'lecture', title: 'Bài giảng', routes: [],
+    id: 'lecture', group: 'lib', title: 'Bài giảng', routes: [],
     html: `
-<p>Tab ${ui('Bài giảng')} trên trang paper nhờ mô hình viết một bản giải thích dài để đọc từ đầu đến cuối là hiểu được bài. Ghi chú trích xuất trả lời câu hỏi bài này làm gì, còn bài giảng trả lời vì sao nó phải làm như vậy và nó chạy ra sao.</p>
-<p>Bài giảng có tám mục theo thứ tự cố định:</p>
+<p>Tab ${ui('Bài giảng')} nhờ mô hình viết một bản giải thích dài để đọc từ đầu đến cuối là hiểu được bài. Ghi chú trả lời "bài này làm gì", còn bài giảng trả lời "vì sao phải làm vậy và nó chạy ra sao". Tám mục theo thứ tự cố định:</p>
 <ol>
-  <li><b>Cần biết trước</b> là kiến thức bài giả định người đọc đã có nên không giải thích.</li>
-  <li><b>Bài toán</b> kể bằng một tình huống cụ thể.</li>
+  <li><b>Cần biết trước</b>: kiến thức bài giả định người đọc đã có.</li>
+  <li><b>Bài toán</b>, kể bằng một tình huống cụ thể.</li>
   <li><b>Vì sao cách hiển nhiên không xong</b>.</li>
-  <li><b>Cơ chế, chạy tay một ví dụ</b>. Mỗi bước nói nó làm gì, vì sao cần, và ký hiệu đọc thành lời.</li>
+  <li><b>Cơ chế, chạy tay một ví dụ</b>: mỗi bước nói nó làm gì, vì sao cần, ký hiệu đọc thành lời.</li>
   <li><b>Đặt cạnh những bài nó dẫn</b>, dùng câu trích dẫn nguyên văn từ Semantic Scholar.</li>
   <li><b>Số liệu nói gì, và không nói gì</b>.</li>
   <li><b>Chỗ đáng ngờ</b>.</li>
-  <li><b>Tự kiểm tra</b> gồm câu hỏi dạng vì sao, đáp án gập lại.</li>
+  <li><b>Tự kiểm tra</b>: câu hỏi dạng vì sao, đáp án gập lại.</li>
 </ol>
 <ul>
-  <li>Cần toàn văn của paper. Paper chỉ có abstract thì app báo lỗi và không gọi mô hình.</li>
-  <li>Mỗi lần dựng là bốn lượt gọi mô hình, thêm tối đa hai lượt viết lại mục bị chấm là nông. Mất khoảng 2 đến 5 phút, trong lúc đó có thể sang tab khác.</li>
-  <li>Dưới mỗi mục có cảnh báo nếu con số không thấy trong toàn văn hoặc còn câu nông. Hai mục Bài toán và Cơ chế không đối chiếu số vì chúng được phép dùng ví dụ giả định.</li>
-  <li>${ui('Copy Markdown')} và ${ui('Tải .md')} xuất bài giảng, đáp án phần tự kiểm tra nằm ở cuối file.</li>
-  <li>Bài giảng được viết theo ngôn ngữ trích xuất trong ${ui('Cài đặt')}. Nút ${ui('Tiếng Việt')} / ${ui('English')} ở đầu tab đổi ngôn ngữ hiển thị, dùng chung lựa chọn với tab Ghi chú. Bản dịch mặc định dùng Google, không tốn token, và được lưu lại. Nút ${ui('Dịch bằng AI cho chính xác hơn')} dịch lại bằng mô hình đang dùng. Tên thuật ngữ, tên bài được dẫn và con số được giữ nguyên. Xuất Markdown theo ngôn ngữ đang hiển thị.</li>
+  <li>Cần toàn văn của paper; paper chỉ có abstract thì app báo lỗi và không gọi mô hình.</li>
+  <li>Bốn lượt gọi mô hình, thêm tối đa hai lượt viết lại mục bị chấm là nông. Mất khoảng 2–5 phút, trong lúc đó có thể sang trang khác.</li>
+  <li>Dưới mỗi mục có cảnh báo nếu con số không thấy trong toàn văn hoặc còn câu nông.</li>
+  <li>${ui('Copy Markdown')} và ${ui('Tải .md')} xuất bài giảng. Nút ${ui('Tiếng Việt')} / ${ui('English')} đổi ngôn ngữ hiển thị như tab Ghi chú.</li>
 </ul>`,
   },
   {
-    id: 'autohl', title: 'Tô câu đáng nhớ bằng AI', routes: [],
+    id: 'translate', group: 'lib', title: 'Dịch khi đọc PDF', routes: [],
     html: `
-<p>Nút ${ui('✦ Tô câu đáng nhớ')} trên thanh trình đọc PDF cho mô hình đọc toàn văn rồi tô những câu đáng nhớ. Mỗi loại câu một màu:</p>
-<ul>
-  <li><b>Luận điểm</b> (tím) là điều paper khẳng định.</li>
-  <li><b>Cơ chế</b> (xanh dương) giải thích phương pháp hoạt động thế nào.</li>
-  <li><b>Bằng chứng</b> (xanh lá) là con số và kết quả chống lưng cho luận điểm.</li>
-  <li><b>Giới hạn</b> (hồng) là điều kiện áp dụng, điểm yếu, trường hợp thất bại.</li>
-  <li><b>Thuật ngữ</b> (vàng) là chỗ định nghĩa khái niệm dùng suốt bài.</li>
-</ul>
-<ul>
-  <li>Chọn mật độ thưa, vừa hoặc dày. Số câu tính theo số trang nội dung, không tính danh mục tham khảo.</li>
-  <li>Bấm vào một nét tô để xem loại câu và lý do đáng nhớ, có nút lưu thành trích dẫn của paper.</li>
-  <li>Khi paper có câu AI tô, ngay dưới thanh công cụ trình đọc có dải ${ui('Màu câu AI tô')} nhắc mỗi màu là loại nào và có bao nhiêu câu, rê chuột vào để xem giải thích. Bấm ${ui('Thu gọn')} để thu dải này thành một dòng nhỏ.</li>
-  <li>Câu nào mô hình chép không khớp nguyên văn trong PDF thì bị bỏ, app không tô đoán.</li>
-  <li>Tab ${ui('Ghi chú')} có thẻ ${ui('Câu đáng nhớ')} liệt kê các câu theo loại. Bấm số trang để mở PDF đúng trang đó.</li>
-  <li>Chạy lại thì lượt mới thay các câu AI đã tô, nét bạn tự tô được giữ nguyên. Hoàn tác bằng ↶, hoặc mở lại hộp thoại để xoá hết câu AI đã tô.</li>
-  <li>Mỗi lượt là một lần gọi mô hình với toàn văn, tốn token gần bằng một lần trích xuất.</li>
-</ul>`,
+<p>Tab ${ui('PDF')} dùng trình đọc PDF.js, chữ bôi đen được như trang web. Bôi đen để dịch cũng dùng được ở mọi trang khác của app (ghi chú, bài giảng, Hỏi đáp, Chat…).</p>
+${steps([
+    `Bôi đen một từ, cụm từ hay cả đoạn.`,
+    `Rê chuột vào nút ${ui('文')} hiện cạnh đoạn đã chọn, bong bóng bản dịch mở ra. Muốn bấm thay vì rê, hoặc dịch ngay khi bôi đen, đổi ở ${ui('Tuỳ chọn')} trên thanh trình đọc hoặc nút 文 trên thanh trên cùng.`,
+    `${k('Esc')} đóng bong bóng, ${k('Ctrl')}+${k('Shift')}+${k('D')} dịch ngay đoạn đang chọn.`,
+  ])}
+<p>Khi bật ${ui('Theo ngữ cảnh câu')}, app gửi kèm cả câu chứa đoạn đã chọn nên từ nhiều nghĩa được dịch đúng ngữ cảnh. Câu ngữ cảnh được đóng trong dấu ⟦ ⟧ trên PDF. Nhãn trên bong bóng: ${ui('theo ngữ cảnh')} (đáng tin nhất), ${ui('dịch riêng')} (nghĩa khi đứng một mình), ${ui('cả câu')} (chỉ có bản dịch cả câu).</p>
+<p>Bản dịch nhanh dùng Google miễn phí, không cần API key. Bong bóng có ${ui('Dịch bằng AI')} (mô hình đang dùng, văn phong học thuật, giữ thuật ngữ) và ${ui('+ Ghi chú')} (lưu đoạn gốc, bản dịch, số trang vào Trích dẫn của paper, ôn lại ở <a href="#/help?s=notes">Thẻ ghi nhớ</a>).</p>`,
   },
   {
-    id: 'marks', title: 'Tô sáng, gạch chân và tìm PDF', routes: [],
+    id: 'marks', group: 'lib', title: 'Tô sáng, gạch chân và tìm PDF', routes: [],
     html: `
 <p>Thanh công cụ của trình đọc PDF có ba nút riêng của app, nằm trước các công cụ vẽ của PDF.js:</p>
 <ul>
-  <li><b>Bút tô sáng</b> và <b>U gạch chân</b>. Bật một nút rồi bôi đen chữ, đoạn đó được tô hoặc gạch ngay, nút vẫn bật để đánh dấu tiếp. Bấm lại nút để tắt.</li>
-  <li><b>Cục tẩy</b>. Bật rồi bôi đen phần chữ đã tô hoặc gạch để xoá đúng phần đó (tẩy ở giữa thì nét bị cắt làm đôi), hoặc giữ chuột trái rê qua các nét để xoá cả dòng. Bấm lại nút để tắt.</li>
-  <li><b>Chấm màu</b> chọn màu vàng, xanh lá, xanh dương, hồng, đỏ hoặc tím.</li>
-  <li><b>↶ Hoàn tác</b> và <b>↷ Làm lại</b> áp dụng cho việc tạo nét, tẩy, xoá nét và đổi màu. Phím tắt ${k('Ctrl')}+${k('Z')} để hoàn tác, ${k('Ctrl')}+${k('Y')} hoặc ${k('Ctrl')}+${k('Shift')}+${k('Z')} để làm lại. Khi đang bật công cụ vẽ hay thêm chữ của PDF.js, ${k('Ctrl')}+${k('Z')} hoàn tác nét của công cụ đó.</li>
+  <li><b>Bút tô sáng</b> và <b>U gạch chân</b>: bật rồi bôi đen chữ là đánh dấu ngay; bấm lại nút để tắt.</li>
+  <li><b>Cục tẩy</b>: bôi đen phần chữ đã đánh dấu để xoá đúng phần đó, hoặc giữ chuột trái rê qua các nét để xoá cả dòng.</li>
+  <li><b>Chấm màu</b>: vàng, xanh lá, xanh dương, hồng, đỏ, tím. ${ui('↶')} / ${ui('↷')} hoàn tác / làm lại (${k('Ctrl')}+${k('Z')}, ${k('Ctrl')}+${k('Y')}).</li>
 </ul>
-<p>Nét đánh dấu lưu trong paper (không sửa file PDF), mở lại hay đổi cỡ chữ vẫn đúng chỗ. Khi đã tắt công cụ, bấm vào một nét để ${ui('Dịch')}, lưu làm ${ui('+ Ghi chú')}, ${ui('Sao chép')}, đổi màu hoặc ${ui('Xoá')}.</p>
-<p>Các công cụ của PDF.js như vẽ tay, thêm chữ, thêm ảnh, chữ ký chỉ giữ được khi lưu vào file. Khi có nét vẽ chưa lưu, thanh trình đọc hiện nút ${ui('Lưu nét vẽ vào PDF')}. Bấm nút này để ghi vào file PDF của paper.</p>
-<p>Paper chưa có PDF thì tab ${ui('PDF')} tự tìm bản công khai qua link và DOI của paper, Semantic Scholar, OpenAlex, arXiv (theo tên), CVF, NeurIPS, PMLR, ACL Anthology. Bấm ${ui('Tải về')} ở một nguồn hoặc ${ui('Tự động tải bản tốt nhất')}. Không tìm được thì dùng các link Google Scholar, Semantic Scholar, trang nhà xuất bản để tải tay rồi chọn file. Muốn tìm cho nhiều paper, tick chọn ở Thư viện (menu cạnh ${ui('Chọn tất cả')} có ${ui('Chưa có PDF')}) rồi bấm ${ui('Khác')} → ${ui('Tìm & tải PDF')}.</p>`,
+<p>Nét đánh dấu lưu trong paper (không sửa file PDF). Khi đã tắt công cụ, bấm vào một nét để ${ui('Dịch')}, ${ui('+ Ghi chú')}, ${ui('Sao chép')}, đổi màu hoặc ${ui('Xoá')}. Nét vẽ tay, chữ, chữ ký của PDF.js chỉ giữ được khi bấm ${ui('Lưu nét vẽ vào PDF')}.</p>
+<p>Paper chưa có PDF thì tab ${ui('PDF')} tự tìm bản công khai (link và DOI của paper, Semantic Scholar, OpenAlex, arXiv theo tên, CVF, NeurIPS, PMLR, ACL Anthology): bấm ${ui('Tải về')} ở một nguồn hoặc ${ui('Tự động tải bản tốt nhất')}. Tìm cho nhiều paper: tick ở Thư viện (menu cạnh ${ui('Chọn tất cả')} có ${ui('Chưa có PDF')}) rồi ${ui('Khác')} → ${ui('Tìm & tải PDF')}.</p>`,
   },
   {
-    id: 'translate', title: 'Dịch khi đọc PDF', routes: [],
+    id: 'autohl', group: 'lib', title: 'Tô câu đáng nhớ bằng AI', routes: [],
     html: `
-<p>Bôi đen để dịch giờ dùng được ở mọi trang của app (ghi chú, bài giảng, Hỏi đáp, Chat, danh sách paper…), không chỉ trong PDF. Cách dùng giống hệt: bôi đen, rê chuột hoặc bấm nút 文, bong bóng hiện bản dịch theo ngữ cảnh câu, có ${ui('Dịch bằng AI')}, ${ui('Sao chép')}, và ${ui('+ Ghi chú')} khi đang ở trang một paper. Ô nhập liệu và khối mã không bật dịch. Tắt ở ${ui('Cài đặt')} → ${ui('Dịch khi bôi đen')} → ô ${ui('Bôi đen để dịch ở mọi trang của app')}.</p>
-<p>Tab ${ui('PDF')} của trang paper dùng trình đọc PDF.js, chữ trong PDF bôi đen được như trang web. Cách dùng giống extension Dịch Khi Bôi Đen:</p>
-<ol>
-  <li>Bôi đen một từ, cụm từ hay cả đoạn trong PDF.</li>
-  <li>Rê chuột vào nút ${ui('文')} hiện cạnh đoạn đã chọn, bong bóng bản dịch mở ra. Muốn bấm thay vì rê chuột, hoặc dịch ngay khi bôi đen, đổi ở ${ui('Tuỳ chọn')} trên thanh trình đọc.</li>
-  <li>${k('Esc')} đóng bong bóng, ${k('Ctrl')}+${k('Shift')}+${k('D')} dịch ngay đoạn đang chọn.</li>
-</ol>
-<p>Khi bật ${ui('Theo ngữ cảnh câu')}, app gửi kèm cả câu chứa đoạn đã chọn, nên từ nhiều nghĩa được dịch đúng ngữ cảnh. Câu ngữ cảnh được tô nhạt và đóng trong dấu ⟦ ⟧ ngay trên PDF, phần tương ứng trong bản dịch cả câu được tô vàng. Nhãn trên bong bóng cho biết độ tin cậy:</p>
+<p>Nút ${ui('✦ Tô câu đáng nhớ')} trên thanh trình đọc PDF cho mô hình đọc toàn văn rồi tô những câu đáng nhớ, mỗi loại một màu: <b>Luận điểm</b> (tím), <b>Cơ chế</b> (xanh dương), <b>Bằng chứng</b> (xanh lá), <b>Giới hạn</b> (hồng), <b>Thuật ngữ</b> (vàng).</p>
 <ul>
-  <li>${ui('theo ngữ cảnh')} là đã tách được nghĩa của đoạn chọn trong câu và đối chiếu lại, đáng tin nhất.</li>
-  <li>${ui('dịch riêng')} là không tách được trong câu nên hiện nghĩa khi đứng một mình, cần đọc thêm cả câu.</li>
-  <li>${ui('cả câu')} là chỉ có bản dịch của cả câu.</li>
-</ul>
-<p>Bản dịch nhanh dùng dịch vụ Google miễn phí qua máy chủ của app, không cần API key và không tốn token. Bong bóng còn có hai nút:</p>
+  <li>Chọn mật độ thưa, vừa hoặc dày; số câu tính theo số trang nội dung.</li>
+  <li>Bấm vào một nét để xem loại câu và lý do đáng nhớ, có nút lưu thành trích dẫn.</li>
+  <li>Câu mô hình chép không khớp nguyên văn trong PDF thì bị bỏ, app không tô đoán.</li>
+  <li>Tab ${ui('Ghi chú')} có thẻ ${ui('Câu đáng nhớ')} liệt kê theo loại; bấm số trang để mở đúng trang.</li>
+  <li>Chạy lại thì lượt mới thay các câu AI đã tô, nét bạn tự tô được giữ nguyên. Mỗi lượt tốn token gần bằng một lần trích xuất.</li>
+</ul>`,
+  },
+  {
+    id: 'venue', group: 'lib', title: 'Venue và xếp hạng', routes: [],
+    html: `
+<p>Mỗi paper được gắn loại venue và hạng, hiện thành nhãn như ${ui('Hội nghị · CVPR · A*')} hoặc ${ui('Tạp chí · IEEE Transactions on … · Q1')}. App phân loại tự động mỗi khi lưu paper, dựa trên tên venue, loại ấn phẩm từ Semantic Scholar và Crossref, ISSN, và ghi chú kiểu "Accepted to …" trên arXiv.</p>
 <ul>
-  <li>${ui('Dịch bằng AI')} dịch lại bằng mô hình đang dùng trong Cài đặt, sát văn phong học thuật hơn, giữ nguyên tên phương pháp, dataset và ký hiệu.</li>
-  <li>${ui('+ Ghi chú')} lưu đoạn gốc, bản dịch và số trang vào phần ${ui('Trích dẫn & nhận xét')} của paper. Các đoạn này đi kèm file Markdown khi xuất và làm ngữ cảnh cho Chat.</li>
+  <li><b>Hội nghị</b>: bảng CORE/ICORE (A*, A, B, C).</li>
+  <li><b>Tạp chí, book series, kỷ yếu</b>: Scimago Journal Rank (Q1–Q4, điểm SJR, H-index).</li>
+  <li><b>Workshop và Findings</b>: CORE không xếp riêng, app hiện hạng hội nghị chủ ở dạng mờ, ví dụ ${ui('Workshop · CVPR A*')}.</li>
 </ul>
-<p>Ngôn ngữ đích và các tuỳ chọn khác chỉnh ngay trên thanh trình đọc hoặc trong ${ui('Cài đặt')} → ${ui('Dịch khi đọc PDF')}. Dịch vụ miễn phí có thể tạm từ chối khi dùng quá nhiều trong thời gian ngắn, khi đó chờ một lúc rồi thử lại.</p>`,
+<p>Nhận diện sai thì bấm ${ui('Sửa venue')} trong tab ${ui('Ghi chú')}: ô tìm tra trực tiếp bảng CORE và SJR, kể cả tên viết tắt như TPAMI. ${ui('Cập nhật bảng xếp hạng trực tuyến')} trong ${ui('Cài đặt')} tải bản mới nhất rồi phân loại lại cả thư viện. Hạng chỉ để tham khảo; với quyết định quan trọng như chọn nơi nộp bài, kiểm tra lại trên trang gốc.</p>`,
+  },
+
+  /* ============================== Khám phá & phân tích ============================== */
+  {
+    id: 'related', group: 'explore', title: 'Liên quan, bản đồ tài liệu, đồ thị 3D', routes: [],
+    html: `
+${fig('related', 'Tab Liên quan của trang paper')}
+${steps([
+    `<b>Mục lục của tab</b>: nhảy tới Khám phá qua Semantic Scholar, Có gì mới kể từ bài này, Trong thư viện, Hướng nghiên cứu.`,
+    `${ui('🧭 Hướng nghiên cứu')}: mở tab Hướng nghiên cứu.`,
+    `${ui('🗺 Bản đồ tài liệu')}: bản đồ 2D các bài liên quan (bên dưới).`,
+    `${ui('🕸 Đồ thị 3D')}: đồ thị trích dẫn toàn màn hình.`,
+    `${ui('🔔 Theo dõi')}: báo khi có bài mới dẫn bài này, hoặc bài mới của từng tác giả (trang Paper mới).`,
+  ])}
+${fig('litmap', 'Bản đồ tài liệu 2D')}
+${steps([
+    `<b>Cụm tương đồng</b> (kiểu Connected Papers): hai bài gần nhau khi dẫn nhiều bài chung hoặc hay được cùng một bài dẫn. <b>Dòng thời gian</b> (kiểu Litmaps): trục ngang là ngày đăng, trục dọc là số trích dẫn.`,
+    `<b>Bộ lọc</b>: số bài hiện (40–300), khoảng năm, ${ui('Liên kết ≥')} để bớt các liên kết yếu. Bên phải có ô tìm, ${ui('Ẩn bài đã có')}, ${ui('Vừa khung')}, ${ui('Ảnh PNG')}.`,
+    `<b>Bài gốc</b> (kiểu ResearchRabbit): bấm một bài trên bản đồ rồi ${ui('🌱 Thêm làm bài gốc')} để mở rộng bản đồ theo hướng đó.`,
+    `<b>Danh sách</b>: ${ui('Liên quan nhất')}, ${ui('Nền tảng')} (bài được nhiều bài trên bản đồ cùng dẫn), ${ui('Phát triển')} (bài dẫn nhiều bài trên bản đồ), ${ui('Trong thư viện')}. Bấm một bài để xem chi tiết, thêm vào thư viện.`,
+    `<b>Chú giải</b>: màu theo năm (xanh tím là cũ, cam là mới), cỡ nút theo số trích dẫn, viền xanh lá là bài đã có trong thư viện, viền đậm là bài gốc.`,
+  ])}
+<p>${k('Esc')} bỏ chọn, ${k('Shift')}+${k('Esc')} đóng bản đồ. Bài gốc và chế độ xem được lưu theo paper.</p>
+<p><b>Đồ thị 3D</b>: bài đang xem ở giữa, các bài nó dẫn (xanh dương), các bài dẫn nó (cam), bài đã có trong thư viện (tím). Kéo để xoay, cuộn để phóng, bấm một bài để xem chi tiết hoặc bay tới. Rê chuột vào một bài để thấy mũi tên ra / vào. Tô màu theo loại, theo năm hoặc theo chủ đề (app tự tìm tối đa bảy chủ đề, hoặc bạn tự gõ từ khoá). Cột trái liệt kê các bài, lọc theo tên, năm, chủ đề, số trích dẫn; tick ${ui('Liên kết với đồ thị')} để bộ lọc áp lên cả đồ thị. Hàng ${ui('Mở rộng')} lấy thêm bài dẫn (tới 5000) và bài nền chung (bài ngoài đồ thị được nhiều bài trong đồ thị cùng dẫn, tô vàng).</p>
+<p><b>Khám phá qua Semantic Scholar</b>: ba danh sách Gợi ý, Tài liệu tham khảo, Paper dẫn bài này; lọc theo thời gian, sắp xếp mới nhất / nhiều trích dẫn / đang được chú ý, ẩn bài đã có hoặc đã xem. Paper dẫn bài này được chia theo cách họ dùng bài: ${ui('Kế thừa phương pháp')}, ${ui('So sánh kết quả')}, ${ui('Chỉ nhắc tới')}, kèm câu trích dẫn nguyên văn và dòng thời gian số bài dẫn theo tháng (bấm một cột để lọc).</p>
+<p><b>Có gì mới kể từ bài này</b>: mô hình đọc tóm tắt và câu trích dẫn của tối đa 30 paper dẫn bài, tổng hợp giới hạn nào đã được giải quyết, kết quả mới, hướng mở rộng, phản biện, bài nên đọc tiếp; mỗi ý có mã C1, C2… bấm để mở chi tiết.</p>`,
   },
   {
-    id: 'library', title: 'Thư viện, tìm kiếm và dọn dẹp', routes: ['library'],
+    id: 'research', group: 'explore', title: 'Hướng nghiên cứu', routes: [],
     html: `
-<p>Thư viện có ba kiểu xem gồm danh sách, kanban theo trạng thái đọc (kéo thẻ giữa các cột để đổi trạng thái) và bảng. Sidebar liệt kê chủ đề. Kéo một paper thả vào tên chủ đề để chuyển thư mục.</p>
-<p>Ô tìm kiếm quét cả ghi chú trích xuất, ghi chú cá nhân, tag lẫn <b>toàn văn đã lưu</b>. Paper khớp trong toàn văn hiện thêm đoạn trích có từ khoá được tô sáng. Bộ lọc gồm trạng thái, đánh giá, loại venue, hạng venue, tag và năm, còn ô sắp xếp có thêm lựa chọn ${ui('Hạng venue')} và ${ui('Trích dẫn nhiều')}.</p>
-<p>Ô ${ui('Chọn tất cả')} nằm ngay trên cột tick, giống Gmail. Bấm khi chưa chọn gì để chọn mọi paper trong danh sách đang xem, bấm lần nữa để bỏ chọn. Ô hiện dấu gạch ngang khi mới chọn một phần. Mũi tên bên cạnh mở menu chọn nhanh theo điều kiện như ${ui('Chưa đọc')}, ${ui('Có PDF')}, ${ui('Chưa trích xuất')} hoặc ${ui('Đảo lựa chọn')}.</p>
-<p>Khi có paper được tick, thanh chọn hiện các thao tác hàng loạt gồm ${ui('Chat')}, ${ui('So sánh')}, ${ui('Chuyển thư mục')} và ${ui('Xoá')}. Nút ${ui('Khác')} chứa thêm ${ui('Đổi trạng thái')}, ${ui('Gắn nhãn phụ')} và ${ui('Xuất')}. Khi chưa tick paper nào, thanh này chỉ có ${ui('Dọn trùng')} và ${ui('Xuất danh sách')}.</p>
-<p>${ui('Khác')} → ${ui('Trích xuất lại ghi chú (AI)')} chạy lại trích xuất theo template cho các paper đang tick, lần lượt từng paper, từ toàn văn hoặc PDF đã lưu. Ghi chú cá nhân, trích dẫn theo đoạn, trạng thái, đánh giá và thư mục được giữ nguyên. Hộp xác nhận cho phép bỏ qua paper đã có ghi chú theo template mới để đỡ tốn token. Bảng tiến trình ở góc dưới bên phải có nút ${ui('Dừng')}, và việc trích xuất vẫn chạy tiếp khi chuyển sang trang khác. Paper chưa có toàn văn hay PDF được liệt kê lại ở cuối. Để tick nhanh các paper cần làm, mở mũi tên cạnh ${ui('Chọn tất cả')} rồi chọn ${ui('Chưa có ghi chú theo template')}. Một paper có một chủ đề chính và có thể mang thêm nhãn phụ, nên paper vừa thuộc VQA vừa thuộc Efficiency vẫn hiện ở cả hai chủ đề.</p>
-<p>${ui('Dọn trùng')} gom các paper trùng arXiv ID, DOI hoặc tên, giữ bản mới nhất và gộp ghi chú, đánh giá, PDF, nhãn từ các bản còn lại. Paper bị xoá nằm trong ${ui('Thùng rác')} 30 ngày trước khi bị xoá hẳn, và ngay sau khi xoá có nút ${ui('Hoàn tác')}.</p>`,
-  },
-  {
-    id: 'venue', title: 'Venue và xếp hạng', routes: ['library', 'paper'],
-    html: `
-<p>Mỗi paper được gắn loại venue và hạng tương ứng, hiện dưới dạng nhãn như ${ui('Hội nghị · CVPR · A*')} hoặc ${ui('Tạp chí · IEEE Transactions on … · Q1')}. App phân loại tự động mỗi khi lưu paper, dựa trên tên venue, loại ấn phẩm từ Semantic Scholar và Crossref, ISSN, và ghi chú kiểu "Accepted to …" trên arXiv.</p>
-<p>Các loại venue app phân biệt gồm hội nghị, workshop, Findings, tạp chí, chương sách, book series, sách, preprint và luận văn. Hạng lấy từ hai nguồn:</p>
-<ul>
-  <li><b>Hội nghị</b> dùng bảng CORE/ICORE của portal.core.edu.au với các hạng A*, A, B, C. Ngoài ra còn có các nhãn như National, Unranked hoặc Multiconference, là cách CORE ghi nhận những hội nghị không xếp theo thang A*–C.</li>
-  <li><b>Tạp chí, book series và kỷ yếu</b> dùng Scimago Journal Rank với quartile Q1–Q4 theo lĩnh vực tốt nhất của ấn phẩm, kèm điểm SJR và H-index.</li>
-</ul>
-<p>CORE không xếp hạng riêng workshop và Findings. Với hai loại này, app hiện hạng của hội nghị chủ ở dạng mờ, chẳng hạn ${ui('Workshop · CVPR A*')}, để chúng ta biết bối cảnh nhưng không nhầm đó là hạng của bài. Tương tự, paper ECCV hay MICCAI được Springer in trong Lecture Notes in Computer Science, nên app ưu tiên nhận là hội nghị theo CORE thay vì chương sách.</p>
-<p>Khi app nhận diện sai hoặc chưa nhận diện được, bấm ${ui('Sửa venue')} trong tab ${ui('Ghi chú')} của paper. Ô tìm kiếm trong hộp thoại tra trực tiếp bảng CORE và SJR, kể cả tên viết tắt như TPAMI hay IJCV. Venue đã sửa tay được giữ nguyên khi phân loại lại, và nút ${ui('Tự nhận diện lại')} bỏ phần sửa tay.</p>
-<p>App đóng gói sẵn bảng ICORE2026 và SJR 2025. Nút ${ui('Cập nhật bảng xếp hạng trực tuyến')} trong ${ui('Cài đặt')} tải bản mới nhất từ hai trang gốc rồi phân loại lại cả thư viện. Hạng là thông tin tham khảo tại thời điểm của bảng, nên với quyết định quan trọng như chọn nơi nộp bài, cần kiểm tra lại trên trang gốc.</p>`,
-  },
-  {
-    id: 'chat', title: 'Chat với nhiều paper', routes: ['chat'],
-    html: `
-<p>Trang ${ui('Chat với paper')} cho phép hỏi đáp nhiều lượt trên một nhóm paper chọn sẵn, chẳng hạn so sánh phương pháp, tổng hợp dataset hay tìm khoảng trống nghiên cứu. Trang chia ba cột gồm danh sách hội thoại, khung chat và bảng ${ui('Nguồn')} chứa các paper đang dùng.</p>
-<p>Hội thoại mới chưa có paper sẽ hiện ba cách bắt đầu:</p>
-<ul>
-  <li>${ui('Dùng … paper đang chọn')} lấy các paper đã tick trong Thư viện hoặc trang So sánh. Nút ${ui('Chat')} ở hai trang đó cũng mở thẳng hội thoại với các paper này.</li>
-  <li>${ui('Tìm và chọn từng paper')} mở bộ chọn trong bảng ${ui('Nguồn')}.</li>
-  <li>${ui('Chọn cả một chủ đề')} thêm toàn bộ paper của chủ đề, sau đó có thể bỏ bớt.</li>
-</ul>
-<p>Bộ chọn có ô tìm theo tên, tác giả, tag, venue và ba bộ lọc gồm chủ đề, hạng venue, ${ui('có toàn văn')}. Tick hoặc bỏ tick một dòng là thêm hoặc bỏ paper ngay. Ô ${ui('Chọn tất cả')} ngay trên danh sách hoạt động như Gmail, chưa chọn gì thì bấm để thêm mọi paper đang khớp bộ lọc, đã chọn một phần thì bấm để bỏ chọn chúng. Bấm ${ui('Xong')} hoặc ${k('Esc')} để quay lại danh sách nguồn. Mỗi paper mang một nhãn cố định như P1, P2, nhãn không đổi khi bỏ bớt paper, nên các trích dẫn trong câu trả lời cũ vẫn trỏ đúng paper.</p>
-<p>Thẻ paper trong bảng ${ui('Nguồn')} ghi ${ui('● toàn văn')} hoặc ${ui('○ chỉ ghi chú')}. Điều này quyết định chatbot đọc được gì, vì ô ${ui('Mức ngữ cảnh gửi cho AI')} có ba lựa chọn:</p>
-<ul>
-  <li>${ui('Chỉ ghi chú')} gửi ghi chú trích xuất, ghi chú cá nhân và trích dẫn bạn đánh dấu. Cách này rẻ và nhanh, đủ cho câu hỏi tổng quan và so sánh.</li>
-  <li>${ui('Ghi chú + đoạn liên quan')} là mặc định. Với mỗi câu hỏi, app tìm các đoạn khớp nhất trong toàn văn đã lưu và gửi kèm. Câu hỏi tiếng Việt được đổi thành từ khoá tiếng Anh bằng một lượt gọi rất nhỏ để tìm đúng đoạn trong paper tiếng Anh. Mở mục ${ui('Đã gửi kèm … đoạn trích')} dưới câu hỏi để xem các đoạn đã dùng.</li>
-  <li>${ui('Toàn văn')} gửi toàn bộ nội dung của mọi paper, tối đa khoảng 600.000 ký tự chia đều cho các paper. Cách này đầy đủ nhất nhưng tốn token nhất.</li>
-</ul>
-<p>Cuối bảng ${ui('Nguồn')} có ước tính số token ngữ cảnh. Với Claude, phần ngữ cảnh cố định được cache, nên từ câu hỏi thứ hai trong vòng vài phút phần này chỉ tính giá đọc cache, bằng khoảng một phần mười giá input thường. Chân mỗi câu trả lời ghi số token vào, token đọc và ghi cache, token ra.</p>
-<p>Câu trả lời hiện dần trong lúc mô hình viết và gắn nhãn nguồn như P1 ngay sau ý lấy từ paper đó, bấm vào nhãn để mở paper. Nút ${ui('Dừng')} cắt ngang và giữ phần đã nhận, nút ${ui('Hỏi lại')} xuất hiện khi có lỗi, ${ui('Ẩn nguồn')} thu bảng bên phải để có thêm chỗ đọc, ${ui('Xuất .md')} lưu cả hội thoại kèm danh sách paper.</p>`,
-  },
-  {
-    id: 'compare', title: 'So sánh và tổng hợp related work', routes: ['compare'],
-    html: `
-<p>Tick các paper ở cột bên phải (hoặc trong Thư viện) để đưa vào bảng so sánh. Nút ${ui('Thông số hiển thị')} mở danh sách mọi thông số đã trích xuất (kể cả chuỗi lập luận và lưu ý khi đọc), chia nhóm theo template: thông tin chung, problem và research gap, method và contribution, dataset và experiments, findings, limitations, relevance, references và evidence. Tick cả nhóm hoặc từng thông số, nút ${ui('Hiện tất cả')} bật toàn bộ, ${ui('Mặc định')} quay về ba cột Điểm mới, Dataset/Metric, Ý tưởng áp dụng.</p>
-<p>${ui('Paper theo hàng')} là bảng thường. ${ui('Paper theo cột')} xoay bảng, mỗi thông số một hàng, dễ đọc hơn khi hiện nhiều thông số. Lựa chọn được nhớ lại cho lần sau. Khi chọn hiển thị ghi chú bằng ngôn ngữ khác, bảng dùng bản dịch đã lưu của từng paper và có nút dịch các paper chưa có bản dịch.</p>
-<p>${ui('Copy Markdown')}, ${ui('CSV')}, ${ui('LaTeX')}, ${ui('Word')} xuất đúng các thông số đang chọn. ${ui('BibTeX')} tải trích dẫn của các paper, ${ui('Chat')} mở trang Chat với đúng các paper đang so sánh. Phần biểu đồ vẽ các metric trùng tên và dataset giữa ít nhất hai paper. Phần ${ui('Tổng hợp related work bằng AI')} viết bản nháp Related Work, có nút xuất riêng.</p>`,
-  },
-  {
-    id: 'feed', title: 'Theo dõi paper mới', routes: ['feed'],
-    html: `
-<p>Trang ${ui('Theo dõi paper mới')} quét theo các bộ theo dõi do chúng ta tạo. Bộ loại từ khoá gồm từ khoá và danh mục arXiv như cs.CV hay cs.CL. Mỗi bộ có ô tick để chọn, phía trên có ${ui('Chọn tất cả')}, ${ui('Quét đã chọn')}, ${ui('Xoá đã chọn')} và ${ui('Xoá tất cả')}, xoá xong vẫn hoàn tác được. Hai loại còn lại tạo từ nút ${ui('🔔 Theo dõi')} ở tab Liên quan của trang paper: bài mới dẫn một paper, và bài mới của một tác giả (lấy từ Semantic Scholar). Paper đã có trong thư viện hoặc đã xem được làm mờ, nút ${ui('+ Thêm')} chuyển paper sang trang thêm để trích xuất.</p>
-<p>arXiv giới hạn khoảng một yêu cầu mỗi ba giây và trả lỗi 429 khi bị gọi dồn. App tự chờ và thử lại, nhưng nếu vẫn báo lỗi thì chờ vài phút rồi quét lại. arXiv cập nhật theo ngày làm việc, nên quét mỗi sáng là đủ.</p>`,
-  },
-  {
-    id: 'research', title: 'Hướng nghiên cứu', routes: ['paper'],
-    html: `
-<p>Tab ${ui('Hướng nghiên cứu')} của trang paper đặt bài đang xem (mã <b>P</b>) giữa các bài nó dẫn (<b>R1, R2…</b>) và các bài dẫn nó (<b>C1, C2…</b>), lấy từ Semantic Scholar, rồi nhờ mô hình lập:</p>
+<p>Tab ${ui('Hướng nghiên cứu')} đặt bài đang xem (<b>P</b>) giữa các bài nó dẫn (<b>R1, R2…</b>) và các bài dẫn nó (<b>C1, C2…</b>), lấy từ Semantic Scholar, rồi nhờ mô hình lập:</p>
 <ul>
   <li><b>Dòng nghiên cứu</b>: bài nền tảng đóng góp gì, các bài sau đẩy hướng này đi đâu.</li>
-  <li><b>So sánh các bài</b>: quan hệ với bài gốc (nền tảng, baseline, mở rộng, áp dụng, cạnh tranh, phản biện), phương pháp, bài toán / gap, domain / dữ liệu, và điểm khác bài gốc.</li>
-  <li><b>Ai cover khía cạnh nào</b>: từng khía cạnh (phương pháp, domain, dữ liệu, đánh giá, hiệu năng, độ bền vững…) bài gốc có cover không và bài nào đã cover.</li>
+  <li><b>So sánh các bài</b>: quan hệ với bài gốc (nền tảng, baseline, mở rộng, áp dụng, cạnh tranh, phản biện), phương pháp, bài toán, domain, điểm khác bài gốc.</li>
+  <li><b>Ai cover khía cạnh nào</b>: phương pháp, domain, dữ liệu, đánh giá, hiệu năng, độ bền vững…</li>
   <li><b>Còn bỏ ngỏ</b>: vấn đề chưa bài nào giải quyết trọn vẹn, kèm căn cứ.</li>
-  <li><b>Hướng nghiên cứu tiếp theo</b>: ý tưởng, gap giải quyết, bài làm nền, bước đầu nên làm, rủi ro, và liên hệ với đề tài của bạn (nhập ở ${ui('Cài đặt')} → Đề tài của bạn).</li>
+  <li><b>Hướng nghiên cứu tiếp theo</b>: ý tưởng, gap giải quyết, bài làm nền, bước đầu nên làm, rủi ro, liên hệ với đề tài của bạn.</li>
 </ul>
-<p>Bấm mã R / C để xem tóm tắt, câu trích dẫn và thêm bài vào thư viện. Mở nhanh từ nút ${ui('🧭 Hướng nghiên cứu')} trong tab ${ui('Liên quan')} hoặc trên thanh công cụ của ${ui('Đồ thị 3D')}. Kết quả được lưu trong paper; bấm ${ui('Cập nhật')} để làm lại, ${ui('Copy Markdown')} để mang sang tài liệu khác. Mô hình chỉ đọc tóm tắt và câu trích dẫn, chưa đọc toàn văn từng bài.</p>`,
+<p>Bấm mã R / C để xem tóm tắt, câu trích dẫn và thêm bài vào thư viện. Kết quả lưu trong paper; ${ui('Cập nhật')} để làm lại, ${ui('Copy Markdown')} để mang đi. Mô hình chỉ đọc tóm tắt và câu trích dẫn, chưa đọc toàn văn từng bài.</p>`,
   },
   {
-    id: 'notebook', title: 'Sổ tay nghiên cứu', routes: ['notebook'],
+    id: 'chat', group: 'explore', title: 'Chat với nhiều paper', routes: ['chat'],
     html: `
-<p>Trang ${ui('Sổ tay nghiên cứu')} (thanh bên trái, phím tắt <kbd>G</kbd> <kbd>B</kbd>) là nơi ghi chép tự do, kết hợp cách làm của Notion và Obsidian, nối thẳng với thư viện paper.</p>
+${fig('chat', 'Trang Chat với paper')}
+${steps([
+    `<b>Hội thoại</b>: danh sách các cuộc chat đã lưu; ${ui('+ Mới')} để bắt đầu cuộc mới.`,
+    `<b>Nguồn</b>: các paper đang dùng, mỗi paper một nhãn cố định P1, P2… (không đổi khi bỏ bớt paper). ${ui('+ Thêm')} mở bộ chọn: tìm theo tên, tác giả, tag, venue; lọc theo chủ đề, hạng, có toàn văn.`,
+    `<b>Mức ngữ cảnh gửi cho AI</b>: ${ui('Chỉ ghi chú')} (rẻ, nhanh), ${ui('Ghi chú + đoạn liên quan')} (mặc định: mỗi câu hỏi tìm thêm các đoạn khớp nhất trong toàn văn), ${ui('Toàn văn')} (đầy đủ nhất, tốn token nhất). Ô dưới chọn ngôn ngữ trả lời.`,
+    `<b>Nhãn nguồn</b> sau mỗi ý: bấm để mở paper đó. Con số không thấy trong tài liệu hiện thành cảnh báo dưới câu trả lời.`,
+    `<b>Ô hỏi</b>: ${k('Enter')} gửi, ${k('Shift')}+${k('Enter')} xuống dòng. Phía trên có các câu hỏi gợi ý (so sánh phương pháp, bảng dataset và kết quả, hạn chế và khoảng trống…).`,
+  ])}
+<p><b>Đính kèm ảnh và file</b>: nút ${ui('📎 Đính kèm')} dưới ô hỏi, dán (${k('Ctrl')}+${k('V')}) hoặc kéo thả vào khung hỏi, tối đa 6 tệp mỗi câu hỏi.</p>
 <ul>
-  <li><b>Cây trang</b> (kiểu Notion): trang lồng trong trang, kéo thả một trang lên trang khác để đổi trang cha, thả lên dòng ${ui('Trang')} để đưa ra ngoài cùng. Mỗi trang có biểu tượng, đánh dấu ⭐ Yêu thích, nhân bản, di chuyển, tải .md, đưa vào thùng rác (khôi phục được).</li>
-  <li><b>Mẫu trang</b>: Trang trống, Ghi chú đọc paper (nhúng sẵn thẻ paper), Tổng quan một chủ đề, Kế hoạch thí nghiệm, Nhật ký hôm nay (nút ${ui('📅 Hôm nay')}).</li>
-  <li><b>Liên kết hai chiều</b> (kiểu Obsidian): gõ <code>[[</code> để chọn trang hoặc tạo trang mới, <code>[[@</code> để nhắc tới một paper. Cuối mỗi trang có ${ui('Liên kết tới trang này')}, ${ui('Có nhắc tên nhưng chưa liên kết')} (bấm ${ui('Liên kết')} để đổi thành liên kết), các paper trong trang và trang con. Đổi tên một trang thì mọi liên kết tới nó ở trang khác được sửa theo.</li>
-  <li><b>Gắn với thư viện</b>: <code>![[@id]]</code> nhúng thẻ paper (tác giả, năm, ý chính, trạng thái, tag); khối <code>\`\`\`papers</code> dựng bảng paper lấy trực tiếp từ thư viện theo tag, chủ đề, trạng thái, năm, từ khoá. Ở trang paper, tab ${ui('Ghi chú')} có thẻ ${ui('📓 Trong sổ tay nghiên cứu')} liệt kê các trang nhắc tới bài đó và nút tạo ghi chú mới.</li>
-  <li><b>Khối</b>: gõ <code>/</code> để chèn tiêu đề, việc cần làm (bấm ô vuông ở phần xem để đánh dấu xong), callout (<code>&gt; [!idea]</code>, note, warning, question…), bảng, code, công thức, đường kẻ, nhúng trang <code>![[Tên trang]]</code>.</li>
-  <li><b>#tag</b> trong nội dung, danh sách tag ở thanh bên; ô tìm kiếm tìm cả tên lẫn nội dung (gõ <code>#tag</code> để lọc theo tag). <kbd>Ctrl</kbd>+<kbd>K</kbd> mở nhanh một trang.</li>
-  <li><b>Ba chế độ</b>: Viết, Chia đôi (soạn và xem cạnh nhau), Xem (chỉ đọc). Ở chế độ Chia đôi, bấm đúp một chữ ở phần xem để nhảy tới chữ đó ở phần viết. Tự lưu sau khi ngừng gõ; <kbd>Ctrl</kbd>+<kbd>S</kbd> lưu ngay.</li>
-  <li><b>Tạo trang</b>: bấm ${ui('+ Trang mới')}, chọn mẫu bên trái, điền tên, trang cha (và paper với mẫu Ghi chú đọc paper) bên phải rồi bấm ${ui('Tạo trang')}; bấm đúp một mẫu để tạo ngay.</li>
-  <li><b>Chọn nhiều</b>: bấm ${ui('☑ Chọn')} ở dòng Trang trong cây để tick nhiều trang, rồi ${ui('Di chuyển…')} hoặc ${ui('Xoá')} (đưa vào thùng rác); ${ui('Chọn tất cả')} để thao tác trên toàn bộ. Thùng rác có ô chọn, ${ui('Khôi phục')}, ${ui('Xoá vĩnh viễn')} và ${ui('Dọn sạch')}.</li>
-  <li><b>Khối code</b>: gõ <code>/</code> → ${ui('Khối code')}, chọn ngôn ngữ (Python, C++, C, C#, Java, JavaScript, TypeScript, Rust, Go, SQL, Bash, JSON, YAML, LaTeX, R, MATLAB, HTML), dán code; trong trang hiện thành khung riêng có tên ngôn ngữ, nút Copy và tô màu theo ngôn ngữ.</li>
-  <li><b>Công thức LaTeX</b>: gõ <code>/</code> → ${ui('Công thức LaTeX')} để có bảng ký hiệu (cơ bản, Hy Lạp, quan hệ, học máy, cấu trúc), xem trước và báo lỗi cú pháp. ${ui('📐 Thư viện LaTeX')} (cuối thanh bên) lưu macro như <code>\R</code>, <code>\norm{x}</code>, có ${ui('+ Gói học máy')} và nhập từ file <code>.tex</code> / <code>.sty</code> (đọc \newcommand, \DeclareMathOperator, \def, \let); macro dùng được trong mọi công thức của app. Công thức hay dùng lưu lại ở tab Của tôi.</li>
-  <li><b>Bảng paper</b>: gõ <code>/</code> → ${ui('Bảng paper từ thư viện')} mở trình dựng bảng có các tab Lọc (tag, chủ đề, trạng thái, năm, từ khoá), Cột &amp; sắp xếp, Xem trước, Mã khối; bảng đã có thì bấm ${ui('⚙ Chỉnh bảng')}.</li>
-  <li><b>Hướng dẫn</b>: nút ❔ (hoặc <kbd>Ctrl</kbd>+<kbd>/</kbd>) mở hướng dẫn có các tab Markdown, Liên kết &amp; paper, Khối đặc biệt, Bảng paper, Phím tắt, mỗi ví dụ có nút Copy và Chèn vào trang.</li>
-  <li><b>🕸 Đồ thị</b>: mọi trang và paper được nhắc tới, nối theo liên kết (nét đứt là quan hệ trang cha / trang con). Bấm để xem, bấm đúp để mở, Esc bỏ chọn, Shift + Esc đóng.</li>
-  <li><b>✨ AI nhanh</b> (giống Notion AI): bôi đen một đoạn rồi bấm nút ✨ AI nổi cạnh đó, hoặc đặt con trỏ trong một đoạn rồi nhấn <kbd>Ctrl</kbd>+<kbd>J</kbd> (app tự chọn cả đoạn), hoặc rê chuột vào một đoạn ở phần xem rồi bấm ✨ bên trái. Menu có: cải thiện văn phong, sửa chính tả, viết ngắn / dài hơn, giọng học thuật, tóm tắt, giải thích, rút ý chính, chuyển thành bảng, câu hỏi ôn tập, phản biện, bổ sung dẫn chứng từ paper trong trang, dịch Anh / Việt. Gõ để lọc, hoặc gõ yêu cầu riêng rồi Enter. Kết quả hiện ngay: ${ui('Thay thế')}, ${ui('Chèn bên dưới')}, ${ui('Thử lại')}, hoặc gõ vào ô "Bảo AI sửa tiếp". Trên dòng trống, <kbd>Ctrl</kbd>+<kbd>J</kbd> (hoặc <code>/ai</code>) mở menu viết mới: viết tiếp, dàn ý, tóm tắt trang, brainstorm, bảng so sánh paper, việc cần làm. ${ui('⭐ Lưu thành prompt nhanh')} giữ yêu cầu bạn hay dùng trong nhóm "Prompt của tôi".</li>
-  <li><b>📚 Hỏi AI với nguồn</b>: nút ${ui('✨ AI')} trên đầu trang, <code>/</code> → Hỏi AI với nguồn, hoặc mục cuối của menu AI nhanh. AI trả lời dựa trên <b>nguồn bạn chọn</b>: paper trong thư viện (mặc định là các paper nhắc trong trang) và trang ghi chú trong Sổ tay (mặc định là trang đang viết). Bật <i>Tự tìm thêm paper liên quan</i> để app tự chọn thêm tối đa 5 paper khớp câu hỏi.
-    <ul>
-      <li><b>Mức ngữ cảnh</b>: <i>Chỉ ghi chú</i> (nhanh, rẻ), <i>Ghi chú + đoạn liên quan</i> (khuyên dùng: mỗi câu hỏi tìm thêm các đoạn khớp nhất trong toàn văn, giống RAG), <i>Toàn văn</i> (đầy đủ nhất, tốn token nhất).</li>
-      <li>Có sẵn các yêu cầu: tóm tắt nguồn, bảng so sánh, đoạn Related Work, giải thích đoạn đang bôi đen, viết tiếp trang, câu hỏi mở. Bấm ${ui('Hỏi tiếp')} để hỏi thêm với cùng nguồn.</li>
-      <li>Câu trả lời ghi nguồn sau từng ý; khi ${ui('Chèn vào trang')}, nguồn thành liên kết tới paper / trang (khối ✨ AI hoặc văn bản thường). Bôi đen một đoạn trước khi mở thì có thêm ${ui('Thay đoạn đã chọn')}.</li>
-    </ul></li>
+  <li><b>Ảnh</b> (PNG, JPG, GIF, WebP): hình trong paper, biểu đồ, ảnh chụp màn hình… gửi thẳng cho model (cần model đọc được ảnh, ví dụ Claude, GPT-4o, Gemini). Ảnh lớn được thu nhỏ còn cạnh dài 1600px cho đỡ tốn token.</li>
+  <li><b>PDF</b>: app đọc chữ trong PDF rồi gửi kèm câu hỏi (tối đa khoảng 80.000 ký tự mỗi file). PDF bản scan không có lớp chữ thì gửi nguyên file cho model.</li>
+  <li><b>File chữ</b>: .txt, .md, .csv, .json, .tex, .bib, .ipynb, file code (.py, .js, .cpp…). File Word hãy lưu thành PDF trước.</li>
+  <li>Có thể chỉ gửi tệp mà không gõ câu hỏi: app hỏi model tóm tắt và giải thích tệp, liên hệ với các paper đang chọn. Hỏi về ảnh / file thì không bắt buộc phải chọn paper.</li>
+  <li>Các câu hỏi tiếp theo vẫn gửi kèm ảnh và file của các lượt trước (tối đa 12 ảnh / PDF gần nhất), nên có thể hỏi tiếp về chúng. Ảnh và file được lưu cùng hội thoại; bấm ảnh trong tin nhắn để phóng to.</li>
 </ul>
-<p>Sổ tay được lưu trong cơ sở dữ liệu của app và có trong file sao lưu JSON.</p>`,
+<p>Hội thoại mới chưa có paper hiện ba cách bắt đầu: dùng các paper đang tick ở Thư viện / So sánh, tìm và chọn từng paper, hoặc chọn cả một chủ đề. Thẻ paper trong Nguồn ghi ${ui('● toàn văn')} hoặc ${ui('○ chỉ ghi chú')}, quyết định chatbot đọc được gì.</p>
+<p>Cuối bảng Nguồn có ước tính số token. Với Claude, phần ngữ cảnh cố định được cache nên từ câu thứ hai chỉ tính giá đọc cache (khoảng một phần mười). ${ui('Dừng')} cắt ngang và giữ phần đã nhận, ${ui('Ẩn nguồn')} thu bảng bên phải, ${ui('Xuất .md')} lưu cả hội thoại. Khung hẹp (ví dụ khi chia đôi màn hình) thì bảng Nguồn là ngăn trượt, mở bằng nút ${ui('📚 Nguồn')}.</p>`,
   },
   {
-    id: 'calendar', title: 'Lịch kế hoạch', routes: ['calendar'],
+    id: 'compare', group: 'explore', title: 'So sánh và tổng hợp related work', routes: ['compare'],
     html: `
-<p>Trang ${ui('Lịch')} (nhóm Cá nhân, phím tắt <kbd>G</kbd> <kbd>K</kbd>) để lên kế hoạch đọc paper, thí nghiệm, viết bài, deadline, họp.</p>
+${fig('compare', 'Trang So sánh & tổng hợp')}
+${steps([
+    `<b>Chọn paper</b>: tick ở cột này (hoặc ở Thư viện) để đưa vào bảng.`,
+    `${ui('Thông số hiển thị')}: chọn thông số theo nhóm của template (thông tin chung, problem, method, dataset, findings, limitations…). ${ui('Hiện tất cả')} bật toàn bộ, ${ui('Mặc định')} quay về ba cột Điểm mới, Dataset/Metric, Ý tưởng áp dụng.`,
+    `${ui('Paper theo hàng')} là bảng thường; ${ui('Paper theo cột')} xoay bảng, dễ đọc khi hiện nhiều thông số.`,
+    `<b>Xuất bảng</b>: Markdown, CSV, BibTeX, LaTeX, Word, đúng các thông số đang chọn.`,
+    `${ui('Chat với các paper này')}: mở trang Chat với đúng các paper đang so sánh.`,
+  ])}
+<p>Phía dưới có biểu đồ các metric trùng tên và dataset giữa ít nhất hai paper, và ${ui('Tổng hợp related work bằng AI')} viết bản nháp Related Work, có nút xuất riêng.</p>`,
+  },
+  {
+    id: 'feed', group: 'explore', title: 'Theo dõi paper mới', routes: ['feed'],
+    html: `
+<p>Trang ${ui('Paper mới')} quét theo các bộ theo dõi bạn tạo:</p>
 <ul>
-  <li><b>Ba chế độ</b>: Tháng, Tuần, Danh sách (60 ngày tới, kèm mục ⚠ Quá hạn chưa xong). Nút ‹ › và ${ui('Hôm nay')} để đi lại.</li>
-  <li><b>Thêm kế hoạch</b>: ${ui('+ Kế hoạch')}, bấm đúp một ngày, ở chế độ Tuần bấm một ô 30 phút (kéo khối để dời giờ, kéo mép dưới để đổi giờ kết thúc), hoặc bấm một khoảng trống / ${ui('Lên lịch')} ở bảng ngày bên phải. Mỗi kế hoạch có giờ bắt đầu / kết thúc, loại (mỗi loại một màu), lặp lại hằng ngày / tuần / tháng (có thể đặt ngày kết thúc, hoặc bỏ riêng một lần), gắn một paper trong thư viện và một trang Sổ tay, ghi chú.</li>
-  <li><b>Dời ngày</b>: kéo một kế hoạch sang ô ngày khác. Bấm một kế hoạch để sửa; ô vuông ở bảng bên để đánh dấu xong.</li>
-  <li><b>Nhật ký</b>: ngày có nhật ký hiện 📓. Bảng bên có ${ui('Mở')} / ${ui('+ Tạo nhật ký')} cho đúng ngày đang chọn. Trang nhật ký trong Sổ tay có thẻ 📅 Lịch của ngày đó: đánh dấu xong, thêm kế hoạch ngay trong trang.</li>
-  <li><b>Việc có hạn trong Sổ tay</b>: viết <code>- [ ] việc 📅 2026-10-25</code> (hoặc gõ <code>/</code> → Hạn chót) ở bất kỳ trang nào, việc đó hiện trên Lịch; đánh dấu xong ở Lịch thì trang nguồn cũng được đánh dấu. Ở phần xem của trang, hạn hiện thành nhãn 📅 25/10 (đỏ khi quá hạn), bấm để mở Lịch ngày đó.</li>
+  <li><b>Từ khoá</b>: từ khoá và danh mục arXiv như cs.CV hay cs.CL (nút ${ui('+ Bộ theo dõi')}).</li>
+  <li><b>Bài mới dẫn một paper</b> và <b>bài mới của một tác giả</b>: tạo từ nút ${ui('🔔 Theo dõi')} ở tab Liên quan của trang paper.</li>
+</ul>
+<p>Mỗi bộ có ô tick; ${ui('Quét bộ đang chọn')}, ${ui('Quét tất cả')}, xoá xong vẫn hoàn tác được. Paper đã có trong thư viện hoặc đã xem được làm mờ, ${ui('+ Thêm')} chuyển paper sang trang thêm để trích xuất. arXiv giới hạn khoảng một yêu cầu mỗi ba giây; app tự chờ và thử lại, nếu vẫn báo lỗi 429 thì chờ vài phút. arXiv cập nhật theo ngày làm việc, quét mỗi sáng là đủ.</p>`,
+  },
+
+  /* ============================== Cá nhân ============================== */
+  {
+    id: 'notebook', group: 'me', title: 'Sổ tay nghiên cứu', routes: ['notebook'],
+    html: `
+<p>${ui('Sổ tay')} (${k('G')} ${k('B')}) là nơi ghi chép tự do, kết hợp cách làm của Notion (cây trang, khối, bảng dữ liệu) và Obsidian (liên kết hai chiều, đồ thị), nối thẳng với thư viện paper. Hướng dẫn cú pháp đầy đủ trong Sổ tay: nút ❔ hoặc ${k('Ctrl')}+${k('/')}.</p>
+${fig('notebook', 'Sổ tay ở chế độ Chia đôi')}
+${steps([
+    `<b>Cây trang</b>: trang lồng trong trang, kéo thả để đổi trang cha; ô tìm tìm cả tên, nội dung và <code>#tag</code>. ${ui('☑ Chọn')} để chọn nhiều trang rồi di chuyển / xoá; ${ui('Thùng rác')} khôi phục được. Khung hẹp thì nút ☰ mở / đóng danh sách này.`,
+    `${ui('+ Trang mới')} mở bộ chọn mẫu (trang trống, ghi chú đọc paper, tổng quan một chủ đề, kế hoạch thí nghiệm, nhật ký); ${ui('📅 Hôm nay')} mở trang nhật ký của ngày.`,
+    `<b>Ba chế độ</b>: ${ui('Viết')}, ${ui('Chia đôi')} (soạn và xem cạnh nhau, giống Overleaf), ${ui('Xem')}.`,
+    `${ui('✨ AI')}: hỏi AI dựa trên paper và ghi chú bạn chọn (xem mục <a href="#/help?s=notebook-ai">AI trong Sổ tay</a>).`,
+    `<b>Khung viết</b> Markdown: gõ <code>/</code> để chèn khối, <code>[[</code> để liên kết trang, <code>[[@</code> để nhắc tới paper. Tự lưu sau khi ngừng gõ, ${k('Ctrl')}+${k('S')} lưu ngay.`,
+    `<b>Phần xem</b>: công thức, code tô màu, callout, bảng paper. Bấm đúp một chữ để nhảy tới đúng chữ đó ở phần viết; rê chuột vào một đoạn rồi bấm ✨ để dùng AI cho đoạn đó.`,
+    `<b>Nút đồng bộ</b>: ▶ / ◀ nhảy tới chỗ tương ứng bên kia, ⇅ bật / tắt cuộn đồng bộ hai bên.`,
+  ])}
+${fig('nb-slash', 'Menu chèn khối khi gõ /')}
+${steps([
+    `Gõ tiếp sau <code>/</code> để tìm: phím tắt (<code>/h2</code>), chữ đầu của tên (<code>/tieu</code>), từ khoá (<code>/callout</code>) hoặc gõ tắt chữ đầu (<code>/dsds</code> → Danh sách đánh số).`,
+    `Khối chia nhóm: Cơ bản, Callout, Paper &amp; liên kết, Chèn (bảng, code, công thức, ảnh, ngày, hạn chót), AI. ${k('↑')} ${k('↓')} chọn, ${k('Enter')} chèn.`,
+    `Bên phải mỗi khối là phím tắt và cú pháp Markdown tương đương, gõ thẳng cũng được.`,
+  ])}
+<ul>
+  <li><b>Liên kết hai chiều</b>: cuối mỗi trang có ${ui('Liên kết tới trang này')}, ${ui('Có nhắc tên nhưng chưa liên kết')}, các paper trong trang và trang con. Đổi tên trang thì liên kết ở trang khác tự đổi theo.</li>
+  <li><b>Gắn với thư viện</b>: <code>![[@id]]</code> nhúng thẻ paper; khối <code>\`\`\`papers</code> (gõ <code>/papers</code>) dựng bảng paper lấy trực tiếp từ thư viện theo tag, chủ đề, trạng thái, năm, có trình dựng bảng và nút ${ui('⚙ Chỉnh bảng')}.</li>
+  <li><b>Code</b> (<code>/code</code>): chọn ngôn ngữ, tô màu, nút Copy. <b>Công thức</b> (<code>/ct</code>): bảng ký hiệu, xem trước, báo lỗi; ${ui('📐 Thư viện LaTeX')} (cuối thanh bên) lưu macro như <code>\\R</code>, nhập từ file <code>.tex</code> / <code>.sty</code>.</li>
+  <li><b>Ảnh</b>: dán (${k('Ctrl')}+${k('V')}), kéo thả file, hoặc <code>/anh</code>. <code>![mô tả|400](link)</code> đặt độ rộng; bấm ảnh ở phần xem để phóng to.</li>
+  <li><b>Việc có hạn</b>: <code>- [ ] việc 📅 2026-10-30</code> hiện trên Lịch (xem mục <a href="#/help?s=calendar">Lịch</a>).</li>
+  <li><b>🕸 Đồ thị</b>: mọi trang và paper nối theo liên kết (nét đứt là quan hệ trang cha / con).</li>
+</ul>`,
+  },
+  {
+    id: 'notebook-ai', group: 'me', title: 'AI trong Sổ tay', routes: [],
+    html: `
+<p><b>AI nhanh</b> làm việc ngay trên một đoạn (giống Notion AI). Mở bằng một trong ba cách: bôi đen chữ rồi bấm nút ✨ AI nổi cạnh đó; đặt con trỏ trong một đoạn rồi ${k('Ctrl')}+${k('J')} (app tự chọn cả đoạn, dừng ở dòng trống hoặc tiêu đề); rê chuột vào một đoạn ở phần xem rồi bấm ✨ bên trái.</p>
+${fig('nb-inline', 'Menu AI nhanh trên một đoạn')}
+${steps([
+    `<b>Ô yêu cầu</b>: gõ để lọc lệnh, hoặc gõ yêu cầu riêng rồi ${k('Enter')}. ${ui('⭐ Lưu thành prompt nhanh')} giữ yêu cầu hay dùng trong nhóm "Prompt của tôi".`,
+    `<b>Đoạn đang chọn</b>: số từ và nội dung (đã bỏ ký hiệu Markdown) để chắc AI làm đúng đoạn.`,
+    `<b>Lệnh</b>: chỉnh đoạn (cải thiện văn phong, sửa chính tả, viết ngắn / dài hơn, giọng học thuật, dễ hiểu hơn), tạo từ đoạn (tóm tắt, giải thích, rút ý chính, chuyển thành bảng, câu hỏi ôn tập, phản biện, dẫn chứng từ paper trong trang), dịch Anh / Việt. ${k('↑')} ${k('↓')} chọn, ${k('Enter')} chạy.`,
+    `${ui('📚 Hỏi với nguồn')}: mở hộp thoại hỏi AI dựa trên paper và ghi chú (bên dưới).`,
+  ])}
+${fig('nb-inline-result', 'Kết quả của AI nhanh')}
+${steps([
+    `Tên thao tác và số từ; trong lúc AI viết có nút ${ui('■ Dừng')}.`,
+    `<b>Kết quả</b> hiện dần, khung giữ nguyên chỗ và cuộn bên trong khi dài.`,
+    `${ui('⇄ Thay thế')} đoạn gốc bằng kết quả (${k('Ctrl')}+${k('Z')} để hoàn tác).`,
+    `${ui('↓ Chèn bên dưới')} giữ đoạn gốc, thêm kết quả ngay sau.`,
+    `${ui('↻ Thử lại')} viết lại; ${ui('Copy')} lấy Markdown.`,
+    `<b>Bảo AI sửa tiếp</b>: ví dụ "ngắn hơn", "thêm ví dụ", rồi ${k('Enter')}.`,
+  ])}
+<p>Trên <b>dòng trống</b>, ${k('Ctrl')}+${k('J')} hoặc <code>/ai</code> mở menu viết mới: viết tiếp, lập dàn ý, tóm tắt cả trang, brainstorm, bảng so sánh paper trong trang, danh sách việc cần làm.</p>
+<p><b>Hỏi AI với nguồn</b> (kiểu RAG): nút ${ui('✨ AI')} trên đầu trang hoặc <code>/hoi</code>.</p>
+${fig('nb-ask', 'Hộp thoại Hỏi AI dựa trên paper và ghi chú')}
+${steps([
+    `<b>Yêu cầu có sẵn</b>: trả lời câu hỏi, tóm tắt nguồn, bảng so sánh, Related Work, giải thích đoạn chọn, viết tiếp trang, câu hỏi mở. Hoặc tự gõ vào ô phía trên.`,
+    `${ui('✨ Tạo câu trả lời')} (${k('Ctrl')}+${k('Enter')}); sau lần đầu thành ${ui('Hỏi tiếp')}, giữ cùng nguồn.`,
+    `<b>Câu trả lời</b> ghi nguồn sau từng ý; nguồn là liên kết tới paper / trang. Bên dưới có ${ui('Chèn vào trang')} (khối ✨ AI hoặc văn bản thường), ${ui('Thay đoạn đã chọn')} (khi đã bôi đen trước), ${ui('Copy')}.`,
+    `<b>Paper nguồn</b>: mặc định là paper nhắc trong trang; thêm bằng ô tìm hoặc lấy paper đang tick ở Thư viện. Paper viền nét đứt là app tự tìm; bấm ${ui('Giữ')} để dùng tiếp.`,
+    `<b>Tự tìm thêm paper liên quan</b> trong thư viện (tối đa 5). Phía dưới chọn thêm trang ghi chú làm nguồn (mặc định là trang đang viết).`,
+    `<b>Mức ngữ cảnh</b>: ${ui('Chỉ ghi chú')}, ${ui('Ghi chú + đoạn liên quan')} (khuyên dùng: tìm đoạn khớp nhất trong toàn văn), ${ui('Toàn văn')}.`,
+  ])}
+<p class="hint">Model dùng cho AI trong Sổ tay chỉnh riêng được ở ${ui('Cài đặt')} → ${ui('Model riêng cho từng việc')} (ví dụ model rẻ, nhanh cho viết lại đoạn).</p>`,
+  },
+  {
+    id: 'calendar', group: 'me', title: 'Lịch kế hoạch', routes: ['calendar'],
+    html: `
+${fig('calendar', 'Lịch ở chế độ Tuần')}
+${steps([
+    `<b>Chế độ xem</b>: Tháng, Tuần (lưới giờ), Danh sách (60 ngày tới, kèm mục Quá hạn). Nút ‹ › và ${ui('Hôm nay')} để đi lại; nút ◧ ẩn / hiện bảng ngày.`,
+    `${ui('+ Kế hoạch')}: thêm kế hoạch có giờ bắt đầu / kết thúc, loại (mỗi loại một màu), lặp lại hằng ngày / tuần / tháng, gắn một paper và một trang Sổ tay.`,
+    `<b>Khối kế hoạch</b>: kéo để dời giờ hoặc sang ngày khác, kéo mép dưới để đổi giờ kết thúc, bấm để sửa. Ở chế độ Tuần, bấm một ô 30 phút trống để thêm việc vào đúng giờ đó.`,
+    `<b>Tổng quan ngày</b>: số việc đã xong, số kế hoạch, tổng thời gian đã xếp lịch.`,
+    `<b>Khoảng trống</b> (8–22h): bấm một khoảng để thêm việc vào đó.`,
+    `<b>Gợi ý lên lịch đọc</b>: các paper "Đang đọc"; ${ui('Lên lịch')} thêm 1 giờ đọc vào khoảng trống sớm nhất.`,
+  ])}
+<ul>
+  <li><b>Nhật ký</b>: ngày có nhật ký hiện 📓; bảng ngày có ${ui('Mở')} / ${ui('+ Tạo nhật ký')}. Trang nhật ký trong Sổ tay có thẻ Lịch của ngày đó, đánh dấu xong và thêm kế hoạch ngay trong trang.</li>
+  <li><b>Việc có hạn trong Sổ tay</b>: viết <code>- [ ] việc 📅 2026-10-25</code> ở bất kỳ trang nào, việc đó hiện trên Lịch; đánh dấu xong ở Lịch thì trang nguồn cũng được đánh dấu.</li>
   <li><b>Lọc</b>: bấm các nhãn loại để ẩn / hiện, nhãn ${ui('Việc trong Sổ tay')} để ẩn / hiện việc có hạn.</li>
 </ul>`,
   },
   {
-    id: 'split', title: 'Chia đôi màn hình', routes: [],
+    id: 'notes', group: 'me', title: 'Ghi chú & thẻ ghi nhớ', routes: ['notes'],
     html: `
-<p>Mở hai chức năng cùng lúc: đọc paper bên trái và viết Sổ tay bên phải, hoặc Thư viện ở trên và Chat ở dưới.</p>
+<p>Trang ${ui('Thẻ ghi nhớ')} gom mọi đoạn bạn đã lưu bằng ${ui('+ Ghi chú')} trong bong bóng dịch, cùng các trích dẫn thêm tay ở trang paper, của tất cả paper.</p>
 <ul>
-  <li><b>Bật</b>: nút ◫ trên thanh trên cùng (hoặc <kbd>Ctrl</kbd> <kbd>\\</kbd>), chọn ${ui('Chia dọc')} (trái | phải) hoặc ${ui('Chia ngang')} (trên / dưới). Khung đang mở thành khung 1, khung 2 mở chức năng hay dùng kèm (đọc paper → Sổ tay, Thư viện → Chat…), đổi ở ô ${ui('Khung kia mở')}.</li>
-  <li><b>Chọn khung</b>: bấm vào khung nào thì khung đó được chọn (viền màu ở trên, số khung tô màu). Thanh bên trái, ô tìm kiếm, nút ${ui('Thêm paper')}, nút <b>?</b> và phím tắt (<kbd>G</kbd> rồi một phím…) đều điều khiển khung đang chọn.</li>
-  <li><b>Đổi tỉ lệ</b>: kéo thanh giữa hai khung, bấm đúp để về 50 : 50, hoặc chọn thanh rồi dùng phím mũi tên (mỗi lần 5%). Muốn số chính xác thì nhập % ở bảng ◫ hoặc bấm các mức có sẵn (60 : 40, 70 : 30…).</li>
-  <li><b>Mỗi khung</b> có ô ${ui('Mở…')} để chuyển chức năng, ⤢ để chỉ giữ khung đó (thoát chia đôi) và ✕ để đóng khung. ${ui('Đổi chỗ hai khung')} trong bảng ◫.</li>
-  <li><b>Alt + bấm</b> một link (paper, trang Sổ tay…) để mở nó ở khung bên kia.</li>
-  <li><b>Dữ liệu dùng chung</b>: lưu ở khung này thì khung kia tự cập nhật (thư viện, lịch, tổng quan vẽ lại khi bạn không thao tác ở đó). Paper tick chọn ở Thư viện khung này dùng được ngay ở So sánh khung kia.</li>
-  <li>Bố cục được nhớ, mở lại app vẫn giữ nguyên. Đóng khung khi còn việc chạy nền (trích xuất, bài giảng…) thì app hỏi lại trước, vì đóng khung sẽ dừng việc đó.</li>
+  <li>${ui('Danh sách')}: tìm trong đoạn gốc, bản dịch, nhận xét, tên paper; lọc theo paper; sắp xếp mới nhất, cũ nhất, theo paper. Mỗi đoạn có sao chép, sửa, xoá (hoàn tác được) và link về paper.</li>
+  <li>${ui('Thẻ ghi nhớ')}: mặt trước là đoạn gốc, lật ra bản dịch và nhận xét. ${k('Space')} lật thẻ, ${k('←')} ${k('→')} chuyển thẻ, ${k('1')} đánh dấu ${ui('Nhớ rồi')}. Có ${ui('Chỉ thẻ chưa nhớ')} và ${ui('Trộn thẻ')}.</li>
+  <li>${ui('Tải CSV (Anki)')} xuất hai cột mặt trước / mặt sau, nhập được vào Anki hoặc Quizlet. ${ui('Tải Markdown')} xuất cả danh sách.</li>
 </ul>`,
   },
   {
-    id: 'notes', title: 'Ghi chú & thẻ ghi nhớ', routes: ['notes'],
+    id: 'topics', group: 'me', title: 'Chủ đề và tag', routes: ['topics'],
     html: `
-<p>Trang ${ui('Ghi chú & thẻ ghi nhớ')} (thanh bên trái, hoặc nút 文 trên thanh đầu trang) gom mọi đoạn bạn đã lưu bằng ${ui('+ Ghi chú')} trong bong bóng dịch, cùng các trích dẫn thêm tay ở trang paper, của tất cả paper.</p>
+<p>Chủ đề là thư mục của thư viện và là thư mục con khi xuất Markdown. Mỗi chủ đề có tên, màu, mô tả và từ khoá; app dùng từ khoá để gợi ý chủ đề khi trích xuất. ${ui('Gộp')} chuyển toàn bộ paper sang chủ đề khác rồi xoá chủ đề cũ.</p>
+<p>Tag là từ khoá tự do mô hình gán khi trích xuất. Bảng tag ở cuối trang cho đổi tên, gộp hai tag hoặc xoá một tag trên toàn thư viện, hữu ích khi có các biến thể như "vqa" và "visual qa".</p>`,
+  },
+
+  /* ============================== Công cụ & cài đặt ============================== */
+  {
+    id: 'split', group: 'tools', title: 'Chia đôi màn hình', routes: [],
+    html: `
+<p>Mở hai chức năng cùng lúc: đọc paper bên trái và viết Sổ tay bên phải, hoặc Thư viện ở trên và Chat ở dưới.</p>
+${fig('split', 'Hai khung: paper bên trái, Sổ tay bên phải')}
+${steps([
+    `Nút <b>Chia đôi</b> trên thanh trên cùng (hoặc ${k('Ctrl')}+${k('\\')}) mở bảng chia đôi (bên dưới).`,
+    `<b>Khung đang chọn</b> có viền màu ở trên và số khung tô màu. Bấm vào khung nào thì khung đó được chọn; thanh bên trái, ô tìm kiếm, ${ui('Thêm paper')}, nút <b>?</b> và phím tắt đều điều khiển khung đang chọn.`,
+    `${ui('Đổi ▾')}: mở chức năng khác hoặc một paper gần đây trong khung đó. Bên cạnh có ⤢ (chỉ giữ khung này) và ✕ (đóng khung).`,
+    `<b>Thanh chia</b>: kéo để đổi tỉ lệ, bấm đúp để về 50 : 50, hoặc chọn rồi dùng phím mũi tên (mỗi lần 5%).`,
+  ])}
+${fig('split-panel', 'Bảng chia đôi màn hình')}
+${steps([
+    `<b>Bố cục nhanh</b>: Đọc paper + ghi chép, Đọc paper + Chat, Thư viện + Chat, Lịch + Sổ tay. Một lần bấm là đặt cả chiều chia, tỉ lệ và trang của hai khung.`,
+    `${ui('Một khung')} (thoát chia đôi), ${ui('Chia dọc')} (trái | phải), ${ui('Chia ngang')} (trên / dưới).`,
+    `${ui('Khung kia mở')}: chọn chức năng cho khung không được chọn.`,
+    `<b>Tỉ lệ</b>: nhập % chính xác cho khung trái / trên.`,
+    `Các mức có sẵn: 50 : 50, 60 : 40, 70 : 30…`,
+    `${ui('⇄ Đổi chỗ hai khung')}.`,
+  ])}
 <ul>
-  <li>${ui('Danh sách')}: tìm trong đoạn gốc, bản dịch, nhận xét, tên paper; lọc theo paper, chỉ đoạn có bản dịch; sắp xếp mới nhất, cũ nhất, theo paper. Mỗi đoạn có nút sao chép, sửa, xoá (hoàn tác được) và link về paper.</li>
-  <li>${ui('Thẻ ghi nhớ')}: mặt trước là đoạn gốc, lật ra bản dịch và nhận xét. Space lật thẻ, ← → chuyển thẻ, phím 1 đánh dấu ${ui('Nhớ rồi')}. Có ${ui('Chỉ thẻ chưa nhớ')} và ${ui('Trộn thẻ')}.</li>
-  <li>${ui('Tải CSV (Anki)')} xuất hai cột mặt trước / mặt sau, nhập được vào Anki hoặc Quizlet. ${ui('Tải Markdown')} xuất cả danh sách.</li>
-</ul>
-<p>Nút 文 trên thanh đầu trang mở bảng cài đặt nhanh của dịch khi bôi đen: bật / tắt dịch ở mọi trang, ngôn ngữ đích, cách kích hoạt, cách mở bản dịch, dịch theo ngữ cảnh, hiện đoạn gốc. Đổi là lưu ngay. Nút mờ đi khi đang tắt dịch ngoài trình đọc PDF.</p>`,
+  <li><b>Alt + bấm</b> một link (paper, trang Sổ tay…) để mở nó ở khung bên kia.</li>
+  <li><b>Dữ liệu dùng chung</b>: lưu ở khung này thì khung kia tự cập nhật; cùng một trang Sổ tay mở ở hai khung cũng tự đồng bộ. Paper tick ở Thư viện khung này dùng được ngay ở So sánh khung kia.</li>
+  <li>Mọi trang tự co giãn khi khung hẹp hoặc thấp: bảng Nguồn của Chat, bảng ngày của Lịch, danh sách trang của Sổ tay thành ngăn trượt; đầu trang paper tự thu gọn.</li>
+  <li>Bố cục được nhớ, mở lại app vẫn giữ nguyên. Đóng khung khi còn việc chạy nền (trích xuất, bài giảng…) thì app hỏi lại trước.</li>
+</ul>`,
   },
   {
-    id: 'topics', title: 'Chủ đề và tag', routes: ['topics'],
+    id: 'settings', group: 'tools', title: 'Cài đặt, chi phí và dữ liệu', routes: ['settings'],
     html: `
-<p>Chủ đề là thư mục của thư viện và cũng là thư mục con khi xuất ra Markdown. Mỗi chủ đề có tên, màu, mô tả và danh sách từ khoá. App dùng từ khoá này để gợi ý chủ đề khi trích xuất, cụm từ được tính điểm cao hơn từ đơn và từ xuất hiện ở tiêu đề được cộng thêm. ${ui('Gộp')} chuyển toàn bộ paper của một chủ đề sang chủ đề khác rồi xoá chủ đề cũ.</p>
-<p>Tag là từ khoá tự do mà mô hình gán khi trích xuất. Bảng tag ở cuối trang cho đổi tên, gộp hai tag hoặc xoá một tag trên toàn thư viện, hữu ích khi mô hình gán các biến thể như "vqa" và "visual qa".</p>`,
-  },
-  {
-    id: 'settings', title: 'Cài đặt, chi phí và dữ liệu', routes: ['settings'],
-    html: `
-<p>Các nhóm cài đặt chính gồm:</p>
+<p>Thẻ <b>Mô hình</b> (xem ảnh ở mục <a href="#/help?s=start">Bắt đầu nhanh</a>) chọn nhà cung cấp, model và key chính. Muốn dùng model khác cho từng việc, mở ${ui('Model riêng cho từng việc')} ngay bên dưới:</p>
+${fig('settings-models', 'Model riêng cho từng việc')}
+${steps([
+    `Khi một việc dùng nhà cung cấp khác với mặc định, ô <b>API key</b> của nhà cung cấp đó hiện ra, kèm nhãn "dùng cho: …". Ô còn trống được tô cảnh báo.`,
+    `<b>Nhà cung cấp</b> riêng cho việc đó (Trích xuất, Chat &amp; Hỏi đáp, AI trong Sổ tay, Bài giảng, Phân tích &amp; tổng hợp, Tô câu đáng nhớ, Dịch bằng AI). "Như mặc định" dùng model chính.`,
+    `<b>Model</b>: gõ tên hoặc chọn gợi ý; để trống thì dùng model đang đặt cho nhà cung cấp đó.`,
+    `${ui('Thử')}: gọi thử đúng model của việc đó, kết quả hiện ngay dưới ô Model.`,
+  ])}
+<p>Các nhóm cài đặt khác:</p>
 <ul>
-  <li><b>Model riêng cho từng việc.</b> Trong thẻ Mô hình, mở ${ui('Model riêng cho từng việc')}: chọn nhà cung cấp và model khác cho Trích xuất, Chat &amp; Hỏi đáp, AI trong Sổ tay, Bài giảng, Phân tích &amp; tổng hợp, Tô câu đáng nhớ, Dịch bằng AI (ví dụ model rẻ cho Chat, model mạnh cho trích xuất). Chọn nhà cung cấp khác thì ô API key của nhà cung cấp đó hiện ra, kèm nhãn việc nào đang dùng nó. Nút ${ui('Thử')} gọi thử đúng model của việc đó. Để "Như mặc định" thì việc đó dùng model chính.</li>
-  <li><b>Mô hình.</b> Chọn nhà cung cấp, model và key. Với Claude, mức effort điều chỉnh độ kỹ của mô hình, mức thấp rẻ và nhanh hơn. Với các model Claude có bộ lọc an toàn, app bật cơ chế chuyển model dự phòng phía máy chủ, nên khi một yêu cầu bị từ chối, API tự chạy lại trên model phù hợp thay vì trả về lỗi.</li>
-  <li><b>Trích xuất.</b> Ngôn ngữ ghi chú, số ký tự tối đa gửi đi và cách xử lý PDF. Toàn văn dài hơn giới hạn sẽ bị lược phần giữa, giữ phần đầu và phần cuối vì Limitation thường nằm cuối bài.</li>
-  <li><b>Bảng xếp hạng venue.</b> Xem phiên bản bảng CORE và SJR đang dùng, cập nhật trực tuyến và phân loại lại.</li>
-  <li><b>Số trích dẫn.</b> Cập nhật số trích dẫn của cả thư viện từ Semantic Scholar theo lô. Tổng quan sẽ nhắc khi đã quá hai tuần chưa cập nhật.</li>
-  <li><b>Sử dụng API.</b> Bảng token theo model trong tháng, tách token input thường, token đọc và ghi cache, token output. Nhập đơn giá (USD cho một triệu token) để app ước tính chi phí.</li>
-  <li><b>Thư mục xuất Markdown.</b> Ghi thư viện ra một thư mục, mỗi chủ đề một thư mục con, kèm bảng so sánh và <code>references.bib</code>. Có thể bật tự ghi sau mỗi lần lưu.</li>
-  <li><b>Sao lưu.</b> Tải JSON kèm toàn văn, nhập gộp hoặc nhập thay thế.</li>
+  <li><b>Trích xuất</b>: ngôn ngữ ghi chú, effort (Claude), số ký tự tối đa gửi đi, max output tokens, cách xử lý PDF, Semantic Scholar API key (tuỳ chọn, giúp tránh lỗi 429).</li>
+  <li><b>Dịch khi bôi đen</b>, <b>Phông chữ &amp; cỡ chữ</b>.</li>
+  <li><b>Bảng xếp hạng venue</b> và <b>Số trích dẫn</b>: cập nhật trực tuyến, phân loại lại.</li>
+  <li><b>Sử dụng API</b>: token theo model trong tháng; nhập đơn giá để app ước tính chi phí.</li>
+  <li><b>Xuất thư viện ra thư mục Markdown</b>: mỗi chủ đề một thư mục con, kèm bảng so sánh và <code>references.bib</code>; có thể tự ghi sau mỗi lần lưu.</li>
+  <li><b>Sao lưu &amp; nhập dữ liệu</b>: tải JSON (paper, ghi chú, sổ tay, lịch), nhập gộp hoặc nhập thay thế. File PDF và ảnh trong sổ tay không nằm trong file sao lưu: chép thêm thư mục <code>data/pdfs</code> và <code>data/images</code>.</li>
 </ul>
-<p>Toàn bộ dữ liệu (cơ sở dữ liệu SQLite và PDF) nằm trong một thư mục. Muốn dùng trên nhiều máy qua OneDrive hoặc Google Drive, bấm ${ui('Đổi thư mục dữ liệu')} và chọn thư mục trong ổ đồng bộ, app sẽ sao chép dữ liệu sang và khởi động lại. Cần chỉ mở app trên một máy tại một thời điểm và chờ ổ đồng bộ xong trước khi mở trên máy khác, vì dịch vụ đồng bộ không hợp nhất được hai bản cơ sở dữ liệu bị sửa cùng lúc.</p>`,
+<p>Toàn bộ dữ liệu nằm trong một thư mục. Muốn dùng trên nhiều máy qua OneDrive hoặc Google Drive, bấm ${ui('Đổi thư mục dữ liệu')} và chọn thư mục trong ổ đồng bộ. Chỉ mở app trên một máy tại một thời điểm và chờ đồng bộ xong trước khi mở trên máy khác.</p>`,
   },
   {
-    id: 'extension', title: 'Dùng cùng extension', routes: [],
+    id: 'extension', group: 'tools', title: 'Dùng cùng extension', routes: [],
     html: `
 <p>Extension PaperVault trên Chrome hoặc Edge tiện khi đang đọc paper trên trình duyệt. Khi app đang chạy, extension có thêm hai nút:</p>
 <ul>
-  <li>${ui('→ App')} trong popup đẩy trang đang đọc, hoặc kết quả extension đã trích xuất, vào hộp thư của app. Hộp thư hiện ở đầu trang ${ui('Thêm paper')} và trên nhãn của mục menu, kết quả đã trích xuất sẵn thì lưu ngay không tốn thêm token.</li>
+  <li>${ui('→ App')} trong popup đẩy trang đang đọc, hoặc kết quả extension đã trích xuất, vào hộp thư của app (hiện ở đầu trang ${ui('Thêm paper')}).</li>
   <li>${ui('→ Đồng bộ sang App')} trong thư viện extension nhập toàn bộ thư viện, bỏ qua paper app đã có.</li>
 </ul>
-<p>Địa chỉ app mặc định là <code>http://127.0.0.1:8765</code>, chỉnh trong ${ui('Cài đặt')} của extension. Sau khi cập nhật extension cần tải lại nó ở trang quản lý extension của trình duyệt.</p>`,
+<p>Địa chỉ app mặc định là <code>http://127.0.0.1:8765</code> (bản desktop cũng chạy ở địa chỉ này), chỉnh trong Cài đặt của extension. Sau khi cập nhật extension cần tải lại nó ở trang quản lý extension của trình duyệt.</p>`,
   },
   {
-    id: 'keys', title: 'Phím tắt', routes: [],
+    id: 'keys', group: 'tools', title: 'Phím tắt', routes: [],
     html: `
 <table class="kv">
   <tr><th>${k('/')}</th><td>Đưa con trỏ vào ô tìm kiếm</td></tr>
-  <tr><th>${k('n')}</th><td>Mở trang Thêm paper</td></tr>
-  <tr><th>${k('g')} rồi ${k('d')} ${k('l')} ${k('c')} ${k('t')} ${k('s')} ${k('f')} ${k('h')} ${k('a')} ${k('n')}</th><td>Đi tới Tổng quan, Thư viện, So sánh, Chủ đề, Cài đặt, Theo dõi, Hướng dẫn, Chat, Ghi chú &amp; thẻ ghi nhớ. Phím tắt của từng trang hiện mờ cạnh mục đó ở thanh bên trái.</td></tr>
-  <tr><th>${k('?')}</th><td>Mở trang Hướng dẫn</td></tr>
+  <tr><th>${k('N')}</th><td>Mở trang Thêm paper</td></tr>
+  <tr><th>${k('G')} rồi ${k('D')} ${k('L')} ${k('T')} ${k('F')} ${k('A')} ${k('C')} ${k('B')} ${k('K')} ${k('N')} ${k('S')} ${k('H')}</th><td>Tổng quan, Thư viện, Chủ đề, Paper mới, Chat, So sánh, Sổ tay, Lịch, Thẻ ghi nhớ, Cài đặt, Hướng dẫn (phím hiện mờ cạnh mục ở thanh bên)</td></tr>
+  <tr><th>${k('?')}</th><td>Mở Hướng dẫn</td></tr>
+  <tr><th>${k('Ctrl')}+${k('\\')}</th><td>Bật / tắt chia đôi màn hình</td></tr>
+  <tr><th>${k('Alt')} + bấm link</th><td>Khi chia đôi: mở ở khung bên kia</td></tr>
   <tr><th>${k('Ctrl')}+${k('Shift')}+${k('D')}</th><td>Dịch ngay đoạn đang bôi đen</td></tr>
-  <tr><th>${k('Space')} ${k('←')} ${k('→')} ${k('1')}</th><td>Thẻ ghi nhớ: lật thẻ, thẻ trước, thẻ sau, đánh dấu đã nhớ</td></tr>
-  <tr><th>${k('j')} ${k('k')}</th><td>Di chuyển giữa các paper trong danh sách</td></tr>
-  <tr><th>${k('Enter')}</th><td>Mở paper đang chọn trong danh sách</td></tr>
-  <tr><th>${k('x')}</th><td>Tick hoặc bỏ tick paper đang chọn</td></tr>
-  <tr><th>${k('Esc')}</th><td>Đóng hộp thoại</td></tr>
-  <tr><th>${k('Enter')} trong ô chat</th><td>Gửi câu hỏi, ${k('Shift')}+${k('Enter')} để xuống dòng</td></tr>
+  <tr><th>${k('j')} ${k('k')} · ${k('Enter')} · ${k('x')}</th><td>Thư viện: di chuyển giữa các paper · mở · tick</td></tr>
+  <tr><th>${k('Enter')} trong ô chat</th><td>Gửi câu hỏi; ${k('Shift')}+${k('Enter')} xuống dòng</td></tr>
+  <tr><th>${k('Ctrl')}+${k('K')}</th><td>Sổ tay: mở nhanh một trang</td></tr>
+  <tr><th>${k('Ctrl')}+${k('J')}</th><td>Sổ tay: AI nhanh cho đoạn đang chọn / đoạn có con trỏ; dòng trống: AI viết mới</td></tr>
+  <tr><th>${k('Ctrl')}+${k('/')}</th><td>Sổ tay: hướng dẫn cú pháp</td></tr>
+  <tr><th>${k('Ctrl')}+${k('S')} · ${k('Ctrl')}+${k('B')} · ${k('Ctrl')}+${k('I')}</th><td>Sổ tay: lưu · in đậm · in nghiêng</td></tr>
+  <tr><th>${k('Space')} ${k('←')} ${k('→')} ${k('1')}</th><td>Thẻ ghi nhớ: lật thẻ, thẻ trước, thẻ sau, đã nhớ</td></tr>
+  <tr><th>${k('Esc')} · ${k('Shift')}+${k('Esc')}</th><td>Đóng hộp thoại, bỏ chọn · đóng bản đồ / đồ thị</td></tr>
 </table>`,
   },
   {
-    id: 'trouble', title: 'Xử lý sự cố', routes: [],
+    id: 'trouble', group: 'tools', title: 'Xử lý sự cố', routes: [],
     html: `
 <ul>
-  <li><b>Báo lỗi 401 hoặc 403.</b> Key sai, hết hạn hoặc không có quyền dùng model đã chọn. Kiểm tra lại key và tên model trong ${ui('Cài đặt')}, rồi bấm ${ui('Kiểm tra kết nối')}.</li>
-  <li><b>Báo lỗi 429.</b> Nhà cung cấp đang giới hạn tốc độ hoặc tài khoản hết hạn mức. App tự thử lại ba lần với thời gian chờ tăng dần. Nếu vẫn lỗi, chờ vài phút hoặc giảm số paper xử lý mỗi lần.</li>
-  <li><b>Thiếu venue, số trích dẫn hoặc báo Semantic Scholar 429.</b> Semantic Scholar giới hạn tốc độ rất chặt với người dùng không có key, và giới hạn này dùng chung cho mọi người. Xin key miễn phí tại api.semanticscholar.org rồi dán vào ${ui('Cài đặt')}. Khi Semantic Scholar bị chặn, app thử OpenAlex để tìm venue và tìm theo tiêu đề, nhưng OpenAlex không có đủ mọi bài.</li>
-  <li><b>Link OpenReview báo lỗi.</b> OpenReview chặn mọi truy cập tự động từ ứng dụng. Hãy tải PDF trên trang OpenReview rồi thêm qua tab ${ui('File PDF')} của trang ${ui('Thêm paper')}, hoặc mở trang bằng trình duyệt và dùng nút ${ui('→ App')} của extension.</li>
-  <li><b>Phản hồi bị cắt.</b> Tăng ${ui('Max output tokens')} trong ${ui('Cài đặt')}. Trong Chat, dòng chân câu trả lời ghi rõ khi câu trả lời bị cắt vì đạt giới hạn độ dài.</li>
-  <li><b>Trích xuất ra ký tự lạ.</b> PDF dùng font không kèm bảng mã ký tự nên bộ trích text cục bộ đọc sai. Chuyển sang Claude hoặc Gemini để gửi thẳng file PDF.</li>
-  <li><b>Venue hiện sai hoặc trống.</b> Bấm ${ui('Sửa venue')} trong trang paper, hoặc điền đúng tên venue ở tab ${ui('Chỉnh sửa')} để app nhận diện lại.</li>
-  <li><b>Chat trả lời chung chung.</b> Kiểm tra paper đã có toàn văn chưa (dòng thông tin báo các nhãn chưa có), rồi chuyển sang chế độ ${ui('Ghi chú + đoạn liên quan')} hoặc ${ui('Toàn văn')}.</li>
+  <li><b>Lỗi 401 hoặc 403.</b> Key sai, hết hạn hoặc không có quyền dùng model đã chọn. Kiểm tra lại key và tên model trong ${ui('Cài đặt')}, bấm ${ui('Kiểm tra kết nối')} (hoặc ${ui('Thử')} ở hàng của việc đó nếu đang dùng model riêng).</li>
+  <li><b>Lỗi 429.</b> Nhà cung cấp đang giới hạn tốc độ hoặc tài khoản hết hạn mức. App tự thử lại ba lần; nếu vẫn lỗi, chờ vài phút hoặc giảm số paper xử lý mỗi lần.</li>
+  <li><b>Thiếu venue, số trích dẫn, hoặc Semantic Scholar báo 429.</b> Xin key miễn phí tại api.semanticscholar.org rồi dán vào ${ui('Cài đặt')}. Khi Semantic Scholar bị chặn, app thử OpenAlex.</li>
+  <li><b>Link OpenReview báo lỗi.</b> OpenReview chặn truy cập tự động. Tải PDF trên trang OpenReview rồi thêm qua tab ${ui('File PDF')}, hoặc dùng nút ${ui('→ App')} của extension.</li>
+  <li><b>Phản hồi bị cắt.</b> Tăng ${ui('Max output tokens')} trong ${ui('Cài đặt')}.</li>
+  <li><b>Trích xuất ra ký tự lạ.</b> PDF dùng font không kèm bảng mã ký tự. Chuyển sang Claude hoặc Gemini để gửi thẳng file PDF.</li>
+  <li><b>Chat trả lời chung chung.</b> Kiểm tra paper đã có toàn văn chưa, rồi chuyển sang ${ui('Ghi chú + đoạn liên quan')} hoặc ${ui('Toàn văn')}.</li>
   <li><b>Cửa sổ app trắng sau khi tắt đột ngột.</b> App tự dọn tiến trình WebView còn sót khi mở lại. Nếu vẫn trắng, xoá thư mục <code>webview</code> trong thư mục dữ liệu rồi mở lại.</li>
-  <li><b>Hai máy thấy dữ liệu khác nhau khi dùng cloud.</b> Có thể app đã mở đồng thời trên hai máy. Dịch vụ đồng bộ thường giữ cả hai bản dưới tên khác nhau, nên cần chọn bản đúng, xoá bản còn lại và chỉ mở app trên một máy mỗi lần.</li>
+  <li><b>Hai máy thấy dữ liệu khác nhau khi dùng cloud.</b> Có thể app đã mở đồng thời trên hai máy. Chọn bản đúng, xoá bản còn lại và chỉ mở app trên một máy mỗi lần.</li>
 </ul>`,
   },
 ];
@@ -400,35 +528,89 @@ export function sectionForRoute(name) {
 
 export async function render(root, { query }) {
   const target = query.get('s') || 'start';
+  const toc = GROUPS.map(([g, label]) => `<div class="hp-g">${escapeHtml(label)}</div>${SECTIONS.filter((s) => s.group === g).map((s) => `<a href="#/help?s=${s.id}" data-s="${s.id}">${escapeHtml(s.title)}</a>`).join('')}`).join('');
   root.innerHTML = `<div class="help-page">
     <aside class="help-toc">
       <input type="search" id="hp-q" placeholder="Tìm trong hướng dẫn…">
-      <nav id="hp-toc">${SECTIONS.map((s) => `<a href="#/help?s=${s.id}" data-s="${s.id}">${escapeHtml(s.title)}</a>`).join('')}</nav>
+      <nav id="hp-toc">${toc}</nav>
     </aside>
     <div class="help-body" id="hp-body">
-      <div class="page-head"><h1>Hướng dẫn sử dụng</h1></div>
-      ${SECTIONS.map((s) => `<section class="card help-sec" id="help-${s.id}" data-s="${s.id}"><h2>${escapeHtml(s.title)}</h2>${s.html}</section>`).join('')}
+      <div class="page-head"><h1>Hướng dẫn sử dụng</h1><span class="hint">Số ①②③ trên ảnh khớp với các bước ngay bên dưới ảnh. Bấm vào ảnh để phóng to.</span></div>
+      ${GROUPS.map(([g, label]) => `<div class="hp-gh" data-g="${g}">${escapeHtml(label)}</div>${SECTIONS.filter((s) => s.group === g).map((s) => `<section class="card help-sec" id="help-${s.id}" data-s="${s.id}"><h2>${escapeHtml(s.title)}</h2>${s.html}</section>`).join('')}`).join('')}
       <div id="hp-empty" class="empty" hidden>Không tìm thấy mục nào khớp.</div>
     </div>
   </div>`;
 
+  const tocEl = root.querySelector('.help-toc');
+  let activeId = '';
+  /** Tô mục đang đọc ở mục lục và giữ nó trong tầm nhìn của mục lục (mục lục cuộn riêng). */
+  const setActive = (id) => {
+    if (!id || id === activeId) return;
+    activeId = id;
+    let link = null;
+    root.querySelectorAll('#hp-toc a').forEach((a) => { const on = a.dataset.s === id; a.classList.toggle('active', on); if (on) link = a; });
+    if (link) {
+      const lr = link.getBoundingClientRect();
+      const tr = tocEl.getBoundingClientRect();
+      if (lr.top < tr.top + 56) tocEl.scrollTop -= tr.top + 56 - lr.top;
+      else if (lr.bottom > tr.bottom - 12) tocEl.scrollTop += lr.bottom - (tr.bottom - 12);
+    }
+    if (location.hash !== `#/help?s=${id}`) history.replaceState(null, '', `#/help?s=${id}`);
+  };
   const focus = (id) => {
     const el = document.getElementById(`help-${id}`);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    root.querySelectorAll('#hp-toc a').forEach((a) => a.classList.toggle('active', a.dataset.s === id));
+    setActive(id);
     el.classList.add('flash');
     setTimeout(() => el.classList.remove('flash'), 1200);
   };
   requestAnimationFrame(() => focus(target));
 
-  root.querySelector('#hp-toc').addEventListener('click', (e) => {
-    const a = e.target.closest('a[data-s]');
-    if (!a) return;
-    e.preventDefault();
-    history.replaceState(null, '', `#/help?s=${a.dataset.s}`);
-    focus(a.dataset.s);
-  });
+  // Mục lục đi theo khi cuộn: mục đang đọc là mục cuối cùng có đầu đã qua mép trên vùng xem.
+  let raf = 0;
+  const spy = () => {
+    raf = 0;
+    const secs = [...root.querySelectorAll('.help-sec')].filter((s) => !s.hidden);
+    if (!secs.length) return;
+    let cur = secs[0];
+    if (root.scrollTop + root.clientHeight >= root.scrollHeight - 4) cur = secs[secs.length - 1];
+    else {
+      const line = root.getBoundingClientRect().top + 110;
+      for (const s of secs) { if (s.getBoundingClientRect().top <= line) cur = s; else break; }
+    }
+    setActive(cur.dataset.s);
+  };
+  const onScroll = () => { if (!raf) raf = requestAnimationFrame(spy); };
+  root.addEventListener('scroll', onScroll);
+
+  // Liên kết giữa các mục (#/help?s=…) trong cùng trang: cuộn tới mục thay vì dựng lại trang.
+  const onClick = (e) => {
+    const a = e.target.closest('a[href^="#/help?s="]');
+    if (a) {
+      e.preventDefault();
+      const id = a.getAttribute('href').split('s=')[1];
+      history.replaceState(null, '', `#/help?s=${id}`);
+      focus(id);
+      return;
+    }
+    const img = e.target.closest('img[data-zoom]');
+    if (img) zoom(img);
+  };
+  root.addEventListener('click', onClick);
+
+  // Phóng to ảnh minh hoạ: bấm ra ngoài hoặc Esc để đóng.
+  function zoom(img) {
+    const ov = document.createElement('div');
+    ov.className = 'hp-lb';
+    ov.innerHTML = `<img src="${img.getAttribute('src')}" alt="${escapeHtml(img.alt)}"><div class="hp-lb-cap">${img.closest('figure')?.querySelector('figcaption')?.innerHTML || ''} · bấm để đóng</div>`;
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey, true); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    ov.addEventListener('click', close);
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(ov);
+  }
+
   $('hp-q').addEventListener('input', (e) => {
     const q = norm(e.target.value.trim());
     let shown = 0;
@@ -438,6 +620,21 @@ export async function render(root, { query }) {
       root.querySelector(`#hp-toc a[data-s="${sec.dataset.s}"]`).hidden = !ok;
       if (ok) shown++;
     }
+    // ẩn tiêu đề nhóm không còn mục nào
+    for (const [g] of GROUPS) {
+      const any = [...root.querySelectorAll('.help-sec')].some((s) => !s.hidden && SECTIONS.find((x) => x.id === s.dataset.s)?.group === g);
+      root.querySelector(`.hp-gh[data-g="${g}"]`).hidden = !any;
+    }
+    root.querySelectorAll('.hp-g').forEach((h) => {
+      let n = h.nextElementSibling;
+      let any = false;
+      while (n && !n.classList.contains('hp-g')) { if (!n.hidden) any = true; n = n.nextElementSibling; }
+      h.hidden = !any;
+    });
     $('hp-empty').hidden = shown > 0;
+    spy();
   });
+
+  // root là khung chung của mọi trang: gỡ sự kiện khi rời trang Hướng dẫn.
+  return () => { root.removeEventListener('scroll', onScroll); root.removeEventListener('click', onClick); if (raf) cancelAnimationFrame(raf); };
 }

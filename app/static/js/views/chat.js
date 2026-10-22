@@ -1,5 +1,7 @@
 // Chat với nhiều paper. Bố cục ba cột: danh sách hội thoại · khung chat · bảng "Nguồn" (paper đang dùng + bộ chọn).
 import { api } from '../api.js';
+import { pdfFullText } from '../pdftext.js';
+import { bytesToBase64 } from '../pdf.js';
 import { store, paperById, topicOf, inTopic, saveSettings } from '../store.js';
 import { escapeHtml, fmtRelative, download, norm, copyText, clampText, debounce, fixMixedScript } from '../util.js';
 import { $, toast, confirmDialog, mdToHtml, topicBadge, selectAllHtml, syncSelectAll, showProgress } from '../ui.js';
@@ -110,9 +112,15 @@ function citeLinks(html, c) {
   }).join(''));
 }
 
+const TEXT_EXT = new Set('txt md markdown csv tsv json jsonl tex bib ris py ipynb js ts jsx tsx java c h cpp hpp cc cs go rs rb php sql sh bash ps1 r m swift kt scala yaml yml toml ini cfg xml html htm css log rst srt'.split(' '));
+const ATTACH_ACCEPT = `image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,${[...TEXT_EXT].map((e) => `.${e}`).join(',')}`;
+const fmtChars = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',')}k` : String(n));
+const filesHtml = (list) => (list?.length ? `<div class="msg-files">${list.map((f) => `<span class="msg-file" title="${escapeHtml(f.name)}">📄 ${escapeHtml(f.name)} <span class="hint">· ${f.kind === 'pdf-scan' ? 'gửi nguyên PDF' : `${fmtChars(f.chars || 0)} ký tự${f.clipped ? ', đã cắt bớt' : ''}`}</span></span>`).join('')}</div>` : '');
+const imgsHtml = (list) => (list?.length ? `<div class="msg-imgs">${list.map((im) => `<img src="${escapeHtml(im.url)}" alt="${escapeHtml(im.name || 'ảnh')}" title="${escapeHtml(im.name || '')} · bấm để phóng to" data-zoom loading="lazy">`).join('')}</div>` : '');
+
 function messageHtml(m, i, c) {
   if (m.role === 'user') {
-    return `<div class="msg q" data-i="${i}">${escapeHtml(m.content).replace(/\n/g, '<br>')}${m.refs?.length ? `<details class="refs"><summary>Đã gửi kèm ${m.refs.length} đoạn trích từ toàn văn</summary>${m.refs.map((r) => `<div><b>${r.label} · đoạn ${r.n}</b> <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}</div>`;
+    return `<div class="msg q" data-i="${i}">${imgsHtml(m.images)}${filesHtml(m.files)}${m.imageOnly ? '' : escapeHtml(m.content).replace(/\n/g, '<br>')}${m.refs?.length ? `<details class="refs"><summary>Đã gửi kèm ${m.refs.length} đoạn trích từ toàn văn</summary>${m.refs.map((r) => `<div><b>${r.label} · đoạn ${r.n}</b> <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}</div>`;
   }
   const u = m.usage || {};
   const inT = (u.input_tokens ?? u.prompt_tokens ?? u.promptTokenCount ?? 0);
@@ -254,6 +262,7 @@ export async function render(root, { params, query }) {
         <div id="ch-suggest" class="suggest-q"></div>
         <div class="chat-input"><textarea id="ch-q" rows="2" placeholder="Hỏi về các paper đã chọn… (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
           <button id="ch-send" class="primary">Gửi</button><button id="ch-stop" class="sm danger" hidden>Dừng</button></div>
+        <div class="ch-att-row"><button type="button" class="sm ghost" id="ch-attach" title="Đính kèm ảnh (hình, biểu đồ, ảnh chụp màn hình) hoặc file (PDF, .txt, .md, .csv, .json, .tex, .bib, code…). Cũng có thể dán Ctrl+V hoặc kéo thả vào đây.">📎 Đính kèm</button><input type="file" id="ch-file" accept="${ATTACH_ACCEPT}" multiple hidden><div id="ch-att" class="ch-att"></div><span class="hint ch-att-hint">Dán (Ctrl+V) hoặc kéo thả ảnh, PDF, file chữ vào khung hỏi</span></div>
       </div>
     </section>
     <aside class="src-panel" id="ch-panel" aria-label="Nguồn của hội thoại"></aside>
@@ -349,14 +358,24 @@ export async function render(root, { params, query }) {
   async function ask(question, { retryIndex = null } = {}) {
     const c = state.chat;
     question = (question || '').trim();
-    if (!question) return;
+    const prev = retryIndex != null ? c.messages[retryIndex - 1] : null;
+    const images = prev ? (prev.images || []) : attach.filter((a) => a.kind === 'image').map(({ url, name, mime }) => ({ url, name, mime }));
+    const files = prev ? (prev.files || []) : attach.filter((a) => a.kind !== 'image').map((a) => ({ ...a }));
+    if (attachBusy) return toast('Đang xử lý tệp đính kèm, chờ một chút rồi gửi.', 2500);
+    if (!question && !images.length && !files.length) return;
+    const imageOnly = !question;
+    if (imageOnly) {
+      const what = [images.length ? (images.length > 1 ? 'các ảnh' : 'ảnh') : '', files.length ? (files.length > 1 ? 'các file' : 'file') : ''].filter(Boolean).join(' và ');
+      question = `Tóm tắt và giải thích ${what} đính kèm${c.paperIds.length ? ', liên hệ với các paper đã chọn' : ''}.`;
+    }
     if (state.abort) return toast(state.streaming === c ? 'Đang trả lời câu trước, chờ xong hoặc bấm Dừng.' : 'Đang trả lời ở một hội thoại khác, chờ xong rồi hỏi tiếp.', 3500);
-    if (!c.paperIds.length) { toast('Chọn ít nhất một paper trước.', 2500, 'err'); state.picking = true; state.panelOpen = true; drawAll(); return; }
+    if (!c.paperIds.length && !images.length && !files.length) { toast('Chọn ít nhất một paper trước (hoặc đính kèm ảnh / file để hỏi về chúng).', 3000, 'err'); state.picking = true; state.panelOpen = true; drawAll(); return; }
     if (!hasCredentials(store.settings, 'chat')) return toast('Chưa có API key. Mở Cài đặt.', 3000, 'err');
     if (retryIndex != null) c.messages.splice(retryIndex - 1, 2);
     if (!c.messages.length && (!c.title || c.title === 'Cuộc trò chuyện mới')) { c.title = question.slice(0, 70); $('ch-title').value = c.title; }
     $('ch-q').value = '';
-    const userMsg = { role: 'user', content: question, at: new Date().toISOString() };
+    const userMsg = { role: 'user', content: question, at: new Date().toISOString(), ...(images.length ? { images } : {}), ...(files.length ? { files } : {}), ...(imageOnly ? { imageOnly: true } : {}) };
+    if (retryIndex == null) { attach.length = 0; drawAttach(); }
     const ans = { role: 'assistant', content: '', pending: true, at: new Date().toISOString() };
     c.messages.push(userMsg, ans);
     const idx = c.messages.length - 1; // cố định vị trí bong bóng của lượt này
@@ -389,11 +408,26 @@ export async function render(root, { params, query }) {
     try {
       if (c.mode !== 'notes') await ensureTexts(c.paperIds);
       const { sent, refs } = await composeUserTurn(c, question);
-      userMsg.sent = sent;
+      // Nội dung file chữ đính kèm đi trước câu hỏi (lưu trong lượt hỏi để các câu hỏi tiếp theo vẫn có).
+      const textFiles = files.filter((f) => f.text);
+      userMsg.sent = textFiles.length
+        ? `Người dùng đính kèm ${textFiles.length} file:\n${textFiles.map((f) => `<file name="${f.name}">\n${f.text}\n</file>`).join('\n')}\n\n${sent}`
+        : sent;
       userMsg.refs = refs;
       drawMsgs(true);
       pendingBar('Đang chờ mô hình trả lời…', 12000);
-      const history = c.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.role === 'user' ? (m.sent || m.content) : m.content })).filter((m) => m.content);
+      const history = c.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.role === 'user' ? (m.sent || m.content) : m.content, imgs: m.role === 'user' ? [...(m.images || []), ...(m.files || []).filter((f) => f.kind === 'pdf-scan')] : null })).filter((m) => m.content);
+      // Ảnh của các lượt hỏi gửi lại kèm lượt đó (model không nhớ ảnh giữa các lượt); tối đa 12 ảnh gần nhất cho đỡ tốn token.
+      let budget = 12;
+      for (let k = history.length - 1; k >= 0; k--) {
+        const list = history[k].imgs || [];
+        delete history[k].imgs;
+        if (!list.length || budget <= 0) continue;
+        const use = list.slice(0, budget);
+        budget -= use.length;
+        if (k === history.length - 1) pendingBar(`Đang chuẩn bị ${use.length} tệp đính kèm…`, 3000);
+        history[k].images = (await Promise.all(use.map(imagePayload))).filter(Boolean);
+      }
       const out = await streamChat({
         settings: store.settings, system: systemBlocks(c), messages: history, signal: state.abort.signal,
         onText: (t) => { if (!ans.content) job.update('Đang viết câu trả lời…'); ans.content += t; if (!raf) raf = requestAnimationFrame(paint); },
@@ -405,7 +439,8 @@ export async function render(root, { params, query }) {
       ans.truncated = out.stopReason === 'max_tokens';
       // Mọi con số trong câu trả lời phải có trong tài liệu đã gửi (ghi chú, toàn văn, đoạn trích) hoặc trong câu hỏi.
       const sentAll = c.messages.filter((m) => m.role === 'user').map((m) => m.sent || m.content).join('\n');
-      ans.unverified = unverifiedNumbers(ans.content, `${corpusText(c)}\n${sentAll}`).slice(0, 12);
+      // Lượt có ảnh: số liệu có thể đọc từ ảnh nên không đối chiếu được với tài liệu chữ.
+      ans.unverified = userMsg.images?.length || files.some((f) => f.kind === 'pdf-scan') ? [] : unverifiedNumbers(ans.content, `${corpusText(c)}\n${sentAll}`).slice(0, 12);
     } catch (e) {
       if (e.name === 'AbortError') ans.stopped = true;
       else ans.error = e.message;
@@ -424,6 +459,131 @@ export async function render(root, { params, query }) {
       job.finish(ans.stopped ? '' : (ans.error || ''));
     }
   }
+
+  /* ---- ảnh đính kèm ---- */
+  // Chờ gửi cùng câu hỏi tiếp theo: ảnh { kind: 'image', url, name, mime }, file chữ { kind: 'text' | 'pdf', name, text, chars },
+  // PDF không có lớp chữ (bản scan) { kind: 'pdf-scan', name, pdfId } gửi nguyên file cho model.
+  const attach = [];
+  let attachBusy = false;
+  function drawAttach() {
+    const box = $('ch-att');
+    if (!box) return;
+    box.innerHTML = attach.map((a, k) => (a.kind === 'image'
+      ? `<span class="ch-att-it" title="${escapeHtml(a.name)}"><img src="${escapeHtml(a.url)}" alt=""><button type="button" class="ch-att-x" data-rm-att="${k}" title="Bỏ ảnh này">✕</button></span>`
+      : `<span class="ch-att-file" title="${escapeHtml(a.name)}${a.clipped ? ' · file dài, chỉ gửi phần đầu' : ''}">📄 <span class="ch-att-fn">${escapeHtml(a.name)}</span> <span class="hint">${a.kind === 'pdf-scan' ? 'PDF scan' : `${fmtChars(a.chars)} ký tự`}</span><button type="button" class="ch-att-x" data-rm-att="${k}" title="Bỏ file này">✕</button></span>`)).join('')
+      + (attachBusy ? `<span class="ch-att-file busy"><span class="spin"></span> ${escapeHtml(attachBusy === true ? 'Đang xử lý…' : attachBusy)}</span>` : '');
+    $('ch-compose')?.classList.toggle('has-att', attach.length > 0 || attachBusy);
+  }
+  /** Thu nhỏ ảnh lớn (cạnh dài ≤ 1600px) cho đỡ tốn token; ảnh nhỏ giữ nguyên. Trả về Blob. */
+  async function shrink(file) {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return file;
+    const bmp = await createImageBitmap(file).catch(() => null);
+    if (!bmp) return file;
+    const MAX = 1600;
+    if (Math.max(bmp.width, bmp.height) <= MAX && file.size <= 1.5 * 1024 * 1024) { bmp.close?.(); return file; }
+    const s = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(bmp.width * s);
+    cv.height = Math.round(bmp.height * s);
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+    bmp.close?.();
+    const type = file.type === 'image/png' && file.size < 4 * 1024 * 1024 ? 'image/png' : 'image/jpeg';
+    return new Promise((res) => cv.toBlob((b) => res(b || file), type, 0.9));
+  }
+  const FILE_CHARS = 80000;   // ký tự tối đa mỗi file chữ gửi cho model
+  const kindOf = (f) => {
+    const ext = (f.name.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
+    if (/^image\/(png|jpeg|gif|webp)$/.test(f.type)) return 'image';
+    if (f.type === 'application/pdf' || ext === 'pdf') return 'pdf';
+    if (/^text\//.test(f.type) || TEXT_EXT.has(ext)) return 'text';
+    return '';
+  };
+  async function addImages(files) {
+    const list = [...files];
+    const bad = list.filter((f) => !kindOf(f));
+    if (bad.length) toast(`Chưa đọc được: ${bad.map((f) => f.name).join(', ')}. Nhận ảnh (PNG, JPG, GIF, WebP), PDF và file chữ (.txt, .md, .csv, .json, .tex, .bib, code…). File Word hãy lưu thành PDF trước.`, 6000, 'err');
+    const ok = list.filter((f) => kindOf(f));
+    if (!ok.length) return;
+    const room = 6 - attach.length;
+    if (room <= 0) return toast('Mỗi câu hỏi đính kèm tối đa 6 tệp.', 3000);
+    if (ok.length > room) toast(`Chỉ thêm ${room} tệp đầu (tối đa 6 tệp mỗi câu hỏi).`, 3000);
+    try {
+      for (const f of ok.slice(0, room)) {
+        const kind = kindOf(f);
+        attachBusy = kind === 'image' ? 'Đang xử lý ảnh…' : `Đang đọc ${f.name}…`;
+        drawAttach();
+        if (kind === 'image') {
+          const blob = await shrink(f);
+          const r = await api.uploadImage(new Uint8Array(await blob.arrayBuffer()), f.name || 'anh-dan.png');
+          attach.push({ kind: 'image', url: r.url, name: f.name || 'ảnh dán', mime: blob.type || f.type });
+        } else if (kind === 'pdf') {
+          if (f.size > 40 * 1024 * 1024) { toast(`${f.name} quá lớn (tối đa 40 MB).`, 4000, 'err'); continue; }
+          // Lưu PDF vào kho của app rồi đọc chữ bằng PDF.js; không có lớp chữ (bản scan) thì gửi nguyên file cho model.
+          const up = await api.uploadPdf(f, f.name);
+          const text = (await pdfFullText(up.id, { maxPages: 120 }).catch(() => '')).trim();
+          if (text.length >= 200) attach.push({ kind: 'pdf', name: f.name, text: text.slice(0, FILE_CHARS), chars: Math.min(text.length, FILE_CHARS), clipped: text.length > FILE_CHARS });
+          else attach.push({ kind: 'pdf-scan', name: f.name, pdfId: up.id });
+        } else {
+          if (f.size > 4 * 1024 * 1024) { toast(`${f.name} quá lớn (file chữ tối đa 4 MB).`, 4000, 'err'); continue; }
+          const text = (await f.text()).replace(/\r\n/g, '\n');
+          attach.push({ kind: 'text', name: f.name, text: text.slice(0, FILE_CHARS), chars: Math.min(text.length, FILE_CHARS), clipped: text.length > FILE_CHARS });
+        }
+        drawAttach();
+      }
+    } catch (e) {
+      toast(`Không thêm được tệp: ${e.message}`, 4000, 'err');
+    } finally {
+      attachBusy = false;
+      drawAttach();
+      $('ch-q')?.focus();
+    }
+  }
+  /** Ảnh đã lưu trên máy chủ -> { mime, data(base64) } để gửi cho model (giữ trong bộ nhớ, không tải lại). */
+  const imgCache = new Map();
+  async function imagePayload(im) {
+    if (im.pdfId) { // PDF bản scan: gửi nguyên file
+      const key = `pdf:${im.pdfId}`;
+      if (imgCache.has(key)) return imgCache.get(key);
+      try { const out = { mime: 'application/pdf', name: im.name, data: bytesToBase64(await api.pdfBytes(im.pdfId)) }; imgCache.set(key, out); return out; } catch (_) { return null; }
+    }
+    if (imgCache.has(im.url)) return imgCache.get(im.url);
+    try {
+      const blob = await (await fetch(im.url)).blob();
+      const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = rej; fr.readAsDataURL(blob); });
+      const ext = (im.url.match(/\.(\w+)$/) || [])[1];
+      const mime = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({ png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext] || 'image/png');
+      const out = { mime, data };
+      imgCache.set(im.url, out);
+      return out;
+    } catch (_) { return null; }
+  }
+  $('ch-attach').addEventListener('click', () => $('ch-file').click());
+  $('ch-file').addEventListener('change', (e) => { addImages(e.target.files); e.target.value = ''; });
+  $('ch-att').addEventListener('click', (e) => { const b = e.target.closest('[data-rm-att]'); if (b) { attach.splice(Number(b.dataset.rmAtt), 1); drawAttach(); } });
+  $('ch-q').addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (!files.length) return;
+    e.preventDefault();
+    addImages(files);
+  });
+  const compose = $('ch-compose');
+  const hasImg = (e) => [...(e.dataTransfer?.items || [])].some((it) => it.kind === 'file');
+  compose.addEventListener('dragover', (e) => { if (!hasImg(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; compose.classList.add('drop'); });
+  compose.addEventListener('dragleave', (e) => { if (!compose.contains(e.relatedTarget)) compose.classList.remove('drop'); });
+  compose.addEventListener('drop', (e) => { compose.classList.remove('drop'); if (!e.dataTransfer?.files?.length) return; e.preventDefault(); addImages(e.dataTransfer.files); });
+  // Bấm ảnh trong tin nhắn để phóng to.
+  $('ch-msgs').addEventListener('click', (e) => {
+    const img = e.target.closest('.msg-imgs img[data-zoom]');
+    if (!img) return;
+    const ov = document.createElement('div');
+    ov.className = 'hp-lb';
+    ov.innerHTML = `<img src="${img.getAttribute('src')}" alt=""><div class="hp-lb-cap">${escapeHtml(img.alt)} · bấm để đóng</div>`;
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onEsc, true); };
+    const onEsc = (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); close(); } };
+    ov.addEventListener('click', close);
+    document.addEventListener('keydown', onEsc, true);
+    document.body.appendChild(ov);
+  });
 
   /* ---- sự kiện: khung chat ---- */
   $('ch-send').addEventListener('click', () => ask($('ch-q').value));
@@ -536,7 +696,7 @@ export async function render(root, { params, query }) {
   $('ch-export').addEventListener('click', () => {
     const c = state.chat;
     const md = [`# ${c.title}`, '', '## Paper', '', ...papersOf(c).map(({ p, label }) => `- **[${label}]** ${p.title}${p.url ? ` (${p.url})` : ''}`), '', '## Hội thoại', ''];
-    for (const m of c.messages) md.push(m.role === 'user' ? `### Hỏi\n\n${m.content}\n` : `### Trả lời\n\n${m.content || m.error || ''}\n`);
+    for (const m of c.messages) md.push(m.role === 'user' ? `### Hỏi\n\n${(m.images || []).map((im) => `![${im.name || 'ảnh'}](${location.origin}${im.url})\n`).join('')}${(m.files || []).map((f) => `- 📄 ${f.name}\n`).join('')}${m.content}\n` : `### Trả lời\n\n${m.content || m.error || ''}\n`);
     download(`chat-${(c.title || 'papervault').slice(0, 40).replace(/[^\p{L}\p{N}]+/gu, '-')}.md`, md.join('\n'), 'text/markdown;charset=utf-8');
   });
 

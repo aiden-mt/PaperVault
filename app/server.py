@@ -51,6 +51,7 @@ STATIC_TYPES = {
     ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon",
     ".wasm": "application/wasm", ".ftl": "text/plain", ".bcmap": "application/octet-stream",
     ".pfb": "application/octet-stream", ".ttf": "font/ttf", ".woff2": "font/woff2", ".woff": "font/woff", ".icc": "application/octet-stream", ".gif": "image/gif",
+    ".webp": "image/webp", ".jpg": "image/jpeg",
 }
 
 

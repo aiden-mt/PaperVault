@@ -254,8 +254,17 @@ export async function render(root, { params, query }) {
     tab = b.dataset.tab;
     $('pp-tabs').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
     history.replaceState(null, '', `#/paper/${p.id}?tab=${tab}`);
+    b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     drawTab();
   });
+  // Khung hẹp: thanh tab cuộn ngang (không hiện thanh cuộn) — lăn chuột cũng cuộn ngang, tab đang mở luôn trong tầm nhìn.
+  $('pp-tabs').addEventListener('wheel', (e) => {
+    const t = $('pp-tabs');
+    if (t.scrollWidth <= t.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    t.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
+  $('pp-tabs').querySelector('button.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 
   /* ---------------- các tab ---------------- */
 
