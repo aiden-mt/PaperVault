@@ -1,12 +1,16 @@
 // AI nhanh trong Sổ tay (giống Notion AI): làm việc ngay trên một đoạn — cải thiện, rút gọn, giải thích, dịch, chuyển
 // thành bảng… — hoặc viết mới ở chỗ con trỏ. Menu nổi cạnh đoạn, kết quả hiện ngay bên dưới với các nút Thay thế /
 // Chèn bên dưới / Thử lại, có ô "Bảo AI sửa tiếp". Người dùng lưu được yêu cầu riêng thành prompt nhanh.
+// Đang viết hoặc đã có kết quả mà bấm ra ngoài / nhấn Esc / chuyển trang thì khung chỉ thu nhỏ: AI viết tiếp ở nền,
+// thẻ ở góc dưới (bảng việc nền) cho xem tiến độ và mở lại khung khi xong. Chèn / thay thế tìm lại đoạn theo nội dung,
+// nên vẫn đúng chỗ khi trang đã sửa thêm; trang không còn mở thì ghi thẳng vào trang đã lưu.
 import { store, paperById, saveSettings } from './store.js';
 import { toast } from './ui.js';
+import { makeJob, trackJob, untrackJob } from './bgjobs.js';
 import { escapeHtml, clampText, fixMixedScript, copyText, norm } from './util.js';
 import { streamChat, hasCredentials } from './llm.js';
 import { paperNotesText } from './prompts.js';
-import { parseLinks, renderNote, paperShort } from './notebook.js';
+import { parseLinks, renderNote, paperShort, pageById, savePage, pageLabel } from './notebook.js';
 
 const EDIT = [
   { id: 'improve', g: 'Chỉnh đoạn', icon: '✎', label: 'Cải thiện văn phong', mode: 'replace', p: 'Viết lại đoạn cho rõ ràng, mạch lạc, tự nhiên hơn. Giữ nguyên ý, số liệu và thuật ngữ.' },
@@ -43,7 +47,55 @@ const SYSTEM = [
   '- Không viết tiêu đề cấp 1.',
 ].join('\n');
 
-let cur = null; // { el, close }
+let cur = null; // { el, close, dismiss } của khung đang hiện
+let seq = 0;
+// Trình soạn của trang Sổ tay đang mở (do views/notebook.js đăng ký): { pageId, apply(op, md, ctx) } -> true nếu đã làm.
+let live = null;
+export const setLiveEditor = (api) => { live = api; };
+
+/** Vị trí của đoạn text trong content: ưu tiên đúng chỗ cũ (s), không thì tìm chỗ gần s nhất. */
+export function locate(content, text, s = 0) {
+  if (!text) return -1;
+  if (content.slice(s, s + text.length) === text) return s;
+  let best = -1;
+  for (let i = content.indexOf(text); i >= 0; i = content.indexOf(text, i + 1)) if (best < 0 || Math.abs(i - s) < Math.abs(best - s)) best = i;
+  return best;
+}
+/** Vị trí con trỏ (viết mới) theo đoạn chữ đứng trước nó; không thấy thì cuối trang. */
+export function locateAfter(content, before, s = 0) {
+  if (!before) return Math.min(s, content.length);
+  if (content.slice(Math.max(0, s - before.length), s) === before) return s;
+  const i = content.lastIndexOf(before);
+  return i >= 0 ? i + before.length : content.length;
+}
+const blockGap = (val, at) => (at > 0 && !val.slice(0, at).endsWith('\n\n') ? (val[at - 1] === '\n' ? '\n' : '\n\n') : '');
+
+/** Về trang Sổ tay pageId (nếu đang ở trang khác) và chờ trình soạn của trang đó sẵn sàng. */
+export async function gotoPage(pageId) {
+  if (!pageId || new RegExp(`^#/notebook/${pageId}(?:$|[?])`).test(location.hash)) return;
+  location.hash = `#/notebook/${pageId}`;
+  for (let i = 0; i < 40 && !(live && live.pageId === pageId); i++) await new Promise((r) => setTimeout(r, 75));
+}
+
+/**
+ * Đưa kết quả AI vào trang: op 'replace' (thay đoạn ctx.text), 'below' (chèn sau đoạn), 'insert' (chèn ở chỗ con trỏ,
+ * tìm lại theo ctx.before). Trang đang mở thì sửa trong trình soạn, không thì ghi vào nội dung đã lưu của trang.
+ */
+export async function applyToPage(pageId, op, md, ctx) {
+  if (live && live.pageId === pageId && live.apply(op, md, ctx)) return;
+  const p = pageById(pageId);
+  if (!p) { await copyText(md); toast('Không tìm thấy trang, đã copy kết quả để bạn dán.', 5000, 'err'); return; }
+  const c = String(p.content || '');
+  let out;
+  const at = locate(c, ctx.text, ctx.s);
+  if (op === 'replace' && at >= 0) out = c.slice(0, at) + md + c.slice(at + ctx.text.length);
+  else {
+    const pos = op === 'insert' ? locateAfter(c, ctx.before, ctx.s) : (at >= 0 ? at + ctx.text.length : c.length);
+    out = `${c.slice(0, pos)}${blockGap(c, pos)}${md}\n${c.slice(pos)}`;
+  }
+  await savePage({ ...p, content: out });
+  toast(`Đã ghi kết quả vào trang “${pageLabel(p)}”${op === 'replace' && at < 0 ? ' (không còn thấy đoạn gốc nên chèn ở cuối)' : ''}.`, 6000, 'ok', { label: 'Mở trang', onClick: () => { location.hash = `#/notebook/${pageId}`; } });
+}
 const zoom = () => parseFloat(getComputedStyle(document.body).zoom) || 1;
 const myPrompts = () => (Array.isArray(store.settings.nbPrompts) ? store.settings.nbPrompts : []);
 
@@ -68,12 +120,19 @@ function unwrap(md) {
 
 /**
  * Mở menu AI nhanh ở toạ độ màn hình (x, y).
- * kind 'edit': text là đoạn đang chọn, apply.replace / apply.below. kind 'write': viết mới ở chỗ con trỏ, apply.insert.
+ * kind 'edit': text là đoạn đang chọn (range = [đầu, cuối] trong page.content), kết quả thay đoạn hoặc chèn bên dưới. kind 'write': viết mới ở chỗ con trỏ (range[0]). pageId: trang để chèn kết quả.
  * page: { title, content, cursor } — cursor là vị trí con trỏ trong content (để AI biết đang viết ở đâu).
  */
-export function openInlineAI({ x, y, kind = 'edit', text = '', page = {}, apply = {}, openFull = null }) {
-  cur?.close();
+export function openInlineAI({ x: x0, y: y0, kind = 'edit', text = '', page = {}, pageId = '', range = null, openFull = null }) {
+  cur?.dismiss();
   const z = zoom();
+  let x = x0;
+  let y = y0;
+  const key = `nbai:${++seq}`;
+  const [s0, e0] = range || [0, 0];
+  const before = String(page.content || '').slice(Math.max(0, s0 - 120), s0); // mốc tìm lại chỗ con trỏ khi viết mới
+  let job = null;
+  let parked = false;
   const el = document.createElement('div');
   el.className = 'nbq';
   document.body.appendChild(el);
@@ -93,16 +152,64 @@ export function openInlineAI({ x, y, kind = 'edit', text = '', page = {}, apply 
   };
   const list = kind === 'edit' ? EDIT : WRITE;
   const words = String(text || '').trim() ? String(text).trim().split(/\s+/).length : 0;
+  const unbind = () => {
+    document.removeEventListener('pointerdown', onOut, true);
+    document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('hashchange', onHash);
+  };
+  const bind = () => {
+    document.addEventListener('pointerdown', onOut, true);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('hashchange', onHash);
+  };
+  // Đóng hẳn: huỷ lượt AI đang viết, bỏ thẻ ở bảng việc nền.
   const close = () => {
     st.abort?.abort();
     el.remove();
-    document.removeEventListener('pointerdown', onOut, true);
-    document.removeEventListener('keydown', onKey, true);
-    window.removeEventListener('hashchange', close);
+    unbind();
+    untrackJob(key);
     if (cur?.el === el) cur = null;
   };
-  const onOut = (e) => { if (!el.contains(e.target)) close(); };
-  cur = { el, close };
+  const hasWork = () => st.view === 'result' && (st.busy || !!st.out || !!st.err);
+  // Thu nhỏ: ẩn khung, AI viết tiếp ở nền; thẻ ở góc dưới để mở lại.
+  const park = () => {
+    if (parked) return;
+    parked = true;
+    el.hidden = true;
+    unbind();
+    if (cur?.el === el) cur = null;
+    if (job) track();
+  };
+  // Bấm ra ngoài, Esc, chuyển trang: còn việc / kết quả thì thu nhỏ, không thì đóng.
+  const dismiss = () => (hasWork() ? park() : close());
+  const onOut = (e) => { if (!el.contains(e.target)) dismiss(); };
+  const onHash = () => dismiss();
+  function track() {
+    const a = st.action || {};
+    trackJob(key, job, {
+      label: `✨ AI nhanh · ${a.custom ? 'Yêu cầu của bạn' : a.label || ''}`,
+      title: page.title || 'Sổ tay',
+      open: reopen, onDismiss: close, keep: true,
+      here: () => !parked && el.isConnected,
+      expectedMs: () => 15000,
+      doneText: () => (st.err ? '' : 'Đã viết xong. Bấm Mở để xem rồi chèn vào trang.'),
+    });
+  }
+  async function reopen() {
+    if (!el.isConnected) return;
+    cur?.dismiss();
+    await gotoPage(pageId); // về đúng trang Sổ tay của đoạn này nếu đang ở trang khác
+    parked = false;
+    el.hidden = false;
+    // Toạ độ cũ có thể đã trôi (cuộn, đổi trang): mở ở giữa phía trên màn hình.
+    x = Math.max(8, (window.innerWidth - el.offsetWidth * z) / 2);
+    y = Math.min(150, window.innerHeight * 0.2);
+    st.side = 'below';
+    cur = { el, close, dismiss };
+    bind();
+    drawResult();
+  }
+  cur = { el, close, dismiss };
 
   /* ---------- menu ---------- */
   function filtered() {
@@ -158,7 +265,11 @@ export function openInlineAI({ x, y, kind = 'edit', text = '', page = {}, apply 
     st.action = a;
     st.busy = true;
     st.out = '';
+    st.err = '';
     st.abort = new AbortController();
+    job = makeJob();
+    job.update('AI đang đọc đoạn và viết…');
+    if (parked) track();
     const messages = refine
       ? [...st.history, { role: 'user', content: `Sửa lại kết quả vừa rồi theo yêu cầu: ${refine}. Chỉ trả về bản đã sửa.` }]
       : [{ role: 'user', content: contextMsg(a) }];
@@ -167,7 +278,10 @@ export function openInlineAI({ x, y, kind = 'edit', text = '', page = {}, apply 
       let raf = 0;
       await streamChat({
         settings: store.settings, system: [{ text: SYSTEM }], messages, signal: st.abort.signal, task: 'notebook-inline',
-        onText: (t) => { st.out += t; if (!raf) raf = requestAnimationFrame(() => { raf = 0; paintOut(); }); },
+        onText: (t) => {
+          st.out += t;
+          if (!raf) raf = requestAnimationFrame(() => { raf = 0; paintOut(); job.update(`Đang viết · ${st.out.trim().split(/\s+/).length} từ`); });
+        },
       });
       st.out = unwrap(fixMixedScript(st.out));
       st.history = [...messages, { role: 'assistant', content: st.out }];
@@ -176,7 +290,8 @@ export function openInlineAI({ x, y, kind = 'edit', text = '', page = {}, apply 
     } finally {
       st.busy = false;
       st.abort = null;
-      drawResult();
+      job.finish(st.err);
+      if (!parked) drawResult();
     }
   }
   function paintOut() {
@@ -191,7 +306,7 @@ export function openInlineAI({ x, y, kind = 'edit', text = '', page = {}, apply 
   }
   function drawResult() {
     const a = st.action;
-    const canReplace = kind === 'edit' && apply.replace;
+    const canReplace = kind === 'edit';
     const primary = kind === 'write' ? 'insert' : (a.mode === 'replace' && canReplace ? 'replace' : 'below');
     const btn = (k, label) => `<button type="button" class="sm ${k === primary ? 'primary' : ''}" data-act="${k}">${label}</button>`;
     el.innerHTML = `<div class="nbq-rh"><span class="nbq-ic">${escapeHtml(a.icon || '✦')}</span><span class="nbq-rh-t"><b>${escapeHtml(a.custom ? 'Yêu cầu của bạn' : a.label)}</b><span class="nbq-st"></span></span>${st.busy ? '<button type="button" class="sm" data-act="stop">■ Dừng</button>' : '<button type="button" class="sm ghost nbq-x" data-act="discard" title="Đóng (Esc)">✕</button>'}</div>
@@ -236,12 +351,12 @@ export function openInlineAI({ x, y, kind = 'edit', text = '', page = {}, apply 
     else if (act === 'retry') { st.history = []; run(st.action); }
     else if (act === 'copy') copyText(md).then(() => toast('Đã copy Markdown.'));
     else if (act === 'discard') close();
-    else if (act === 'replace') { apply.replace?.(md); close(); }
-    else if (act === 'below') { apply.below?.(md); close(); }
-    else if (act === 'insert') { apply.insert?.(md); close(); }
+    else if (['replace', 'below', 'insert'].includes(act)) { await applyResult(act, md); close(); }
   });
+
+  const applyResult = (op, md) => applyToPage(pageId, op, md, { text, s: s0, e: e0, before });
   const onKey = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); dismiss(); return; }
     if (st.view === 'menu') {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -260,12 +375,11 @@ export function openInlineAI({ x, y, kind = 'edit', text = '', page = {}, apply 
       run(st.action, e.target.value.trim());
     }
   };
-  document.addEventListener('pointerdown', onOut, true);
-  document.addEventListener('keydown', onKey, true);
-  window.addEventListener('hashchange', close);
+  bind();
   drawMenu();
   el.querySelector('#nbq-q').focus();
-  return { close };
+  return { close, dismiss };
 }
 
-export const closeInlineAI = () => cur?.close();
+/** Rời trang Sổ tay: khung còn việc / kết quả thì thu nhỏ vào bảng việc nền, không thì đóng. */
+export const closeInlineAI = () => cur?.dismiss();

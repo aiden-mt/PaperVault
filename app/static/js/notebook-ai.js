@@ -6,6 +6,11 @@ import { store, paperById } from './store.js';
 import { dialog, toast } from './ui.js';
 import { escapeHtml, clampText, fixMixedScript, copyText, norm } from './util.js';
 import { streamChat, hasCredentials } from './llm.js';
+import { attachRowHtml, createAttachBox, attachmentParts, msgImgsHtml, msgFilesHtml } from './attach.js';
+import { makeJob, trackJob, untrackJob } from './bgjobs.js';
+import { applyToPage, gotoPage } from './notebook-inline-ai.js';
+
+let askSeq = 0;
 import { buildChatSystem, paperNotesText, CHAT_LANGS } from './prompts.js';
 import { chunksOf, bm25Pick, searchTerms } from './rag.js';
 import { allPages, pageById, parseLinks, renderNote, paperShort, pageLabel } from './notebook.js';
@@ -50,10 +55,19 @@ function linkCites(md, labels) {
 const citedLabels = (md) => new Set([...String(md || '').matchAll(/\b([PN]\d+)\b/g)].map((m) => m[1]));
 
 /**
- * Mở trợ lý AI cho trang page. selection: đoạn đang bôi đen. onInsert(md) chèn vào chỗ con trỏ, onReplace(md) thay đoạn
- * đang chọn (chỉ có khi có selection).
+ * Hộp thoại hỏi AI dựa trên paper và ghi chú của trang page; selection là đoạn đang bôi đen. Bấm ra ngoài / Esc / chuyển trang khi AI đang viết hoặc đã có câu trả lời
+ * thì hộp thoại chỉ thu nhỏ vào bảng việc nền (góc dưới), mở lại được; nút Đóng mới bỏ hẳn.
+ * range: [đầu, cuối] của đoạn đang chọn trong page.content (để chèn / thay đúng chỗ).
  */
-export function aiDialog({ page, selection = '', onInsert, onReplace }) {
+export function aiDialog({ page, selection = '', range = null }) {
+  const pageId = page?.id || '';
+  const [s0, e0] = range || [0, 0];
+  const where = { text: selection, s: s0, e: e0, before: String(page?.content || '').slice(Math.max(0, s0 - 120), s0) };
+  const key = `nbask:${++askSeq}`;
+  let job = null;
+  let parked = false;
+  let used = false;   // đã chèn / thay kết quả vào trang: đóng hẳn
+  let bound = false;
   const linked = page ? [...parseLinks(page.content || '').papers].filter((id) => paperById(id)) : [];
   const st = {
     papers: linked.slice(0, 10),       // id paper chọn tay
@@ -64,7 +78,7 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
     lang: LS('pv.nbAiLang') ?? (store.settings.chatLang || ''),
     format: LS('pv.nbAiFmt') || 'callout',
     history: [],                       // [{ role, content }] để hỏi tiếp
-    answer: '', question: '', refs: [], labels: new Map(),
+    answer: '', question: '', refs: [], labels: new Map(), shown: {}, lastItems: [],
     busy: false, abort: null, pq: '', gq: '',
   };
   const texts = new Map();
@@ -74,7 +88,8 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
   body.innerHTML = `<button type="button" class="ai-src-tg" id="ai-src-tg" title="Chọn paper, ghi chú và mức ngữ cảnh"></button>
     <div class="ai-main">
       ${selection ? `<details class="ai-sel" open><summary>Đoạn đang chọn (${selection.length} ký tự)</summary><div class="ai-sel-t">${escapeHtml(clampText(selection, 600))}</div></details>` : ''}
-      <textarea id="ai-q" rows="3" placeholder="Hỏi hoặc yêu cầu AI viết… ví dụ: So sánh cách các paper xử lý dữ liệu ít nhãn (Ctrl + Enter để tạo)"></textarea>
+      <div class="ai-compose" id="ai-compose"><textarea id="ai-q" rows="3" placeholder="Hỏi hoặc yêu cầu AI viết… ví dụ: So sánh cách các paper xử lý dữ liệu ít nhãn (Ctrl + Enter để tạo)"></textarea>
+        ${attachRowHtml('ai', 'Dán hoặc kéo thả ảnh (hình, bảng, ảnh chụp), PDF, file chữ để AI đọc cùng')}</div>
       <div class="ai-tasks">${TASKS.map(([l, q], i) => (i === 4 && !selection) ? '' : `<button type="button" class="chip" data-task="${i}">${escapeHtml(l)}</button>`).join('')}</div>
       <div class="ai-go"><button type="button" class="primary" id="ai-run">✨ Tạo câu trả lời</button><span class="hint" id="ai-status"></span><span class="spacer"></span><button type="button" class="sm" id="ai-stop" hidden>Dừng</button></div>
       <div class="ai-out" id="ai-out"><div class="ai-empty hint">Chọn nguồn (paper, ghi chú), gõ câu hỏi rồi bấm <b>Tạo câu trả lời</b>. Câu trả lời ghi rõ nguồn [P1] (paper) và [N1] (ghi chú); khi chèn vào trang, các nhãn thành liên kết bấm được.</div></div>
@@ -128,7 +143,7 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
     if (page && !st.pages.includes(page.id)) quick.push(`<button type="button" class="chip" data-addg="${page.id}">+ Trang này</button>`);
     $('ai-pquick').innerHTML = quick.join('');
     const open = body.classList.contains('src-open');
-    $('ai-src-tg').innerHTML = `📚 Nguồn: <b>${plist.length}</b> paper · <b>${st.pages.length}</b> ghi chú${st.autoFind ? ' · tự tìm thêm' : ''} · ${escapeHtml((MODES.find((m) => m[0] === st.mode) || MODES[1])[1])}<span class="spacer"></span>${open ? 'Ẩn ▴' : 'Chỉnh ▾'}`;
+    $('ai-src-tg').innerHTML = `<span class="ai-src-sum">📚 Nguồn: <b>${plist.length}</b> paper · <b>${st.pages.length}</b> ghi chú${st.autoFind ? ' · tự tìm thêm' : ''} · ${escapeHtml((MODES.find((m) => m[0] === st.mode) || MODES[1])[1])}</span><span class="ai-src-act">${open ? 'Ẩn ▴' : 'Chỉnh ▾'}</span>`;
   }
   function dropdown(kind) {
     const q = norm((kind === 'p' ? $('ai-pq') : $('ai-gq')).value.trim());
@@ -155,15 +170,28 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
     return hit.filter((d) => d.score >= top * 0.35).slice(0, AUTO_MAX).map((d) => d.key);
   }
 
-  async function run(question, { followUp = false } = {}) {
+  async function run(question, { followUp = false, items = null } = {}) {
     if (st.busy) return;
     if (!hasCredentials(store.settings, 'notebook-ai')) { toast('Chưa có API key. Mở Cài đặt để nhập key Claude / OpenAI / Gemini.', 4000, 'err'); return; }
+    if (att.busy()) { toast('Đang xử lý tệp đính kèm, chờ một chút.', 2500); return; }
+    // Tệp đính kèm dùng cho lần hỏi này (Tạo lại thì dùng lại tệp của lần trước).
+    items = items || att.items.slice();
     question = String(question || '').trim();
+    if (!question && items.length) question = `Giải thích ${items.some((a) => a.kind === 'image') ? 'ảnh' : 'file'} đính kèm và liên hệ với các nguồn đã chọn.`;
     if (!question) { $('ai-q').focus(); toast('Gõ câu hỏi hoặc chọn một yêu cầu có sẵn.', 2500); return; }
+    st.lastItems = items;
+    st.shown = {
+      images: items.filter((a) => a.kind === 'image'),
+      files: items.filter((a) => a.kind !== 'image'),
+    };
+    att.clear();
     st.busy = true;
     st.question = question;
     st.answer = '';
     st.abort = new AbortController();
+    job = makeJob();
+    job.update('Đang chuẩn bị nguồn…');
+    if (parked) track();
     $('ai-run').disabled = true;
     $('ai-stop').hidden = false;
     $('ai-acts').hidden = true;
@@ -176,7 +204,7 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
       else if (!st.autoFind) st.auto = [];
       drawSources();
       const paperIds = [...st.papers, ...st.auto.filter((id) => !st.papers.includes(id))];
-      if (!paperIds.length && !st.pages.length && !selection) throw new Error('Chưa có nguồn nào: thêm paper, trang ghi chú, hoặc bật “Tự tìm thêm paper liên quan”.');
+      if (!paperIds.length && !st.pages.length && !selection && !items.length) throw new Error('Chưa có nguồn nào: thêm paper, trang ghi chú, hoặc bật “Tự tìm thêm paper liên quan”.');
       // nhãn cố định trong một phiên: P1… cho paper, N1… cho ghi chú
       st.labels = new Map();
       const plab = new Map(paperIds.map((id, i) => [id, `P${i + 1}`]));
@@ -217,12 +245,20 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
       if (selection) user = `<selection page="${escapeHtml(page?.title || '')}">\n${clampText(selection, 6000)}\n</selection>\n\n${user}`;
       else if (page) user = `(Trang đang viết: “${page.title || 'Không tên'}”)\n\n${user}`;
 
-      const messages = followUp ? [...st.history, { role: 'user', content: user }] : [{ role: 'user', content: user }];
+      let images = [];
+      if (items.length) {
+        status('Đang đọc tệp đính kèm…');
+        const ap = await attachmentParts(items);
+        images = ap.images;
+        user = `${ap.textPrefix}${user}`;
+      }
+      const turn = { role: 'user', content: user, ...(images.length ? { images } : {}) };
+      const messages = followUp ? [...st.history, turn] : [turn];
       status('Đang viết…');
       let raf = 0;
       const out = await streamChat({
         settings, system, messages, signal: st.abort.signal, task: 'notebook-ai',
-        onText: (t) => { st.answer += t; if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(); }); },
+        onText: (t) => { st.answer += t; if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(); job.update(`Đang viết · ${st.answer.trim().split(/\s+/).length} từ`); }); },
         onRetry: (n, wait) => { st.answer = ''; status(`Bị giới hạn tốc độ, thử lại lần ${n} sau ${Math.round(wait / 1000)}s…`); },
       });
       st.answer = fixMixedScript(st.answer);
@@ -231,8 +267,10 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
       paint(true);
     } catch (e) {
       if (e.name === 'AbortError') { status('Đã dừng.'); if (st.answer) paint(true); }
-      else { status(''); $('ai-out').innerHTML = `<div class="status err">${escapeHtml(e.message || String(e))}</div>`; }
+      else { status(''); $('ai-out').innerHTML = `<div class="status err">${escapeHtml(e.message || String(e))}</div>`; st.err = e.message || String(e); }
     } finally {
+      job?.finish(st.err || '');
+      st.err = '';
       st.busy = false;
       st.abort = null;
       $('ai-run').disabled = false;
@@ -243,7 +281,7 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
   const srcName = (lab) => { const s = st.labels.get(lab); return s?.kind === 'paper' ? paperShort(paperById(s.id) || {}) : (s?.title || lab); };
   function paint(done = false) {
     const md = linkCites(st.answer, st.labels);
-    $('ai-out').innerHTML = `<div class="ai-qshow"><span>Hỏi</span>${escapeHtml(st.question)}</div><div class="ai-ans nb-prev">${renderNote(md) || '<span class="spin"></span>'}</div>${done && st.refs.length ? `<details class="ai-refs"><summary>${st.refs.length} đoạn trích đã dùng</summary>${st.refs.map((r) => `<div class="ai-ref"><b>${escapeHtml(srcName(r.label))}</b> · đoạn ${r.n}: <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}`;
+    $('ai-out').innerHTML = `<div class="ai-qshow"><span>Hỏi</span><div class="ai-qtext">${escapeHtml(st.question)}${msgImgsHtml(st.shown.images)}${msgFilesHtml(st.shown.files)}</div></div><div class="ai-ans nb-prev">${renderNote(md) || '<span class="spin"></span>'}</div>${done && st.refs.length ? `<details class="ai-refs"><summary>${st.refs.length} đoạn trích đã dùng</summary>${st.refs.map((r) => `<div class="ai-ref"><b>${escapeHtml(srcName(r.label))}</b> · đoạn ${r.n}: <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}`;
     if (done && st.answer) {
       $('ai-acts').hidden = false;
       $('ai-fmt').value = st.format;
@@ -285,7 +323,7 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
   let closeFn = () => {};
   const bind = () => {
     $('ai-run').addEventListener('click', () => run($('ai-q').value, { followUp: !!st.history.length }));
-    $('ai-again').addEventListener('click', () => { st.history = st.history.slice(0, -2); run(st.question, { followUp: !!st.history.length }); });
+    $('ai-again').addEventListener('click', () => { st.history = st.history.slice(0, -2); run(st.question, { followUp: !!st.history.length, items: st.lastItems }); });
     $('ai-stop').addEventListener('click', () => st.abort?.abort());
     $('ai-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('ai-run').click(); } });
     $('ai-pq').addEventListener('input', () => dropdown('p'));
@@ -294,16 +332,41 @@ export function aiDialog({ page, selection = '', onInsert, onReplace }) {
     body.querySelectorAll('input[name="ai-mode"]').forEach((r) => r.addEventListener('change', () => { st.mode = r.value; LS('pv.nbAiMode', st.mode); drawSources(); }));
     $('ai-lang').addEventListener('change', (e) => { st.lang = e.target.value; LS('pv.nbAiLang', st.lang); });
     $('ai-fmt').addEventListener('change', (e) => { st.format = e.target.value; LS('pv.nbAiFmt', st.format); });
-    $('ai-ins').addEventListener('click', () => { onInsert?.(outputMd(st.format)); toast('Đã chèn câu trả lời vào trang.'); closeFn(); });
-    $('ai-rep')?.addEventListener('click', () => { onReplace?.(outputMd('plain')); toast('Đã thay đoạn đã chọn.'); closeFn(); });
+    $('ai-ins').addEventListener('click', async () => { used = true; closeFn(); await applyToPage(pageId, selection ? 'below' : 'insert', outputMd(st.format), where); toast('Đã chèn câu trả lời vào trang.'); });
+    $('ai-rep')?.addEventListener('click', async () => { used = true; closeFn(); await applyToPage(pageId, 'replace', outputMd('plain'), where); toast('Đã thay đoạn đã chọn.'); });
     $('ai-copy').addEventListener('click', () => copyText(outputMd(st.format)).then(() => toast('Đã copy Markdown.')));
   };
+  const att = createAttachBox({ button: $('ai-attach'), input: $('ai-file'), chips: $('ai-att'), textarea: $('ai-q'), dropZone: $('ai-compose') });
   drawSources();
   if (/\?\s*$/.test(selection.trim()) && selection.length < 400) body.querySelector('#ai-q').value = selection.trim();
-  return dialog({
-    title: '✨ Hỏi AI dựa trên paper và ghi chú',
-    body, width: 1060,
-    buttons: [{ label: 'Đóng', value: null }],
-    onOpen: (_, close) => { closeFn = close; bind(); setTimeout(() => $('ai-q').focus(), 30); },
-  }).then((v) => { st.abort?.abort(); return v; });
+  function track() {
+    trackJob(key, job, {
+      label: '✨ Hỏi AI với nguồn', title: st.question || page?.title || '',
+      open: show, onDismiss: () => { st.abort?.abort(); }, keep: true,
+      here: () => !parked, expectedMs: () => 30000,
+      doneText: () => 'Đã có câu trả lời. Bấm Mở để xem rồi chèn vào trang.',
+    });
+  }
+  // Hộp thoại đóng: còn việc hoặc câu trả lời chưa dùng (và không bấm Đóng) thì thu nhỏ vào bảng việc nền.
+  function closed(v) {
+    if (!used && v !== 'close' && (st.busy || st.answer)) {
+      parked = true;
+      if (job) track();
+      return v;
+    }
+    st.abort?.abort();
+    untrackJob(key);
+    return v;
+  }
+  async function show() {
+    await gotoPage(pageId);
+    parked = false;
+    return dialog({
+      title: '✨ Hỏi AI dựa trên paper và ghi chú',
+      body, width: 1060,
+      buttons: [{ label: 'Đóng', value: 'close' }],
+      onOpen: (_, close) => { closeFn = close; if (!bound) { bind(); bound = true; } setTimeout(() => $('ai-q').focus(), 30); },
+    }).then(closed);
+  }
+  return show();
 }

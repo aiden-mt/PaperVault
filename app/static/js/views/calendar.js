@@ -1,16 +1,22 @@
 // Trang Lịch (#/calendar[?d=YYYY-MM-DD]): kế hoạch theo tháng / tuần / danh sách, nối với nhật ký và việc có hạn
 // trong Sổ tay. Dữ liệu ở ../calendar.js; nhật ký và việc có hạn ở ../notebook.js.
+import { srsStats } from '../srs.js';
 import { store, paperById } from '../store.js';
 import { $, toast, dialog, confirmDialog } from '../ui.js';
-import { escapeHtml } from '../util.js';
+import { escapeHtml, download, fmtRelative } from '../util.js';
+import { eventsToIcs, parseIcs } from '../ics.js';
+import { askNotifyPermission } from '../reminders.js';
 import { plainTitle } from '../richtext.js';
+import { lunarOf, lunarShort, holidaysOf, yearName, yearAnimal, monthLabel, monthName, dayName } from '../lunar.js';
 import {
-  CATS, catOf, REPEATS, loadEvents, saveEvent, removeEvent, toggleDone, occurrences, onCalendarChange, allEvents,
+  CATS, catOf, REPEATS, REMINDS, hasRemind, loadEvents, saveEvent, saveEvents, removeEvent, toggleDone, occurrences, onCalendarChange, allEvents,
+  ownEvents, feedCatList,
   ymd, parseYmd, addDays, weekStart, WEEKDAYS, fmtDay,
 } from '../calendar.js';
 import {
   loadPages, allPages, pageById, pageLabel, paperShort, dailyPage, ensureDailyPage, datedTasks, toggleDatedTask, onPagesChange,
 } from '../notebook.js';
+import { loadFeeds, allFeeds, addFeed, updateFeed, removeFeed, syncFeed, onFeedsChange, FEED_COLORS } from '../calfeeds.js';
 
 const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { /* bỏ qua */ } return null; };
 const MONTHS = ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6', 'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'];
@@ -26,6 +32,8 @@ export async function render(root, { query }) {
     tasks: LS('pv.calTasks') !== '0',
     full: LS('pv.calFull') === '1',     // tuần: hiện cả 0–24h thay vì 7–23h
     side: LS('pv.calSide') !== '0',     // bảng ngày bên phải
+    lunar: LS('pv.calLunar') !== '0',   // ngày âm lịch trong ô ngày
+    hol: LS('pv.calHol') !== '0',       // ngày lễ Việt Nam
   };
   // Khung hẹp (≤ 1000px): bảng ngày bên phải thành ngăn trượt, mặc định đóng, bấm một ngày thì mở (không lưu lựa chọn này).
   const narrow = () => window.matchMedia('(max-width: 1000px)').matches;
@@ -35,9 +43,15 @@ export async function render(root, { query }) {
     <section class="cal-main">
       <div class="cal-head">
         <div class="cal-nav"><button type="button" class="sm" id="cal-prev" title="Trước">‹</button><button type="button" class="sm" id="cal-today">Hôm nay</button><button type="button" class="sm" id="cal-next" title="Sau">›</button></div>
-        <h2 id="cal-title"></h2>
+        <h2 id="cal-title"></h2><span class="cal-lyear" id="cal-lyear"></span>
         <span class="spacer"></span>
         <div class="seg" id="cal-view"><button data-v="month">Tháng</button><button data-v="week">Tuần</button><button data-v="agenda">Danh sách</button></div>
+        <span class="sel-pick"><button type="button" class="sm" id="cal-more" aria-haspopup="menu" title="Đăng ký lịch Google, xuất / nhập .ics">⋯</button>
+          <div class="menu right" id="cal-menu" role="menu" hidden>
+            <button data-ics="feeds">Đăng ký lịch qua link (Google Calendar…)…</button><hr>
+            <button data-ics="export">Xuất lịch ra file .ics</button><button data-ics="import">Nhập file .ics…</button>
+            <div class="menu-hint hint">File .ics mở được bằng Google Calendar, Outlook, Apple Calendar.</div></div></span>
+        <input type="file" id="cal-ics-file" accept=".ics,text/calendar" hidden>
         <button type="button" class="sm" id="cal-side-t" title="Ẩn / hiện bảng ngày bên phải">◧</button>
         <button type="button" class="primary" id="cal-add">+ Kế hoạch</button>
       </div>
@@ -47,12 +61,13 @@ export async function render(root, { query }) {
     <aside class="cal-side" id="cal-side"></aside>
   </div>`;
 
-  await Promise.all([loadEvents(), loadPages()]);
+  await Promise.all([loadEvents(), loadPages(), loadFeeds().catch(() => null)]);
 
   /* ---------- dữ liệu của một khoảng ngày ---------- */
   function itemsIn(from, to) {
     const map = new Map();
     const add = (d, it) => { if (!map.has(d)) map.set(d, []); map.get(d).push(it); };
+    if (st.hol) for (let d = parseYmd(from); ymd(d) <= to; d = addDays(d, 1)) { const s = ymd(d); for (const h of holidaysOf(s)) add(s, { kind: 'hol', date: s, ...h }); }
     for (const o of occurrences(from, to)) if (!st.hidden.has(o.ev.cat || 'other')) add(o.date, { kind: 'ev', ...o });
     if (st.tasks) for (const t of datedTasks()) if (t.date >= from && t.date <= to) add(t.date, { kind: 'task', ...t });
     return map;
@@ -66,18 +81,41 @@ export async function render(root, { query }) {
     if (st.view === 'week') { const a = weekStart(c); const b = addDays(a, 6); title = `Tuần ${a.getDate()}/${a.getMonth() + 1} – ${b.getDate()}/${b.getMonth() + 1}/${b.getFullYear()}`; }
     if (st.view === 'agenda') title = `Từ ${fmtDay(st.sel)}`;
     $('cal-title').textContent = title;
+    // Năm âm lịch: lấy theo giữa khoảng đang xem; khoảng vắt qua Tết thì ghi cả hai năm.
+    const span = st.view === 'month' ? [new Date(c.getFullYear(), c.getMonth(), 1), new Date(c.getFullYear(), c.getMonth() + 1, 0)]
+      : st.view === 'week' ? [weekStart(c), addDays(weekStart(c), 6)] : [parseYmd(st.sel), addDays(parseYmd(st.sel), 30)];
+    const la = lunarOf(ymd(span[0]));
+    const lb = lunarOf(ymd(span[1]));
+    const yName = (y) => `${yearAnimal(y).icon} năm ${yearName(y)}`;
+    const months = la.month === lb.month && la.leap === lb.leap ? monthLabel(la) : `${monthLabel(la)} – ${monthLabel(lb)}`;
+    $('cal-lyear').innerHTML = st.lunar || st.hol
+      ? `<b title="Năm âm lịch ${escapeHtml(yearName(lb.year))}: con ${escapeHtml(yearAnimal(lb.year).name)}">${escapeHtml(la.year === lb.year ? yName(la.year) : `${yName(la.year)} → ${yName(lb.year)}`)}</b><span class="hint"> · âm lịch ${escapeHtml(months)}</span>`
+      : `<span title="Năm âm lịch">${escapeHtml(yName(lb.year))}</span>`;
     $('cal-view').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === st.view));
     $('cal-filters').innerHTML = `${CATS.map(([k, l, col]) => `<button type="button" class="cal-fchip ${st.hidden.has(k) ? 'off' : ''}" data-cat="${k}" style="--c:${col}" title="${st.hidden.has(k) ? 'Đang ẩn, bấm để hiện' : 'Bấm để ẩn'}"><i></i>${escapeHtml(l)}</button>`).join('')}
-      <button type="button" class="cal-fchip ${st.tasks ? '' : 'off'}" data-tasks="1" style="--c:#0891b2" title="Việc cần làm có hạn 📅 trong Sổ tay"><i></i>Việc trong Sổ tay</button>`;
+      <button type="button" class="cal-fchip ${st.tasks ? '' : 'off'}" data-tasks="1" style="--c:#0891b2" title="Việc cần làm có hạn 📅 trong Sổ tay"><i></i>Việc trong Sổ tay</button>
+      <button type="button" class="cal-fchip ${st.hol ? '' : 'off'}" data-hol="1" style="--c:#dc2626" title="Ngày lễ, Tết và ngày kỷ niệm của Việt Nam (dương và âm lịch)"><i></i>Ngày lễ Việt Nam</button>
+      <button type="button" class="cal-fchip ${st.lunar ? '' : 'off'}" data-lunar="1" style="--c:#a16207" title="Ngày âm lịch trong từng ô ngày"><i></i>Âm lịch</button>
+      ${feedCatList().map(([k, l, col]) => `<button type="button" class="cal-fchip feed ${st.hidden.has(k) ? 'off' : ''}" data-cat="${escapeHtml(k)}" style="--c:${escapeHtml(col)}" title="Lịch đăng ký (chỉ đọc) · ${st.hidden.has(k) ? 'đang ẩn, bấm để hiện' : 'bấm để ẩn'}"><i></i>🔗 ${escapeHtml(l)}</button>`).join('')}`;
   }
 
   /* ---------- các chế độ xem ---------- */
   const chip = (it) => {
+    if (it.kind === 'hol') return `<div class="cal-chip hol ${it.off ? 'off' : ''}" title="${escapeHtml(`${it.name}${it.off ? ' · nghỉ lễ' : ''}${it.lunar ? ' · theo âm lịch' : ''}`)}">${escapeHtml(it.name)}</div>`;
     if (it.kind === 'task') return `<div class="cal-chip task ${it.done ? 'done' : ''}" data-task="${it.pageId}:${it.line}" title="${escapeHtml(`${it.text} · trong ${pageLabel(pageById(it.pageId) || {})} · bấm để mở trang`)}"><span class="cal-box">${it.done ? '☑' : '☐'}</span>${escapeHtml(it.text)}</div>`;
     const [, , col] = catOf(it.ev.cat);
     const rep = it.ev.repeat && it.ev.repeat !== 'none';
-    return `<div class="cal-chip ${it.done ? 'done' : ''}" draggable="${rep ? 'false' : 'true'}" data-ev="${it.ev.id}" data-date="${it.date}" style="--c:${col}" title="${escapeHtml(`${it.ev.start ? `${it.ev.start}${it.ev.end ? `–${it.ev.end}` : ''} ` : ''}${it.ev.title}${rep ? ' (lặp lại)' : ''}`)}">${it.ev.start ? `<b>${escapeHtml(it.ev.start)}</b> ` : ''}${rep ? '↻ ' : ''}${escapeHtml(it.ev.title)}</div>`;
+    const bell = hasRemind(it.ev);
+    const remTxt = bell ? ` · nhắc: ${((REMINDS.find((x) => x[0] === String(it.ev.remind)) || [])[1] || '').toLowerCase()}` : '';
+    return `<div class="cal-chip ${it.done ? 'done' : ''} ${it.ev.feed ? 'feed' : ''}" draggable="${rep || it.ev.feed ? 'false' : 'true'}" data-ev="${it.ev.id}" data-date="${it.date}" style="--c:${col}" title="${escapeHtml(`${it.ev.start ? `${it.ev.start}${it.ev.end ? `–${it.ev.end}` : ''} ` : ''}${it.ev.title}${rep ? ' (lặp lại)' : ''}${remTxt}`)}">${it.ev.start ? `<b>${escapeHtml(it.ev.start)}</b> ` : ''}${rep ? '↻ ' : ''}${bell ? '<span class="cal-bell">🔔</span>' : ''}${escapeHtml(it.ev.title)}</div>`;
   };
+
+  /** Ngày âm nhỏ ở góc ô ngày (mùng 1 ghi cả tháng, tô đậm; rằm tô màu). */
+  function lunarTag(s) {
+    if (!st.lunar) return '';
+    const l = lunarOf(s);
+    return `<span class="cal-lunar ${l.day === 1 ? 'first' : ''} ${l.day === 15 ? 'full' : ''}" title="Âm lịch: ngày ${l.day} ${escapeHtml(monthLabel(l))} năm ${escapeHtml(yearName(l.year))}">${lunarShort(l)}</span>`;
+  }
 
   function drawMonth() {
     const first = new Date(st.cursor.getFullYear(), st.cursor.getMonth(), 1);
@@ -88,7 +126,7 @@ export async function render(root, { query }) {
       const s = ymd(d);
       const items = map.get(s) || [];
       return `<div class="cal-cell ${d.getMonth() !== st.cursor.getMonth() ? 'out' : ''} ${s === todayStr ? 'today' : ''} ${s === st.sel ? 'sel' : ''} ${d.getDay() === 0 || d.getDay() === 6 ? 'wkend' : ''}" data-date="${s}">
-        <div class="cal-dn"><span class="cal-dnum">${d.getDate()}</span>${hasDiary(s) ? '<span class="cal-diary" title="Có nhật ký ngày này">📓</span>' : ''}</div>
+        <div class="cal-dn"><span class="cal-dnum ${items.some((x) => x.kind === 'hol' && x.off) ? 'off' : ''}">${d.getDate()}</span>${hasDiary(s) ? '<span class="cal-diary" title="Có nhật ký ngày này">📓</span>' : ''}${lunarTag(s)}</div>
         <div class="cal-items">${items.slice(0, 3).map(chip).join('')}${items.length > 3 ? `<div class="cal-more">+${items.length - 3} nữa</div>` : ''}</div></div>`;
     }).join('')}</div></div>`;
   }
@@ -156,12 +194,12 @@ export async function render(root, { query }) {
     };
     const allday = (d) => {
       const s = ymd(d);
-      const items = (map.get(s) || []).filter((it) => it.kind === 'task' || mins(it.ev.start) == null);
+      const items = (map.get(s) || []).filter((it) => it.kind !== 'ev' || mins(it.ev.start) == null);
       return `<div class="cw-ad ${s === todayStr ? 'today' : ''}" data-date="${s}">${items.map(chip).join('')}</div>`;
     };
     $('cal-body').innerHTML = `<div class="cw" style="--hp:${HOUR_PX}px;--hours:${hours}">
       <div class="cw-head"><div class="cw-corner"><button type="button" class="sm cw-full" id="cw-full" title="${st.full ? 'Chỉ hiện 7–23h' : 'Hiện cả ngày 0–24h'}">⇕ ${st.full ? '7–23h' : '0–24h'}</button></div>
-        ${days.map((d, i) => { const s = ymd(d); return `<div class="cw-dh ${s === todayStr ? 'today' : ''} ${s === st.sel ? 'sel' : ''}" data-date="${s}"><span>${WEEKDAYS[i]}</span><b>${d.getDate()}</b>${hasDiary(s) ? '<span class="cal-diary" title="Có nhật ký">📓</span>' : ''}</div>`; }).join('')}</div>
+        ${days.map((d, i) => { const s = ymd(d); return `<div class="cw-dh ${s === todayStr ? 'today' : ''} ${s === st.sel ? 'sel' : ''}" data-date="${s}"><span>${WEEKDAYS[i]}</span><b>${d.getDate()}</b>${hasDiary(s) ? '<span class="cal-diary" title="Có nhật ký">📓</span>' : ''}${lunarTag(s)}</div>`; }).join('')}</div>
       <div class="cw-allrow"><div class="cw-ad-l">Cả ngày</div>${days.map(allday).join('')}</div>
       <div class="cw-scroll" id="cw-scroll"><div class="cw-grid">
         <div class="cw-times">${Array.from({ length: hours }, (_, k) => `<span style="top:${k * HOUR_PX}px">${String(h0 + k).padStart(2, '0')}:00</span>`).join('')}</div>
@@ -224,6 +262,7 @@ export async function render(root, { query }) {
       e.preventDefault();
       const ev = allEvents().find((k) => k.id === block.dataset.ev);
       if (!ev) return;
+      if (ev.feed) { editEvent(ev, block.dataset.date); return; }
       const resize = !!e.target.closest('[data-rs]');
       const a0 = Number(block.dataset.a), b0 = Number(block.dataset.b);
       const y0 = e.clientY;
@@ -271,7 +310,7 @@ export async function render(root, { query }) {
     const map = itemsIn(from, to);
     // Quá hạn: việc chưa xong trước hôm nay (kế hoạch một lần và việc có hạn trong Sổ tay)
     const overdue = [
-      ...allEvents().filter((e) => (!e.repeat || e.repeat === 'none') && !e.done && e.date < todayStr && !st.hidden.has(e.cat || 'other')).map((e) => ({ kind: 'ev', ev: e, date: e.date, done: false })),
+      ...ownEvents().filter((e) => (!e.repeat || e.repeat === 'none') && !e.done && e.date < todayStr && !st.hidden.has(e.cat || 'other')).map((e) => ({ kind: 'ev', ev: e, date: e.date, done: false })),
       ...(st.tasks ? datedTasks().filter((t) => !t.done && t.date < todayStr).map((t) => ({ kind: 'task', ...t })) : []),
     ].sort((a, b) => a.date.localeCompare(b.date));
     const dates = [...map.keys()].sort();
@@ -282,6 +321,7 @@ export async function render(root, { query }) {
 
   /** Một dòng kế hoạch / việc (dùng ở bảng bên và chế độ Danh sách). */
   function rowHtml(it, showDate = false) {
+    if (it.kind === 'hol') return `<div class="cal-row cal-hol-row ${it.off ? 'off' : ''}"><span class="cal-feed-ic">🏮</span><div class="cal-row-b"><span class="cal-row-t">${escapeHtml(it.name)}</span><span class="hint">${it.off ? 'Nghỉ lễ' : 'Ngày kỷ niệm'}${it.lunar ? ' · theo âm lịch' : ''}</span></div></div>`;
     if (it.kind === 'task') {
       const pg = pageById(it.pageId);
       return `<div class="cal-row ${it.done ? 'done' : ''}"><input type="checkbox" data-task-cb="${it.pageId}:${it.line}" ${it.done ? 'checked' : ''}><span class="cal-dot" style="--c:#0891b2"></span>
@@ -291,11 +331,11 @@ export async function render(root, { query }) {
     const [, cl, col] = catOf(e.cat);
     const paper = e.paperId && paperById(e.paperId);
     const page = e.pageId && pageById(e.pageId);
-    return `<div class="cal-row ${it.done ? 'done' : ''}"><input type="checkbox" data-ev-cb="${e.id}" data-date="${it.date}" ${it.done ? 'checked' : ''}><span class="cal-dot" style="--c:${col}" title="${escapeHtml(cl)}"></span>
+    return `<div class="cal-row ${it.done ? 'done' : ''}">${e.feed ? '<span class="cal-feed-ic" title="Lịch đăng ký (chỉ đọc)">🔗</span>' : `<input type="checkbox" data-ev-cb="${e.id}" data-date="${it.date}" ${it.done ? 'checked' : ''}>`}<span class="cal-dot" style="--c:${col}" title="${escapeHtml(cl)}"></span>
       <div class="cal-row-b"><span class="cal-row-t">${e.start ? `<b>${escapeHtml(e.start)}${e.end ? `–${escapeHtml(e.end)}` : ''}</b> ` : ''}${escapeHtml(e.title)}${e.repeat && e.repeat !== 'none' ? ' <span class="hint">↻</span>' : ''}</span>
         <span class="hint">${showDate ? `${escapeHtml(fmtDay(it.date))} · ` : ''}${escapeHtml(cl)}${paper ? ` · <a href="#/paper/${paper.id}">📄 ${escapeHtml(paperShort(paper))}</a>` : ''}${page ? ` · <a href="#/notebook/${page.id}">📓 ${escapeHtml(pageLabel(page))}</a>` : ''}</span>
         ${e.notes ? `<span class="cal-notes">${escapeHtml(e.notes)}</span>` : ''}</div>
-      <button type="button" class="nb-ico" data-edit="${e.id}" data-date="${it.date}" title="Sửa">✎</button></div>`;
+      <button type="button" class="nb-ico" data-edit="${e.id}" data-date="${it.date}" title="${e.feed ? 'Xem' : 'Sửa'}">${e.feed ? 'ⓘ' : '✎'}</button></div>`;
   }
 
   /* ---------- bảng bên: ngày đang chọn ---------- */
@@ -306,7 +346,11 @@ export async function render(root, { query }) {
     const tasks = items.filter((x) => x.kind === 'task');
     const diary = dailyPage(d);
     const snip = diary ? String(diary.content || '').replace(/!?\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g, (m, x, y) => y || x.replace(/^@/, '')).replace(/[#>*`[\]!-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) : '';
+    const ld = lunarOf(d);
+    const hols = st.hol ? holidaysOf(d) : [];
     $('cal-side').innerHTML = `<div class="cal-sd-h"><h3>${escapeHtml(fmtDay(d))}</h3>${d === todayStr ? '<span class="badge accent">Hôm nay</span>' : ''}</div>
+      <div class="cal-sd-lunar">☾ Âm lịch: ngày <b>${ld.day}</b> ${escapeHtml(monthLabel(ld))} năm <b>${escapeHtml(yearName(ld.year))}</b> ${yearAnimal(ld.year).icon}<span class="hint"> · ngày ${escapeHtml(dayName(ld.jd))}, tháng ${escapeHtml(monthName(ld.month, ld.year))}</span>
+        ${hols.length ? `<div class="cal-sd-hol">${hols.map((h) => `<span class="badge ${h.off ? 'danger' : ''}">🏮 ${escapeHtml(h.name)}${h.off ? ' · nghỉ' : ''}</span>`).join(' ')}</div>` : ''}</div>
       <div class="cal-card cal-diary-card">${diary
         ? `<div class="cal-card-h">📓 Nhật ký ngày này<span class="spacer"></span><button type="button" class="sm" data-diary="${d}">Mở</button></div>${snip ? `<div class="hint">${escapeHtml(snip)}…</div>` : ''}`
         : `<div class="cal-card-h">📓 Chưa có nhật ký<span class="spacer"></span><button type="button" class="sm" data-diary="${d}">+ Tạo nhật ký</button></div><div class="hint">Trang nhật ký của ngày này trong Sổ tay, có sẵn khung đọc gì / ý tưởng / việc cần làm.</div>`}</div>
@@ -336,11 +380,13 @@ export async function render(root, { query }) {
     const slots = d >= todayStr ? freeSlots(d, evs) : [];
     const reading = store.papers.filter((p) => !p.deleted && p.status === 'reading').slice(0, 4);
     const planned = new Set(allEvents().map((e) => e.paperId).filter(Boolean));
+    const cards = d === todayStr ? srsStats(store.papers) : { due: 0 };
     return `<div class="cal-card cal-plan">
         <div class="cal-card-h">📊 Tổng quan ngày<span class="spacer"></span><button type="button" class="sm primary" data-add-day="${d}">+ Thêm kế hoạch</button></div>
         <div class="cal-stats"><span><b>${done}/${all.length}</b> đã xong</span><span><b>${evs.length}</b> kế hoạch</span><span><b>${fmtDur(busyMin)}</b> đã xếp lịch</span></div>
         ${all.length ? `<div class="cal-progress" title="${done}/${all.length} việc đã xong"><i style="width:${Math.round((done / all.length) * 100)}%"></i></div>` : ''}
       </div>
+      ${d === todayStr && cards.due ? `<a class="cal-card cal-srs" href="#/notes?mode=review" title="Mở lượt ôn thẻ hôm nay">🗂 <b>${cards.due}</b> thẻ ghi nhớ cần ôn hôm nay${cards.fresh ? ` <span class="hint">(${cards.fresh} thẻ mới)</span>` : ''}<span class="spacer"></span><span class="cal-srs-go">Ôn ngay →</span></a>` : ''}
       ${d >= todayStr ? `<div class="cal-card"><div class="cal-card-h">🕘 Khoảng trống <span class="hint">(8–22h)</span></div>
         ${slots.length ? `<div class="cal-slots">${slots.map(([a, b]) => `<button type="button" class="cal-slot" data-slot="${a}" data-slot-end="${Math.min(b, a + 60)}" title="Bấm để thêm việc vào ${hhmm(a)}–${hhmm(Math.min(b, a + 60))}">${hhmm(a)}–${hhmm(b)} <span class="hint">${fmtDur(b - a)}</span></button>`).join('')}</div>` : '<div class="hint">Không còn khoảng trống từ 30 phút trở lên.</div>'}</div>` : ''}
       ${reading.length && d >= todayStr ? `<div class="cal-card"><div class="cal-card-h">📚 Gợi ý lên lịch đọc <span class="hint">(paper “Đang đọc”)</span></div>
@@ -356,7 +402,25 @@ export async function render(root, { query }) {
   }
 
   /* ---------- hộp thoại kế hoạch ---------- */
+  /** Sự kiện của lịch đăng ký: chỉ xem, có thể chép thành kế hoạch của mình. */
+  async function viewFeedEvent(ev, occDate) {
+    const [, name, col] = catOf(ev.cat);
+    const when = `${fmtDay(occDate || ev.date)}${ev.start ? ` · ${ev.start}${ev.end ? `–${ev.end}` : ''}` : ' · cả ngày'}${ev.repeat && ev.repeat !== 'none' ? ` · ${(REPEATS.find((r) => r[0] === ev.repeat) || [])[1] || ''}` : ''}`;
+    const r = await dialog({
+      title: ev.title, width: 520,
+      body: `<div class="cal-fv"><div><span class="cal-dot" style="--c:${escapeHtml(col)}"></span> <b>${escapeHtml(name)}</b> <span class="hint">· lịch đăng ký, chỉ đọc</span></div>
+        <div class="hint" style="margin-top:6px">${escapeHtml(when)}</div>
+        ${ev.notes ? `<div class="cal-notes" style="margin-top:10px">${escapeHtml(ev.notes)}</div>` : ''}
+        <p class="hint" style="margin-top:12px">Sửa sự kiện này ở lịch gốc (Google Calendar…); PaperVault tự tải lại mỗi 30 phút. Muốn gắn paper, nhắc việc hay ghi chú riêng thì chép thành kế hoạch của bạn.</p></div>`,
+      buttons: [{ label: 'Đóng', value: null }, { label: 'Chép thành kế hoạch của tôi', value: 'copy', primary: true }],
+    });
+    if (r !== 'copy') return;
+    const { id, feed, cat, icsUid, ...rest } = ev;
+    return editEvent({ ...rest, date: occDate || ev.date, repeat: 'none', until: '', cat: 'other' });
+  }
+
   async function editEvent(ev = {}, occDate = '') {
+    if (ev.feed) return viewFeedEvent(ev, occDate);
     const isNew = !ev.id;
     const papers = store.papers.filter((p) => !p.deleted).sort((a, b) => plainTitle(a.title).localeCompare(plainTitle(b.title)));
     const pages = allPages().sort((a, b) => (a.title || '').localeCompare(b.title || '', 'vi'));
@@ -371,6 +435,7 @@ export async function render(root, { query }) {
           <label class="field"><span class="label-text">Loại</span><select id="ce-cat">${CATS.map(([k, l]) => `<option value="${k}" ${(ev.cat || 'read') === k ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select></label>
           <label class="field"><span class="label-text">Lặp lại</span><select id="ce-rep">${REPEATS.map(([k, l]) => `<option value="${k}" ${(ev.repeat || 'none') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label class="field"><span class="label-text">Lặp đến ngày <span class="hint">(trống = mãi)</span></span><input type="date" id="ce-until" value="${escapeHtml(ev.until || '')}"></label>
+          <label class="field"><span class="label-text">Nhắc việc <span class="hint" id="ce-rem-h">${ev.start ? '' : '(cả ngày: tính từ 8:00)'}</span></span><select id="ce-remind">${REMINDS.map(([k, l]) => `<option value="${k}" ${String(ev.remind ?? '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         </div>
         <div class="cal-form two">
           <label class="field"><span class="label-text">Gắn paper <span class="hint">(tuỳ chọn)</span></span><select id="ce-paper"><option value="">—</option>${papers.map((p) => `<option value="${p.id}" ${ev.paperId === p.id ? 'selected' : ''}>${escapeHtml(plainTitle(p.title).slice(0, 90))}</option>`).join('')}</select></label>
@@ -386,11 +451,16 @@ export async function render(root, { query }) {
           const title = b.querySelector('#ce-title').value.trim();
           const date = b.querySelector('#ce-date').value;
           if (!title || !date) { toast('Nhập tên và ngày.', 2500, 'err'); return false; }
-          close({ title, date, start: b.querySelector('#ce-start').value, end: b.querySelector('#ce-end').value, cat: b.querySelector('#ce-cat').value, repeat: b.querySelector('#ce-rep').value, until: b.querySelector('#ce-until').value, paperId: b.querySelector('#ce-paper').value, pageId: b.querySelector('#ce-page').value, notes: b.querySelector('#ce-notes').value.trim() });
+          close({ title, date, start: b.querySelector('#ce-start').value, end: b.querySelector('#ce-end').value, cat: b.querySelector('#ce-cat').value, repeat: b.querySelector('#ce-rep').value, until: b.querySelector('#ce-until').value, remind: b.querySelector('#ce-remind').value, paperId: b.querySelector('#ce-paper').value, pageId: b.querySelector('#ce-page').value, notes: b.querySelector('#ce-notes').value.trim() });
           return false;
         } },
       ],
-      onOpen: (b) => setTimeout(() => b.querySelector('#ce-title').focus(), 30),
+      onOpen: (b) => {
+        setTimeout(() => b.querySelector('#ce-title').focus(), 30);
+        const st0 = b.querySelector('#ce-start');
+        st0.addEventListener('input', () => { b.querySelector('#ce-rem-h').textContent = st0.value ? '' : '(cả ngày: tính từ 8:00)'; });
+        b.querySelector('#ce-remind').addEventListener('change', askNotifyPermission);
+      },
     });
     if (!r) return;
     if (r === 'delete') {
@@ -414,6 +484,52 @@ export async function render(root, { query }) {
   $('cal-today').addEventListener('click', () => { st.cursor = new Date(); st.sel = todayStr; draw(); });
   $('cal-view').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; st.view = b.dataset.v; LS('pv.calView', st.view); if (st.view !== 'agenda') st.cursor = parseYmd(st.sel); draw(); });
   $('cal-add').addEventListener('click', () => editEvent({ date: st.sel }));
+  /* ---------- xuất / nhập .ics ---------- */
+  $('cal-more').addEventListener('click', (e) => { e.stopPropagation(); $('cal-menu').hidden = !$('cal-menu').hidden; });
+  const closeMenu = (e) => { if ($('cal-menu') && !e.target?.closest?.('#cal-menu, #cal-more')) $('cal-menu').hidden = true; };
+  document.addEventListener('pointerdown', closeMenu, true);
+  window.addEventListener('pv:pane-pointerdown', closeMenu);
+  $('cal-menu').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-ics]');
+    if (!b) return;
+    $('cal-menu').hidden = true;
+    if (b.dataset.ics === 'import') { $('cal-ics-file').click(); return; }
+    if (b.dataset.ics === 'feeds') { manageFeeds(); return; }
+    const list = ownEvents();
+    if (!list.length) { toast('Lịch chưa có kế hoạch nào để xuất.', 3000); return; }
+    await download(`papervault-lich-${todayStr}.ics`, eventsToIcs(list), 'text/calendar;charset=utf-8', { note: `${list.length} kế hoạch.` });
+  });
+  $('cal-ics-file').addEventListener('change', async (ev) => {
+    const f = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!f) return;
+    let parsed;
+    try { parsed = parseIcs(await f.text()); } catch (e2) { toast(`Không đọc được file .ics: ${e2.message}`, 5000, 'err'); return; }
+    if (!parsed.events.length) { toast('File không có sự kiện nào nhập được.', 4000, 'err'); return; }
+    // Nhập lại cùng file: khớp theo UID (sự kiện do PaperVault xuất có UID "<id>@papervault").
+    const byUid = new Map(ownEvents().map((x) => [x.icsUid || `${x.id}@papervault`, x]));
+    const fresh = parsed.events.filter((x) => !x.icsUid || !byUid.has(x.icsUid));
+    const dup = parsed.events.filter((x) => x.icsUid && byUid.has(x.icsUid));
+    const dates = parsed.events.map((x) => x.date).sort();
+    const how = await dialog({
+      title: 'Nhập lịch .ics', width: 520,
+      body: `<p><b>${escapeHtml(f.name)}</b>: ${parsed.events.length} sự kiện, từ ${escapeHtml(fmtDay(dates[0]))} đến ${escapeHtml(fmtDay(dates[dates.length - 1]))}.</p>
+        <p>${fresh.length} sự kiện mới${dup.length ? `, <b>${dup.length}</b> đã có trong Lịch (cùng UID)` : ''}${parsed.skipped ? `, bỏ qua ${parsed.skipped} mục không hỗ trợ` : ''}.</p>
+        ${dup.length ? '<label class="check"><input type="checkbox" id="ics-upd" checked> Cập nhật các sự kiện đã có theo file</label>' : ''}
+        <label class="field" style="margin-top:8px"><span class="label-text">Loại cho sự kiện không rõ loại</span><select id="ics-cat">${CATS.map(([k, l]) => `<option value="${k}" ${k === 'other' ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select></label>`,
+      buttons: [{ label: 'Huỷ', value: null }, { label: 'Nhập', primary: true, onClick: (bd, close) => { close({ upd: !!bd.querySelector('#ics-upd')?.checked, cat: bd.querySelector('#ics-cat').value }); return false; } }],
+    });
+    if (!how) return;
+    const fix = (x) => ({ ...x, cat: x.cat === 'other' ? how.cat : x.cat });
+    const upd = how.upd ? dup.map((x) => { const old = byUid.get(x.icsUid); return { ...old, ...x, id: old.id, icsUid: old.icsUid || '', cat: x.cat === 'other' ? old.cat : x.cat }; }) : [];
+    const list = [...fresh.map(fix), ...upd];
+    if (!list.length) { toast('Không có gì thay đổi.', 2500); return; }
+    await saveEvents(list);
+    st.sel = dates.find((d) => d >= todayStr) || dates[dates.length - 1];
+    st.cursor = parseYmd(st.sel);
+    draw();
+    toast(`Đã nhập ${fresh.length} sự kiện mới${upd.length ? `, cập nhật ${upd.length}` : ''}.`, 4000, 'ok');
+  });
   const setSide = (on, remember = !narrow()) => { st.side = on; if (remember) LS('pv.calSide', on ? '1' : '0'); root.querySelector('.cal-page').classList.toggle('noside', !on); };
   $('cal-side-t').addEventListener('click', () => setSide(!st.side));
   root.querySelector('.cal-scrim').addEventListener('click', () => setSide(false));
@@ -445,6 +561,8 @@ export async function render(root, { query }) {
     const c = e.target.closest('[data-cat]');
     if (c) { if (st.hidden.has(c.dataset.cat)) st.hidden.delete(c.dataset.cat); else st.hidden.add(c.dataset.cat); LS('pv.calHidden', JSON.stringify([...st.hidden])); draw(); return; }
     if (e.target.closest('[data-tasks]')) { st.tasks = !st.tasks; LS('pv.calTasks', st.tasks ? '1' : '0'); draw(); }
+    if (e.target.closest('[data-hol]')) { st.hol = !st.hol; LS('pv.calHol', st.hol ? '1' : '0'); draw(); }
+    if (e.target.closest('[data-lunar]')) { st.lunar = !st.lunar; LS('pv.calLunar', st.lunar ? '1' : '0'); draw(); }
   });
   const page = root.querySelector('.cal-page');
   page.addEventListener('click', async (e) => {
@@ -491,14 +609,86 @@ export async function render(root, { query }) {
     if (!id || !cell) return;
     e.preventDefault();
     const x = allEvents().find((k) => k.id === id);
-    if (!x || x.date === cell.dataset.date) return;
+    if (!x || x.feed || x.date === cell.dataset.date) return;
     await saveEvent({ ...x, date: cell.dataset.date });
     toast(`Đã dời “${x.title}” sang ${fmtDay(cell.dataset.date)}.`);
     draw();
   });
 
+  /* ---------- lịch đăng ký qua link .ics ---------- */
+  async function manageFeeds() {
+    let box = null;
+    const statusOf = (f) => (f.error
+      ? `<span class="status err">Lỗi: ${escapeHtml(f.error)}</span>`
+      : f.lastSync ? `${f.count || 0} sự kiện · tải lúc ${escapeHtml(fmtRelative(f.lastSync))}` : 'Chưa tải');
+    const drawList = () => {
+      const list = box?.querySelector('#cf-list');
+      if (!list) return;
+      const fs = allFeeds();
+      list.innerHTML = fs.length ? fs.map((f) => `<div class="cf-row" data-id="${escapeHtml(f.id)}">
+          <input type="color" value="${escapeHtml(f.color || FEED_COLORS[0])}" data-cf="color" title="Màu của lịch">
+          <div class="cf-b"><input class="cf-name" value="${escapeHtml(f.name || '')}" data-cf="name" aria-label="Tên lịch"><span class="hint">${statusOf(f)}</span></div>
+          <label class="check" title="Hiện lịch này"><input type="checkbox" data-cf="on" ${f.on !== false ? 'checked' : ''}> Hiện</label>
+          <button type="button" class="sm" data-cf="sync" title="Tải lại ngay">↻</button>
+          <button type="button" class="ghost sm danger" data-cf="del" title="Bỏ đăng ký">✕</button></div>`).join('')
+        : '<div class="hint">Chưa đăng ký lịch nào.</div>';
+    };
+    const unsub = onFeedsChange(drawList);
+    await dialog({
+      title: 'Đăng ký lịch qua link', width: 640,
+      body: `<p class="hint" style="margin-top:0">Sự kiện của lịch đăng ký hiện cùng kế hoạch (chỉ đọc, màu riêng), được tính khi tìm khoảng trống trong ngày và tự tải lại mỗi 30 phút.</p>
+        <div id="cf-list" class="cf-list"></div>
+        <div class="cf-add">
+          <label class="field"><span class="label-text">Link .ics</span><input id="cf-url" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" autocomplete="off" spellcheck="false"></label>
+          <div class="cf-add-r"><label class="field"><span class="label-text">Tên</span><input id="cf-name" placeholder="ví dụ: Lịch Google, Lịch lab"></label>
+          <button type="button" class="primary" id="cf-add">Đăng ký</button></div>
+        </div>
+        <details class="cf-help"><summary>Lấy link của Google Calendar ở đâu?</summary>
+          <ol><li>Mở Google Calendar trên web → ⚙ <b>Cài đặt</b>.</li><li>Ở cột trái, chọn lịch muốn đăng ký (dưới “Cài đặt cho lịch của tôi”).</li>
+          <li>Kéo xuống <b>Tích hợp lịch</b>, chép <b>Địa chỉ bí mật ở định dạng iCal</b> rồi dán vào ô trên.</li></ol>
+          <p>Link bí mật cho phép bất kỳ ai có nó xem lịch: đừng chia sẻ. Outlook: Cài đặt → Lịch → Lịch được chia sẻ → Phát hành lịch → link ICS. Muốn đưa kế hoạch của PaperVault sang Google Calendar thì dùng <b>Xuất lịch ra file .ics</b> rồi nhập ở Google (Cài đặt → Nhập và xuất).</p></details>`,
+      buttons: [{ label: 'Xong', value: null, primary: true }],
+      onOpen: (b) => {
+        box = b;
+        drawList();
+        const add = async () => {
+          const url = b.querySelector('#cf-url').value.trim();
+          if (!/^(https?|webcal):\/\//i.test(url)) { toast('Dán link bắt đầu bằng https:// hoặc webcal://', 3000, 'err'); return; }
+          if (allFeeds().some((f) => f.url === url)) { toast('Lịch này đã được đăng ký.', 3000); return; }
+          const btn = b.querySelector('#cf-add');
+          btn.disabled = true; btn.textContent = 'Đang tải…';
+          const f = await addFeed({ name: b.querySelector('#cf-name').value.trim() || (/google\.com/.test(url) ? 'Google Calendar' : 'Lịch đăng ký'), url });
+          btn.disabled = false; btn.textContent = 'Đăng ký';
+          if (f.error) toast(`Đã thêm nhưng chưa tải được: ${f.error}`, 6000, 'err');
+          else { toast(`Đã đăng ký “${f.name}”: ${f.count} sự kiện.`, 3500, 'ok'); b.querySelector('#cf-url').value = ''; b.querySelector('#cf-name').value = ''; }
+        };
+        b.querySelector('#cf-add').addEventListener('click', add);
+        b.querySelector('#cf-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+        const list = b.querySelector('#cf-list');
+        list.addEventListener('change', async (e) => {
+          const row = e.target.closest('[data-id]');
+          const k = e.target.dataset.cf;
+          if (!row || !k) return;
+          if (k === 'on') await updateFeed(row.dataset.id, { on: e.target.checked });
+          else if (k === 'color') await updateFeed(row.dataset.id, { color: e.target.value });
+          else if (k === 'name') await updateFeed(row.dataset.id, { name: e.target.value.trim() || 'Lịch đăng ký' });
+        });
+        list.addEventListener('click', async (e) => {
+          const btn = e.target.closest('button[data-cf]');
+          const row = e.target.closest('[data-id]');
+          if (!btn || !row) return;
+          const f = allFeeds().find((x) => x.id === row.dataset.id);
+          if (!f) return;
+          if (btn.dataset.cf === 'sync') { btn.disabled = true; btn.textContent = '…'; await syncFeed(f); if (f.error) toast(f.error, 5000, 'err'); else toast(`Đã tải lại “${f.name}”.`, 2500, 'ok'); }
+          if (btn.dataset.cf === 'del' && await confirmDialog(`Bỏ đăng ký “${f.name}”? Sự kiện của lịch này sẽ không còn hiện trong PaperVault (lịch gốc không bị ảnh hưởng).`, { okLabel: 'Bỏ đăng ký', danger: true })) await removeFeed(f.id);
+        });
+      },
+    });
+    unsub();
+  }
+
   draw();
   const unsubA = onCalendarChange(() => { if ($('cal-body')) draw(); });
   const unsubB = onPagesChange(() => { if ($('cal-body')) draw(); });
-  return () => { unsubA(); unsubB(); calMq.removeEventListener('change', onCalMq); };
+  return () => { unsubA(); unsubB(); calMq.removeEventListener('change', onCalMq); document.removeEventListener('pointerdown', closeMenu, true); window.removeEventListener('pv:pane-pointerdown', closeMenu); };
 }

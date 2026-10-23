@@ -161,7 +161,10 @@ function layout() {
   root.className = `panes dir-${st.dir}`;
   root.hidden = !st.on;
   const first = st.swapped ? 'b' : 'a';
-  root.querySelector(`.pane[data-pane="${first}"]`).style.cssText = `order:0;flex:0 0 calc(${st.ratio}% - 3px)`;
+  // Mỗi khung rộng ít nhất ~300px (chia dọc) / cao ~200px (chia ngang), để hộp thoại và trình soạn trong khung vẫn dùng được
+  // khi tỉ lệ kéo về 15 : 85 trên màn hình nhỏ.
+  const min = st.dir === 'h' ? 'min(200px, 40%)' : 'min(300px, 40%)';
+  root.querySelector(`.pane[data-pane="${first}"]`).style.cssText = `order:0;flex:0 0 clamp(${min}, calc(${st.ratio}% - 3px), calc(100% - ${min} - 6px))`;
   root.querySelector(`.pane[data-pane="${other(first)}"]`).style.cssText = 'order:2;flex:1 1 0';
   root.querySelector('.pane-div').style.order = 1;
   root.querySelectorAll('.pane-tag').forEach((el) => { const p = el.closest('.pane').dataset.pane; el.textContent = p === first ? '1' : '2'; });
@@ -390,7 +393,8 @@ export function openPanel(anchor) {
 /** Cửa sổ chính: hooks.route vẽ trang, hooks.teardown gỡ trang hiện tại, hooks.setActive(name) tô mục thanh bên. */
 export function initSplit(h) {
   hooks = { ...hooks, ...h };
-  window.pvSplit = { toggle, enter, exit, openOther, setFocusFrom: (w) => ['a', 'b'].find((p) => win(p) === w) };
+  // setFocusFrom(w): khung chứa cửa sổ w thành khung đang chọn (phím tắt bấm trong khung đó), trả về tên khung.
+  window.pvSplit = { toggle, enter, exit, openOther, setFocusFrom: (w) => { const p = ['a', 'b'].find((x) => win(x) === w); if (p) setFocus(p); return p; } };
 }
 
 /** Bản app trong một khung: phím tắt chia đôi và Alt + bấm link gửi lên cửa sổ chính. */

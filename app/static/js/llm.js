@@ -1,6 +1,7 @@
 // Adapter LLM cho 3 nhà cung cấp (Anthropic / OpenAI / Gemini), gọi trực tiếp từ trình duyệt.
 // Có một hàm `complete` dùng chung (JSON schema tuỳ chọn, PDF đính kèm tuỳ chọn);
 // các tác vụ (trích xuất, hỏi đáp, tổng hợp) xây trên đó.
+import { budgetGate, invalidateCost } from './budget.js';
 import { EXTRACTION_SCHEMA, toGeminiSchema, normalizeExtraction } from './schema.js';
 import {
   buildSystemPrompt, buildUserPrompt, buildAskSystem, buildAskContext, translateRules,
@@ -109,21 +110,34 @@ function tokensOf(usage) {
 function logUsage({ provider, model, task, paperId, usage }) {
   const tk = tokensOf(usage);
   if (tk.input || tk.output || tk.cacheRead || tk.cacheWrite) {
+    invalidateCost();
     api.logUsage({ at: new Date().toISOString(), provider, model, task, inputTokens: tk.input, outputTokens: tk.output, cacheRead: tk.cacheRead, cacheWrite: tk.cacheWrite, paperId });
   }
 }
 
 /* ------------------------- Anthropic ------------------------- */
 
+// Ảnh / PDF đính kèm của một tin nhắn (m.images = [{ mime, data (base64), name }]) theo định dạng từng nhà cung cấp.
+const anthropicPart = (im) => (im.mime === 'application/pdf'
+  ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: im.data } }
+  : { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } });
+const openaiPart = (im) => (im.mime === 'application/pdf'
+  ? { type: 'file', file: { filename: im.name || 'file.pdf', file_data: `data:application/pdf;base64,${im.data}` } }
+  : { type: 'image_url', image_url: { url: `data:${im.mime};base64,${im.data}` } });
+const openaiMsg = (m) => (m.role === 'user' && m.images?.length
+  ? { role: 'user', content: [{ type: 'text', text: m.content }, ...m.images.map(openaiPart)] }
+  : { role: m.role, content: m.content });
+
 async function callAnthropic({ apiKey, model, system, messages, maxTokens, effort, schema, pdfBase64, cacheSystem }) {
   const msgs = messages.map((m, i) => {
-    if (i === 0 && pdfBase64 && m.role === 'user') {
-      return { role: 'user', content: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
-        { type: 'text', text: m.content },
-      ] };
-    }
-    return { role: m.role, content: m.content };
+    const pdf = i === 0 && pdfBase64 && m.role === 'user';
+    const imgs = m.role === 'user' ? (m.images || []) : [];
+    if (!pdf && !imgs.length) return { role: m.role, content: m.content };
+    return { role: m.role, content: [
+      ...(pdf ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } }] : []),
+      ...imgs.map(anthropicPart),
+      { type: 'text', text: m.content },
+    ] };
   });
   // cacheSystem: system prompt lớn và giống hệt nhau giữa nhiều lượt gọi (toàn văn paper) -> lượt sau chỉ trả giá đọc cache.
   const body = { model, max_tokens: maxTokens, system: cacheSystem ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] : system, messages: msgs };
@@ -145,7 +159,7 @@ async function callAnthropic({ apiKey, model, system, messages, maxTokens, effor
 
 async function callOpenAI({ apiKey, model, system, messages, maxTokens, schema, schemaName }) {
   const usesCompletionTokens = /^(o\d|gpt-5)/.test(model || '');
-  const body = { model, messages: [{ role: 'system', content: system }, ...messages] };
+  const body = { model, messages: [{ role: 'system', content: system }, ...messages.map(openaiMsg)] };
   if (schema) body.response_format = { type: 'json_schema', json_schema: { name: schemaName || 'output', strict: true, schema } };
   body[usesCompletionTokens ? 'max_completion_tokens' : 'max_tokens'] = maxTokens;
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -167,9 +181,11 @@ async function callGemini({ apiKey, model, system, messages, maxTokens, schema, 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const contents = messages.map((m, i) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
-    parts: (i === 0 && pdfBase64 && m.role === 'user')
-      ? [{ inlineData: { mimeType: 'application/pdf', data: pdfBase64 } }, { text: m.content }]
-      : [{ text: m.content }],
+    parts: [
+      ...((i === 0 && pdfBase64 && m.role === 'user') ? [{ inlineData: { mimeType: 'application/pdf', data: pdfBase64 } }] : []),
+      ...(m.role === 'user' ? (m.images || []) : []).map((im) => ({ inlineData: { mimeType: im.mime, data: im.data } })),
+      { text: m.content },
+    ],
   }));
   const body = {
     systemInstruction: { parts: [{ text: system }] },
@@ -239,7 +255,7 @@ export function hasCredentials(settings, task = '') {
  * Trả về { text, usage, model, provider }.
  */
 export async function complete({ settings, system, user, messages, schema = null, schemaName = 'output', pdfBase64 = null, maxTokens, effort, task = '', paperId = '', onRetry, cacheSystem = false }) {
-  settings = settingsFor(settings, task);
+  settings = await budgetGate(settingsFor(settings, task), task);
   const { provider, apiKey, model } = pickCredentials(settings);
   const args = {
     apiKey, model, system,
@@ -353,7 +369,7 @@ export async function translateNotesAI({ texts, from = 'vi', to = 'en', settings
 }
 
 /** Hỏi đáp về một paper. history: [{role, content}] các lượt trước. */
-export async function askPaper({ paper, text, settings, question, history = [], pdfBase64 = null }) {
+export async function askPaper({ paper, text, settings, question, history = [], pdfBase64 = null, images = [] }) {
   const context = buildAskContext({ paper, text: pdfBase64 ? '' : text, settings });
   const first = `${context}\n\n## Câu hỏi\n${history.length ? '(Xem lịch sử hội thoại bên dưới.)' : question}`;
   const messages = [{ role: 'user', content: first }];
@@ -361,6 +377,8 @@ export async function askPaper({ paper, text, settings, question, history = [], 
     for (const h of history) messages.push({ role: h.role, content: h.content });
     messages.push({ role: 'user', content: question });
   }
+  // Ảnh / file người dùng đính kèm cho câu hỏi này đi cùng tin nhắn cuối.
+  if (images.length) messages[messages.length - 1].images = images;
   const out = await complete({ settings, system: buildAskSystem(settings), messages, pdfBase64, maxTokens: Math.min(settings.maxOutputTokens || 4000, 4000), effort: settings.effort === 'xhigh' ? 'high' : settings.effort, task: 'ask', paperId: paper.id || '' });
   out.text = fixMixedScript(out.text);
   return out.text.trim();
@@ -515,7 +533,7 @@ async function streamGemini({ apiKey, model, system, messages, maxTokens, onText
  * onText(chunk) được gọi mỗi khi có chữ mới. Trả về { usage, model, provider, stopReason }.
  */
 export async function streamChat({ settings, system, messages, onText, signal, task = 'chat', onRetry }) {
-  settings = settingsFor(settings, task);
+  settings = await budgetGate(settingsFor(settings, task), task);
   const { provider, apiKey, model } = pickCredentials(settings);
   const maxTokens = provider === 'anthropic' ? 64000 : Math.min(settings.maxOutputTokens || 8000, provider === 'gemini' ? 8192 : 16000);
   const fn = { anthropic: streamAnthropic, openai: streamOpenAI, gemini: streamGemini }[provider];

@@ -7,6 +7,7 @@ import { runExtraction, savePaperFromExtraction, acceptPdfFile, resolveQuery, sa
 import { renderSections } from '../render.js';
 import { hasCredentials } from '../llm.js';
 import { parseReferences } from '../bib.js';
+import { zoteroCardHtml, bindZoteroCard } from '../zotero.js';
 import { renderBatch, addEntries } from './batch.js';
 import { runJob, getJob, jobRunning, followJob } from '../bgjobs.js';
 
@@ -129,8 +130,9 @@ function drawTab() {
     pendingFiles = [];
     renderBatch($('batch-root'), { files });
   } else {
-    body.innerHTML = `<div class="dropzone" id="bib-drop"><b>Chọn file .bib hoặc .ris</b>xuất từ Zotero (File → Export Library → BibTeX/RIS), Mendeley, Google Scholar… hoặc dán nội dung bên dưới</div>
-      <input type="file" id="bib-file" accept=".bib,.ris,.txt" hidden>
+    body.innerHTML = `${zoteroCardHtml()}
+      <div class="dropzone" id="bib-drop"><b>Chọn file .bib, .ris hoặc CSL JSON</b>xuất từ Zotero, Mendeley (File → Export), Google Scholar… hoặc dán nội dung bên dưới</div>
+      <input type="file" id="bib-file" accept=".bib,.ris,.json,.txt" hidden>
       <label class="field"><textarea id="bib-text" rows="6" placeholder="@inproceedings{…}  hoặc  TY  - JOUR …"></textarea></label>
       <div class="row wrap"><button id="bib-parse" class="sm">Đọc danh sách</button><span id="bib-count" class="hint"></span></div>
       <div id="bib-list"></div>`;
@@ -140,6 +142,7 @@ function drawTab() {
     $('bib-drop').addEventListener('dragleave', () => $('bib-drop').classList.remove('over'));
     $('bib-drop').addEventListener('drop', async (e) => { e.preventDefault(); e.stopPropagation(); $('bib-drop').classList.remove('over'); const f = [...(e.dataTransfer.files || [])][0]; if (f) { $('bib-text').value = await f.text(); parseBib(f.name); } });
     $('bib-parse').addEventListener('click', () => parseBib(''));
+    bindZoteroCard(body);
   }
 }
 

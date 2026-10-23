@@ -1,7 +1,7 @@
 // Chat với nhiều paper. Bố cục ba cột: danh sách hội thoại · khung chat · bảng "Nguồn" (paper đang dùng + bộ chọn).
+import { saveAnswerToNotebook } from '../notebook-save.js';
 import { api } from '../api.js';
-import { pdfFullText } from '../pdftext.js';
-import { bytesToBase64 } from '../pdf.js';
+import { ATTACH_ACCEPT, kindOf, readAttachment, attachmentPayload, attachChipsHtml, MAX_ATTACH, msgFilesHtml, msgImgsHtml } from '../attach.js';
 import { store, paperById, topicOf, inTopic, saveSettings } from '../store.js';
 import { escapeHtml, fmtRelative, download, norm, copyText, clampText, debounce, fixMixedScript } from '../util.js';
 import { $, toast, confirmDialog, mdToHtml, topicBadge, selectAllHtml, syncSelectAll, showProgress } from '../ui.js';
@@ -112,11 +112,8 @@ function citeLinks(html, c) {
   }).join(''));
 }
 
-const TEXT_EXT = new Set('txt md markdown csv tsv json jsonl tex bib ris py ipynb js ts jsx tsx java c h cpp hpp cc cs go rs rb php sql sh bash ps1 r m swift kt scala yaml yml toml ini cfg xml html htm css log rst srt'.split(' '));
-const ATTACH_ACCEPT = `image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,${[...TEXT_EXT].map((e) => `.${e}`).join(',')}`;
-const fmtChars = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',')}k` : String(n));
-const filesHtml = (list) => (list?.length ? `<div class="msg-files">${list.map((f) => `<span class="msg-file" title="${escapeHtml(f.name)}">📄 ${escapeHtml(f.name)} <span class="hint">· ${f.kind === 'pdf-scan' ? 'gửi nguyên PDF' : `${fmtChars(f.chars || 0)} ký tự${f.clipped ? ', đã cắt bớt' : ''}`}</span></span>`).join('')}</div>` : '');
-const imgsHtml = (list) => (list?.length ? `<div class="msg-imgs">${list.map((im) => `<img src="${escapeHtml(im.url)}" alt="${escapeHtml(im.name || 'ảnh')}" title="${escapeHtml(im.name || '')} · bấm để phóng to" data-zoom loading="lazy">`).join('')}</div>` : '');
+const filesHtml = msgFilesHtml;
+const imgsHtml = msgImgsHtml;
 
 function messageHtml(m, i, c) {
   if (m.role === 'user') {
@@ -132,7 +129,7 @@ function messageHtml(m, i, c) {
     <div class="md">${m.content ? citeLinks(mdToHtml(readableChatMd(m.content)), c) : (m.error ? '' : '<span class="spin"></span> Đang soạn câu trả lời…')}</div>
     ${m.error ? `<div class="status err">${escapeHtml(m.error)}</div><button class="sm" data-retry="${i}">Hỏi lại</button>` : ''}
     ${m.unverified?.length && !m.pending ? `<div class="msg-warn" title="Kiểm tra cơ học: các con số này không xuất hiện trong ghi chú, toàn văn hay đoạn trích đã gửi cho model">⚠ ${m.unverified.length} con số không thấy trong tài liệu đã gửi, nên đối chiếu lại: ${m.unverified.map((n) => `<b>${escapeHtml(n)}</b>`).join(', ')}</div>` : ''}
-    ${m.content && !m.pending ? `<div class="msg-foot"><span class="hint">${escapeHtml(m.model || '')}${inT || outT ? ` · vào ${f(inT)}${cacheR ? ` · đọc cache ${f(cacheR)}` : ''}${cacheW ? ` · ghi cache ${f(cacheW)}` : ''} · ra ${f(outT)} token` : ''}${m.stopped ? ' · đã dừng' : ''}${m.truncated ? ' · bị cắt vì đạt giới hạn độ dài' : ''}</span><span class="spacer"></span><button class="ghost sm" data-copy="${i}">Copy</button></div>` : ''}
+    ${m.content && !m.pending ? `<div class="msg-foot"><span class="hint">${escapeHtml(m.model || '')}${inT || outT ? ` · vào ${f(inT)}${cacheR ? ` · đọc cache ${f(cacheR)}` : ''}${cacheW ? ` · ghi cache ${f(cacheW)}` : ''} · ra ${f(outT)} token` : ''}${m.stopped ? ' · đã dừng' : ''}${m.truncated ? ' · bị cắt vì đạt giới hạn độ dài' : ''}</span><span class="spacer"></span><button class="ghost sm" data-save-nb="${i}" title="Chép câu trả lời này vào nhật ký hôm nay, một trang có sẵn hoặc trang mới">📓 Lưu vào Sổ tay</button><button class="ghost sm" data-copy="${i}">Copy</button></div>` : ''}
   </div>`;
 }
 
@@ -468,66 +465,25 @@ export async function render(root, { params, query }) {
   function drawAttach() {
     const box = $('ch-att');
     if (!box) return;
-    box.innerHTML = attach.map((a, k) => (a.kind === 'image'
-      ? `<span class="ch-att-it" title="${escapeHtml(a.name)}"><img src="${escapeHtml(a.url)}" alt=""><button type="button" class="ch-att-x" data-rm-att="${k}" title="Bỏ ảnh này">✕</button></span>`
-      : `<span class="ch-att-file" title="${escapeHtml(a.name)}${a.clipped ? ' · file dài, chỉ gửi phần đầu' : ''}">📄 <span class="ch-att-fn">${escapeHtml(a.name)}</span> <span class="hint">${a.kind === 'pdf-scan' ? 'PDF scan' : `${fmtChars(a.chars)} ký tự`}</span><button type="button" class="ch-att-x" data-rm-att="${k}" title="Bỏ file này">✕</button></span>`)).join('')
-      + (attachBusy ? `<span class="ch-att-file busy"><span class="spin"></span> ${escapeHtml(attachBusy === true ? 'Đang xử lý…' : attachBusy)}</span>` : '');
+    box.innerHTML = attachChipsHtml(attach, attachBusy);
     $('ch-compose')?.classList.toggle('has-att', attach.length > 0 || attachBusy);
   }
-  /** Thu nhỏ ảnh lớn (cạnh dài ≤ 1600px) cho đỡ tốn token; ảnh nhỏ giữ nguyên. Trả về Blob. */
-  async function shrink(file) {
-    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return file;
-    const bmp = await createImageBitmap(file).catch(() => null);
-    if (!bmp) return file;
-    const MAX = 1600;
-    if (Math.max(bmp.width, bmp.height) <= MAX && file.size <= 1.5 * 1024 * 1024) { bmp.close?.(); return file; }
-    const s = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
-    const cv = document.createElement('canvas');
-    cv.width = Math.round(bmp.width * s);
-    cv.height = Math.round(bmp.height * s);
-    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
-    bmp.close?.();
-    const type = file.type === 'image/png' && file.size < 4 * 1024 * 1024 ? 'image/png' : 'image/jpeg';
-    return new Promise((res) => cv.toBlob((b) => res(b || file), type, 0.9));
-  }
-  const FILE_CHARS = 80000;   // ký tự tối đa mỗi file chữ gửi cho model
-  const kindOf = (f) => {
-    const ext = (f.name.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
-    if (/^image\/(png|jpeg|gif|webp)$/.test(f.type)) return 'image';
-    if (f.type === 'application/pdf' || ext === 'pdf') return 'pdf';
-    if (/^text\//.test(f.type) || TEXT_EXT.has(ext)) return 'text';
-    return '';
-  };
   async function addImages(files) {
     const list = [...files];
     const bad = list.filter((f) => !kindOf(f));
     if (bad.length) toast(`Chưa đọc được: ${bad.map((f) => f.name).join(', ')}. Nhận ảnh (PNG, JPG, GIF, WebP), PDF và file chữ (.txt, .md, .csv, .json, .tex, .bib, code…). File Word hãy lưu thành PDF trước.`, 6000, 'err');
     const ok = list.filter((f) => kindOf(f));
     if (!ok.length) return;
-    const room = 6 - attach.length;
-    if (room <= 0) return toast('Mỗi câu hỏi đính kèm tối đa 6 tệp.', 3000);
-    if (ok.length > room) toast(`Chỉ thêm ${room} tệp đầu (tối đa 6 tệp mỗi câu hỏi).`, 3000);
+    const room = MAX_ATTACH - attach.length;
+    if (room <= 0) return toast(`Mỗi câu hỏi đính kèm tối đa ${MAX_ATTACH} tệp.`, 3000);
+    if (ok.length > room) toast(`Chỉ thêm ${room} tệp đầu (tối đa ${MAX_ATTACH} tệp mỗi câu hỏi).`, 3000);
     try {
       for (const f of ok.slice(0, room)) {
         const kind = kindOf(f);
         attachBusy = kind === 'image' ? 'Đang xử lý ảnh…' : `Đang đọc ${f.name}…`;
         drawAttach();
-        if (kind === 'image') {
-          const blob = await shrink(f);
-          const r = await api.uploadImage(new Uint8Array(await blob.arrayBuffer()), f.name || 'anh-dan.png');
-          attach.push({ kind: 'image', url: r.url, name: f.name || 'ảnh dán', mime: blob.type || f.type });
-        } else if (kind === 'pdf') {
-          if (f.size > 40 * 1024 * 1024) { toast(`${f.name} quá lớn (tối đa 40 MB).`, 4000, 'err'); continue; }
-          // Lưu PDF vào kho của app rồi đọc chữ bằng PDF.js; không có lớp chữ (bản scan) thì gửi nguyên file cho model.
-          const up = await api.uploadPdf(f, f.name);
-          const text = (await pdfFullText(up.id, { maxPages: 120 }).catch(() => '')).trim();
-          if (text.length >= 200) attach.push({ kind: 'pdf', name: f.name, text: text.slice(0, FILE_CHARS), chars: Math.min(text.length, FILE_CHARS), clipped: text.length > FILE_CHARS });
-          else attach.push({ kind: 'pdf-scan', name: f.name, pdfId: up.id });
-        } else {
-          if (f.size > 4 * 1024 * 1024) { toast(`${f.name} quá lớn (file chữ tối đa 4 MB).`, 4000, 'err'); continue; }
-          const text = (await f.text()).replace(/\r\n/g, '\n');
-          attach.push({ kind: 'text', name: f.name, text: text.slice(0, FILE_CHARS), chars: Math.min(text.length, FILE_CHARS), clipped: text.length > FILE_CHARS });
-        }
+        const it = await readAttachment(f);
+        if (it) attach.push(it);
         drawAttach();
       }
     } catch (e) {
@@ -538,25 +494,7 @@ export async function render(root, { params, query }) {
       $('ch-q')?.focus();
     }
   }
-  /** Ảnh đã lưu trên máy chủ -> { mime, data(base64) } để gửi cho model (giữ trong bộ nhớ, không tải lại). */
-  const imgCache = new Map();
-  async function imagePayload(im) {
-    if (im.pdfId) { // PDF bản scan: gửi nguyên file
-      const key = `pdf:${im.pdfId}`;
-      if (imgCache.has(key)) return imgCache.get(key);
-      try { const out = { mime: 'application/pdf', name: im.name, data: bytesToBase64(await api.pdfBytes(im.pdfId)) }; imgCache.set(key, out); return out; } catch (_) { return null; }
-    }
-    if (imgCache.has(im.url)) return imgCache.get(im.url);
-    try {
-      const blob = await (await fetch(im.url)).blob();
-      const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = rej; fr.readAsDataURL(blob); });
-      const ext = (im.url.match(/\.(\w+)$/) || [])[1];
-      const mime = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({ png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext] || 'image/png');
-      const out = { mime, data };
-      imgCache.set(im.url, out);
-      return out;
-    } catch (_) { return null; }
-  }
+  const imagePayload = attachmentPayload;
   $('ch-attach').addEventListener('click', () => $('ch-file').click());
   $('ch-file').addEventListener('change', (e) => { addImages(e.target.files); e.target.value = ''; });
   $('ch-att').addEventListener('click', (e) => { const b = e.target.closest('[data-rm-att]'); if (b) { attach.splice(Number(b.dataset.rmAtt), 1); drawAttach(); } });
@@ -593,6 +531,20 @@ export async function render(root, { params, query }) {
   $('ch-msgs').addEventListener('click', async (e) => {
     const cp = e.target.closest('[data-copy]');
     if (cp) { await copyText(state.chat.messages[Number(cp.dataset.copy)].content); toast('Đã copy.'); return; }
+    const sv = e.target.closest('[data-save-nb]');
+    if (sv) {
+      const c = state.chat;
+      const i = Number(sv.dataset.saveNb);
+      const used = new Set([...String(c.messages[i].content).matchAll(/\bP\d+\b/g)].map((m) => m[0]));
+      const ps = papersOf(c);
+      saveAnswerToNotebook({
+        question: c.messages[i - 1]?.content || '', answer: c.messages[i].content, from: 'Chat với paper',
+        labels: new Map(ps.map((x) => [x.label, x.id])),
+        // Dòng nguồn: paper được trích trong câu trả lời; không trích paper nào thì ghi các paper của cuộc trò chuyện (tối đa 5).
+        paperIds: (ps.some((x) => used.has(x.label)) ? ps.filter((x) => used.has(x.label)) : ps).slice(0, 5).map((x) => x.id),
+      });
+      return;
+    }
     const rt = e.target.closest('[data-retry]');
     if (rt) { const i = Number(rt.dataset.retry); ask(state.chat.messages[i - 1]?.content, { retryIndex: i }); return; }
     // màn hình bắt đầu

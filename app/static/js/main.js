@@ -22,9 +22,13 @@ import * as notebook from './views/notebook.js';
 import * as calendar from './views/calendar.js';
 import { loadMathLib } from './mathlib.js';
 import { syncTranslateButton } from './translate-popup.js';
-import { isEmbed, splitActive, initSplit, initEmbed, restore as restoreSplit, forward as forwardSplit, toggle as toggleSplit, openPanel as openSplitPanel, eachPane } from './split.js';
+import { isEmbed, splitActive, initSplit, initEmbed, restore as restoreSplit, forward as forwardSplit, toggle as toggleSplit, openPanel as openSplitPanel, openOther as openSplitOther, eachPane } from './split.js';
 import { initPaneSync } from './panesync.js';
 import { busyLabels } from './bgjobs.js';
+import { startReminders } from './reminders.js';
+import { startFeeds } from './calfeeds.js';
+import { autoCheckUpdates } from './updates.js';
+import { initPalette, openPalette, openDiary, paletteOpen } from './palette.js';
 
 const routes = { '': dashboard, library, paper, add, compare, topics, settings, feed, chat, help, notes, notebook, calendar };
 let cleanup = null;
@@ -101,12 +105,6 @@ $('theme-toggle').addEventListener('click', async () => {
 
 /* ---------- Tìm kiếm toàn cục ---------- */
 
-$('global-search').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    const q = e.target.value.trim();
-    navigate(`#/library?q=${encodeURIComponent(q)}`);
-  }
-});
 $('btn-quick-add').addEventListener('click', () => navigate('#/add'));
 $('nav-toggle').addEventListener('click', () => $('nav').classList.toggle('open'));
 window.addEventListener('pv:pane-pointerdown', () => $('nav').classList.remove('open'));
@@ -134,6 +132,8 @@ $('btn-translate').title = 'Dịch khi bôi đen: cài đặt nhanh, ghi chú & 
 
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key === '\\' && !isEmbed) { e.preventDefault(); toggleSplit(); return; }
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); showPalette(); return; }
+  if (paletteOpen()) return;
   const tag = document.activeElement?.tagName;
   const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement?.isContentEditable;
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -144,12 +144,71 @@ document.addEventListener('keydown', (e) => {
     if (route != null) { e.preventDefault(); navigate(`#/${route}`); }
     return;
   }
-  if (e.key === '/') { e.preventDefault(); $('global-search').focus(); }
+  if (e.key === '/') { e.preventDefault(); showPalette(); }
   else if (e.key === 'n') navigate('#/add');
   else if (e.key === 'g') pendingG = Date.now(); // chờ phím tiếp theo
   else if (e.key === '?') navigate('#/help');
 });
 let pendingG = 0;
+
+/* ---------- Tìm nhanh (Ctrl+K) ---------- */
+
+// Ô tìm ở thanh trên mở bảng tìm nhanh: lệnh, paper, toàn văn, sổ tay, chat, lịch.
+// Đang chia đôi thì hai khung dùng chung một bảng ở cửa sổ chính, kết quả mở ở khung đang chọn.
+const PALETTE_EXTRA = [
+  { icon: '➕', label: 'Thêm paper', hint: 'PDF arXiv DOI link', keys: ['N'], run: () => navigate('#/add') },
+  { icon: '📔', label: 'Nhật ký hôm nay', hint: 'sổ tay daily', run: () => openDiary(navigate) },
+  { icon: '💬', label: 'Cuộc trò chuyện mới', hint: 'chat hỏi đáp AI', run: () => navigate('#/chat?new=1') },
+  { icon: '◫', label: 'Chia đôi / gộp màn hình', hint: 'split hai khung', keys: ['Ctrl', '\\'], run: () => toggleSplit() },
+  { icon: '🌓', label: 'Đổi giao diện sáng / tối', hint: 'theme dark light', run: () => $('theme-toggle').click() },
+  { icon: '💸', label: 'Chi phí & ngân sách AI', hint: 'cài đặt usage budget token', run: () => navigate('#/settings?s=usage') },
+];
+function paletteCommands() {
+  const nav = [...document.querySelectorAll('#nav a[data-route]')].map((a) => ({
+    icon: '→', label: `Mở ${a.dataset.full || a.textContent.trim()}`, hint: 'đi tới trang',
+    keys: NAV_SHORTCUT[a.dataset.route], run: () => navigate(a.getAttribute('href')),
+  }));
+  return [...nav, ...PALETTE_EXTRA];
+}
+initPalette({ navigate, commands: paletteCommands, canOther: () => splitActive(), openOther: (h) => openSplitOther(null, h) });
+window.pvPalette = (q) => openPalette(q);
+
+/** Mở bảng tìm nhanh. Trong một khung khi chia đôi: chọn khung này rồi mở bảng ở cửa sổ chính. */
+function showPalette(q = '') {
+  if (isEmbed) {
+    try {
+      const h = window.parent?.pvSplit;
+      if (h && window.parent.pvPalette) { h.setFocusFrom(window); window.parent.pvPalette(q); return; }
+    } catch (_) { /* không với tới cửa sổ chính thì mở ngay trong khung */ }
+  }
+  openPalette(q);
+}
+$('global-search').addEventListener('focus', (e) => { const q = e.target.value; e.target.value = ''; e.target.blur(); showPalette(q); });
+
+// Bản desktop, bấm ✕ khi Cài đặt là "Hỏi mỗi lần": desktop.py gọi hàm này để hỏi thu xuống khay hay thoát.
+let askingClose = false;
+window.pvAskClose = async () => {
+  if (askingClose) return;
+  askingClose = true;
+  try {
+    const { dialog } = await import('./ui.js');
+    // Việc nền đang chạy ở cửa sổ chính và ở các khung chia đôi.
+    const jobs = [...busyLabels()];
+    eachPane((w) => { try { jobs.push(...(w.pvBusyJobs?.() || [])); } catch (_) { /* khung khác nguồn */ } });
+    let remember = false;
+    const r = await dialog({
+      title: 'Đóng PaperVault?', width: 460,
+      body: `<p style="margin-top:0"><b>Thu xuống khay</b>: app vẫn chạy ở biểu tượng cạnh đồng hồ, tới giờ vẫn nhắc việc. <b>Thoát</b>: tắt hẳn app.</p>
+        ${jobs.length ? `<p class="status err">Đang chạy: ${escapeHtml(jobs.join(', '))}. Thoát bây giờ sẽ dừng các việc này.</p>` : ''}
+        <label class="check"><input type="checkbox" id="ask-close-remember"> Ghi nhớ lựa chọn, không hỏi lại <span class="hint">(đổi lại ở Cài đặt → Ứng dụng)</span></label>`,
+      buttons: [{ label: 'Huỷ', value: null }, { label: 'Thoát', value: 'quit', danger: true }, { label: 'Thu xuống khay', value: 'tray', primary: true }],
+      onOpen: (b) => { b.querySelector('#ask-close-remember').addEventListener('change', (e) => { remember = e.target.checked; }); },
+    });
+    if (!r) return;
+    if (remember) { const { saveSettings } = await import('./store.js'); await saveSettings({ closeAction: r }); }
+    await desktop.closeChoice(r);
+  } finally { askingClose = false; }
+};
 
 // Cho các khung con (trình đọc PDF) dùng chung cách lưu file của app: hỏi chỗ lưu, bản desktop dùng hộp thoại của Windows.
 window.pvDownload = (name, content, mime) => download(name, content, mime);
@@ -223,4 +282,7 @@ async function initDesktop() {
   });
   window.addEventListener('hashchange', route);
   if (!restoreSplit()) await route();
+  // Nhắc việc và kiểm tra bản mới chỉ chạy ở cửa sổ chính, không chạy lại trong từng khung chia đôi.
+  if (!isEmbed) { startReminders(); autoCheckUpdates(); }
+  startFeeds({ primary: !isEmbed });
 })();

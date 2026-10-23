@@ -33,8 +33,9 @@ export function newPage(fields = {}) {
   return { id: uid('pg'), title: '', icon: '', parentId: null, content: '', fav: false, ...fields };
 }
 
-export async function savePage(p) {
-  const saved = await api.putPage(p);
+/** opts.base: phiên bản (updatedAt) trình soạn bắt đầu sửa, để máy chủ phát hiện ghi đè; opts.force: vẫn ghi đè. */
+export async function savePage(p, { base = null, force = false } = {}) {
+  const saved = await api.putPage(base || force ? { ...p, ...(base ? { baseUpdatedAt: base } : {}), ...(force ? { force: true } : {}) } : p);
   const i = (pages || []).findIndex((x) => x.id === saved.id);
   if (i >= 0) pages[i] = saved; else (pages ||= []).unshift(saved);
   emit();

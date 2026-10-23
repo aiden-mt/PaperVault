@@ -1,4 +1,5 @@
 // Trang tổng quan: số liệu, phân bố theo chủ đề/năm, paper gần đây, hàng đợi đọc, tag.
+import { srsStats } from '../srs.js';
 import { store, stats, onChange, topicOf, saveSettings } from '../store.js';
 import { escapeHtml, fmtRelative, STATUS_LABEL, stars } from '../util.js';
 import { topicBadge } from '../ui.js';
@@ -40,6 +41,7 @@ export async function render(root) {
     const tags = [...s.tags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30);
     const noKey = !hasCredentials(store.settings);
 
+    const srs = srsStats(store.papers);
     root.innerHTML = `
       <div class="page-head"><h1>Tổng quan</h1><span class="hint">${store.settings.myResearch ? `Đề tài: ${escapeHtml(store.settings.myResearch.slice(0, 120))}${store.settings.myResearch.length > 120 ? '…' : ''}` : 'Chưa mô tả đề tài — vào Cài đặt để mục "Ý tưởng áp dụng" bám sát bài của bạn.'}</span></div>
       ${noKey ? `<div class="dup-warn">Chưa có API key. <a href="#/settings">Mở Cài đặt</a> để nhập key Claude / OpenAI / Gemini trước khi trích xuất paper.</div>` : ''}
@@ -49,6 +51,7 @@ export async function render(root) {
         <div class="tile clickable" data-go="#/library?status=reading"><div class="n">${s.byStatus.reading || 0}</div><div class="l">đang đọc</div></div>
         <div class="tile clickable" data-go="#/library?status=done"><div class="n">${s.byStatus.done || 0}</div><div class="l">đã đọc</div></div>
         <div class="tile clickable" data-go="#/topics"><div class="n">${store.topics.length}</div><div class="l">chủ đề</div></div>
+        ${srs.total ? `<div class="tile clickable" data-go="#/notes?mode=review" title="Thẻ ghi nhớ tới hạn ôn và thẻ mới của hôm nay"${srs.due ? ' style="border-color:var(--accent)"' : ''}><div class="n">${srs.due}</div><div class="l">thẻ cần ôn hôm nay</div></div>` : ''}
         <div class="tile clickable" data-go="#/feed"><div class="n">${feedUnseen}</div><div class="l">paper mới trên arXiv chưa xem</div></div>
         ${store.inbox.length ? `<div class="tile clickable" data-go="#/add" style="border-color:var(--accent)"><div class="n">${store.inbox.length}</div><div class="l">chờ xử lý từ extension</div></div>` : ''}
         <div class="tile clickable" data-go="#/settings"><div class="n">${monthTokens == null ? '…' : (monthTokens >= 1e6 ? `${(monthTokens / 1e6).toFixed(1)}M` : (monthTokens >= 1e3 ? `${Math.round(monthTokens / 1e3)}K` : monthTokens))}</div><div class="l">token đã dùng tháng này</div></div>

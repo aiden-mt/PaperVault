@@ -26,6 +26,10 @@ import urllib.parse
 import urllib.request
 import webbrowser
 import xml.etree.ElementTree as ET
+import shutil
+import subprocess
+import tempfile
+import zipfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -90,6 +94,10 @@ DB_PATH = DATA / "papervault.db"
 HOST = os.environ.get("PV_HOST") or CONFIG.get("host") or "127.0.0.1"
 PORT = int(os.environ.get("PV_PORT") or CONFIG.get("port") or 8765)
 MAX_BODY = 64 * 1024 * 1024
+# Phiên bản app (so với bản mới nhất trên GitHub Releases khi kiểm tra cập nhật). Tăng cùng lúc với tag phát hành.
+APP_VERSION = "1.3.0"
+RELEASES_API = "https://api.github.com/repos/aiden-mt/PaperVault/releases/latest"
+RELEASES_PAGE = "https://github.com/aiden-mt/PaperVault/releases/latest"
 UA = "PaperVault/1.0 (local research assistant; +https://github.com)"
 
 # ----------------------------------------------------------------------------
@@ -121,6 +129,9 @@ def _connect():
         id TEXT PRIMARY KEY, updatedAt TEXT, json TEXT NOT NULL)""")
     con.execute("""CREATE TABLE IF NOT EXISTS pages (
         id TEXT PRIMARY KEY, updatedAt TEXT, json TEXT NOT NULL)""")
+    con.execute("""CREATE TABLE IF NOT EXISTS page_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, pageId TEXT, at TEXT, title TEXT, size INTEGER, json TEXT NOT NULL)""")
+    con.execute("CREATE INDEX IF NOT EXISTS page_versions_page ON page_versions (pageId, id)")
     con.execute("""CREATE TABLE IF NOT EXISTS usage (
         id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, provider TEXT, model TEXT, task TEXT,
         inputTokens INTEGER, outputTokens INTEGER, paperId TEXT)""")
@@ -162,6 +173,11 @@ HAS_FTS = _init_fts()
 
 def now_iso():
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + ".000Z"
+
+
+def now_iso_ms():
+    t = time.time()
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + f".{int(t * 1000) % 1000:03d}Z"
 
 
 def uid(prefix="p"):
@@ -347,7 +363,9 @@ DEFAULT_SETTINGS = {
     "effort": "high",
     "language": "vi",
     "notesLang": "",
-    "chatLang": "",  # ngôn ngữ trả lời của Chat và Hỏi đáp: "" = theo ngôn ngữ trích xuất, "auto" = theo câu hỏi, "vi" / "en"  # ngôn ngữ hiển thị ghi chú: "" = giữ ngôn ngữ lúc trích xuất, "vi" / "en" = dịch khi cần
+    # notesLang: ngôn ngữ hiển thị ghi chú ("" = giữ ngôn ngữ lúc trích xuất, "vi" / "en" = dịch khi cần).
+    # chatLang: ngôn ngữ trả lời của Chat và Hỏi đáp ("" = theo ngôn ngữ trích xuất, "auto" = theo câu hỏi, "vi" / "en").
+    "chatLang": "",
     "myResearch": "",
     "translate": {"targetLang": "vi", "mode": "button", "openOn": "hover", "useContext": True, "showOriginal": True},
     "pdfMode": "auto",
@@ -359,8 +377,15 @@ DEFAULT_SETTINGS = {
     "s2ApiKey": "",
     # Model riêng cho từng nhóm việc: {"chat": {"provider": "openai", "model": "gpt-4o-mini"}, ...}; thiếu = dùng model chính.
     "taskModels": {},
-    "nbPrompts": [],
-    "onboardDismissed": False,  # đã tắt thẻ "Bắt đầu với PaperVault" ở Tổng quan  # prompt nhanh tự lưu của AI trong Sổ tay: [{"label", "p", "mode"}]
+    "nbPrompts": [],  # prompt nhanh tự lưu của AI trong Sổ tay: [{"label", "p", "mode"}]
+    "onboardDismissed": False,  # đã tắt thẻ "Bắt đầu với PaperVault" ở Tổng quan
+    # Tự sao lưu đầy đủ (.zip): every = "day" | "week", keep = số bản tự động giữ lại, dir rỗng = data/backups
+    "autoBackup": {"enabled": False, "every": "day", "keep": 7, "dir": ""},
+    "updateCheck": True,  # tự kiểm tra bản mới trên GitHub mỗi ngày một lần
+    "closeAction": "ask",  # bản desktop, khi bấm ✕: "ask" hỏi mỗi lần, "tray" thu xuống khay (vẫn nhắc việc), "quit" thoát hẳn
+    # Ngân sách AI mỗi tháng (USD, 0 = không giới hạn). mode khi vượt: "warn" chỉ cảnh báo, "cheap" chuyển sang model rẻ
+    # cùng nhà cung cấp, "block" chặn gọi AI. warnAt: tỉ lệ bắt đầu cảnh báo.
+    "aiBudget": {"limit": 0, "mode": "warn", "warnAt": 0.8},
 }
 
 
@@ -449,6 +474,38 @@ def get_usage(since=""):
         t["cacheRead"] += it["cacheRead"] or 0
         t["cacheWrite"] += it["cacheWrite"] or 0
     return {"items": items[:300], "totals": list(totals.values()), "count": len(items)}
+
+
+def usage_cost(since=""):
+    """Chi phí ước tính (USD) từ mốc since: đơn giá người dùng nhập trong Cài đặt, thiếu thì lấy bảng giá tự động.
+    Cùng cách tính với bảng "Sử dụng API & chi phí" (token cache tính theo giá cache nếu có, không thì theo hệ số)."""
+    totals = get_usage(since)["totals"]
+    s = get_settings()
+    user_prices = s.get("prices") or {}
+    keys = [f"{t['provider']}/{t['model']}" for t in totals]
+    auto = {}
+    if s.get("autoPrices", True) is not False and keys:
+        try:
+            auto = model_prices(keys).get("prices", {})
+        except Exception:
+            auto = {}
+    total, rows, missing = 0.0, [], []
+    for t in totals:
+        key = f"{t['provider']}/{t['model']}"
+        mine = user_prices.get(key) or {}
+        pr = mine if (mine.get("in") is not None or mine.get("out") is not None) else (auto.get(key) or {})
+        if pr.get("in") is None and pr.get("out") is None:
+            missing.append(key)
+            continue
+        pin, pout = float(pr.get("in") or 0), float(pr.get("out") or 0)
+        rf = {"anthropic": 0.1, "openai": 0.5, "gemini": 0.25}.get(t["provider"], 0.1)
+        wf = 1.25 if t["provider"] == "anthropic" else 1
+        cr = (t["cacheRead"] or 0) / 1e6 * (pr["cacheRead"] if pr.get("cacheRead") is not None else pin * rf)
+        cw = (t["cacheWrite"] or 0) / 1e6 * (pr["cacheWrite"] if pr.get("cacheWrite") is not None else pin * wf)
+        cost = t["inputTokens"] / 1e6 * pin + t["outputTokens"] / 1e6 * pout + cr + cw
+        total += cost
+        rows.append({"key": key, "cost": round(cost, 6), "calls": t["calls"]})
+    return {"cost": round(total, 6), "byModel": rows, "missingPrice": missing}
 
 
 # ---- đơn giá model (tự cập nhật từ bảng giá công khai của LiteLLM) ----
@@ -867,19 +924,26 @@ def tts_audio(text, accent="us"):
         f = TTS_DIR / f"{h}.{src}.mp3"
         if f.exists() and f.stat().st_size > 0:
             return f.read_bytes(), src
-    rec_expected = False
+    bg_rec = False
     if re.fullmatch(r"[A-Za-z][A-Za-z'’-]*", text):
-        info = dict_lookup(text)
-        url = next((a["url"] for a in info.get("audio") or [] if a.get("region") == accent.upper()), "")
-        if url and url.startswith("https://api.dictionaryapi.dev/"):
-            rec_expected = True
-            try:
-                _, _, data, _ = http_get(url, timeout=15, max_bytes=3 * 1024 * 1024)
-                if data:
-                    (TTS_DIR / f"{h}.rec.mp3").write_bytes(data)
-                    return data, "rec"
-            except Exception:
-                pass
+        w = re.sub(r"[^a-z'-]", "", text.lower().replace("’", "'"))[:40]
+        info = kv_get(f"dict5:{w}")
+        audio = info.get("audio") if isinstance(info, dict) else kv_get(f"ttsrec:{w}")
+        if audio is None:
+            # Chưa biết từ này có bản ghi âm người thật không: tra ở nền (dictionaryapi.dev có thể mất vài giây),
+            # song song với giọng máy bên dưới. Giọng máy xong trước thì phát luôn; lần sau dùng bản ghi nếu tra được.
+            bg_rec = True
+            threading.Thread(target=_fetch_recordings, args=(w, text), daemon=True).start()
+        else:
+            url = next((a["url"] for a in audio or [] if a.get("region") == accent.upper()), "")
+            if url and url.startswith("https://api.dictionaryapi.dev/"):
+                try:
+                    _, _, data, _ = http_get(url, timeout=8, max_bytes=3 * 1024 * 1024)
+                    if data:
+                        (TTS_DIR / f"{h}.rec.mp3").write_bytes(data)
+                        return data, "rec"
+                except Exception:
+                    pass
     parts = []
     chunks = _tts_chunks(text)
     for i, c in enumerate(chunks):
@@ -890,10 +954,38 @@ def tts_audio(text, accent="us"):
             raise ValueError("Dịch vụ đọc không trả về âm thanh.")
         parts.append(data)
     data = b"".join(parts)
-    # Đáng lẽ có bản ghi âm nhưng tải lỗi tạm thời: không lưu bản giọng máy, lần sau thử lại bản ghi âm.
-    if not rec_expected:
-        (TTS_DIR / f"{h}.tts.mp3").write_bytes(data)
+    # Lưu bản giọng máy; nếu sau đó tải được bản ghi âm người thật (.rec) thì lần phát sau ưu tiên bản ghi.
+    (TTS_DIR / f"{h}.tts.mp3").write_bytes(data)
+    rec = TTS_DIR / f"{h}.rec.mp3"
+    if bg_rec and rec.exists() and rec.stat().st_size > 0:  # bản ghi tra ở nền đã về kịp
+        return rec.read_bytes(), "rec"
     return data, "tts"
+
+
+def _fetch_recordings(w, text, done=None):
+    """Ở nền: tra bản ghi âm người thật của từ trên dictionaryapi.dev, tải về đúng giọng (US / UK) để lần sau phát."""
+    try:
+        d = _dictapi(w)
+        if d is None:
+            return  # lỗi mạng: lần sau thử lại
+        audio = d[1] or []
+        kv_set(f"ttsrec:{w}", audio)
+        for acc in ("us", "uk"):
+            url = next((a["url"] for a in audio if a.get("region") == acc.upper()), "")
+            if not url or not url.startswith("https://api.dictionaryapi.dev/"):
+                continue
+            h = hashlib.sha1(f"{acc}|{text}".encode("utf-8")).hexdigest()
+            try:
+                _, _, data, _ = http_get(url, timeout=12, max_bytes=3 * 1024 * 1024)
+                if data:
+                    tmp = TTS_DIR / f"{h}.rec.part"
+                    tmp.write_bytes(data)
+                    os.replace(tmp, TTS_DIR / f"{h}.rec.mp3")  # đổi tên một lần: luồng khác không đọc phải file ghi dở
+            except Exception:
+                pass
+    finally:
+        if done:
+            done.set()
 
 
 # ---- chats (hội thoại với nhiều paper) ----
@@ -921,17 +1013,307 @@ def put_chat(chat):
     return c
 
 
+# ---- sao lưu & khôi phục ----
+
+# Dữ liệu người dùng lưu trong kv cần sao lưu: macro LaTeX của Sổ tay.
+BACKUP_KV = ("mathLib",)
+
+
+def backup_data(with_texts=True):
+    """Toàn bộ dữ liệu dạng JSON (không gồm API key, PDF, ảnh)."""
+    papers = get_papers(include_deleted=True)
+    texts = {r[0]: {"text": r[1], "kind": r[2]} for r in db_all("SELECT paperId, text, kind FROM texts")} if with_texts else {}
+    chats = [json.loads(r[0]) for r in db_all("SELECT json FROM chats")]
+    return {"format": "papervault-export", "version": 3, "appVersion": APP_VERSION, "exportedAt": now_iso(),
+            "topics": get_topics(), "papers": papers, "texts": texts, "pages": list_pages(), "calendar": kv_get("calendar", []),
+            "chats": chats, "settings": {k: v for k, v in get_settings().items() if k != "apiKeys"},
+            "kv": {k: kv_get(k) for k in BACKUP_KV if kv_get(k) is not None}}
+
+
+def import_data(data, merge=True):
+    """Nhập bản sao lưu JSON. merge: gộp (bỏ qua mục đã có); không thì thay thế paper, texts, sổ tay, lịch, chat."""
+    if not isinstance(data.get("papers"), list):
+        raise ValueError("File import không đúng định dạng PaperVault.")
+    existing = {p["id"] for p in get_papers()} if merge else set()
+    if not merge:
+        db_run("DELETE FROM papers")
+        db_run("DELETE FROM texts")
+    for t in data.get("topics") or []:
+        put_topic(t)
+    added = 0
+    for p in data["papers"]:
+        if merge and p.get("id") in existing:
+            continue
+        saved = put_paper(p)
+        t = (data.get("texts") or {}).get(p.get("id"))
+        if t:
+            put_text(saved["id"], t.get("text", ""), t.get("kind", ""))
+        added += 1
+    # Lịch: gộp theo id (giữ kế hoạch đang có), thay thế thì lấy nguyên bản trong file.
+    if isinstance(data.get("calendar"), list):
+        cur = [] if not merge else (kv_get("calendar", []) or [])
+        have = {e.get("id") for e in cur}
+        kv_set("calendar", cur + [e for e in data["calendar"] if isinstance(e, dict) and e.get("id") not in have])
+    # Cài đặt: chỉ khi thay thế toàn bộ; API key không có trong bản sao lưu nên giữ key đang có trên máy này.
+    if not merge and isinstance(data.get("settings"), dict):
+        cur = kv_get("settings", {}) or {}
+        kv_set("settings", {**{k: v for k, v in data["settings"].items() if k != "apiKeys"}, "apiKeys": cur.get("apiKeys") or {}})
+    # kv (macro LaTeX…): gộp thì giữ mục đang có trên máy này, thay thế thì lấy nguyên bản trong file.
+    for k, v in (data.get("kv") or {}).items():
+        if k not in BACKUP_KV or v is None:
+            continue
+        cur = kv_get(k)
+        if merge and isinstance(cur, dict) and isinstance(v, dict):
+            v = {**v, **cur}
+        elif merge and isinstance(cur, list) and isinstance(v, list):
+            have = {x.get("id") for x in cur if isinstance(x, dict)}
+            v = cur + [x for x in v if isinstance(x, dict) and x.get("id") not in have]
+        elif merge and cur is not None:
+            continue
+        kv_set(k, v)
+    # Sổ tay và Chat: gộp thì bỏ qua mục đã có, thay thế thì xoá hết rồi nạp lại.
+    for table, key in (("pages", "pages"), ("chats", "chats")):
+        if not isinstance(data.get(key), list):
+            continue
+        if not merge:
+            db_run(f"DELETE FROM {table}")
+        have = {r[0] for r in db_all(f"SELECT id FROM {table}")}
+        for item in data[key]:
+            if isinstance(item, dict) and item.get("id") and item["id"] not in have:
+                db_run(f"INSERT OR REPLACE INTO {table} (id, updatedAt, json) VALUES (?,?,?)", (item["id"], item.get("updatedAt") or now_iso(), json.dumps(item, ensure_ascii=False)))
+    return added
+
+
+BACKUP_NAME = re.compile(r"PaperVault-backup-(auto-)?\d{8}-\d{6}\.zip")
+
+
+def backup_dir():
+    d = ((get_settings().get("autoBackup") or {}).get("dir") or "").strip()
+    p = Path(d).expanduser() if d else DATA / "backups"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def make_backup_zip(auto=False):
+    """Bản sao lưu đầy đủ: dữ liệu (JSON, kèm toàn văn) + mọi file PDF + ảnh của Sổ tay. Trả về thông tin file."""
+    d = backup_dir()
+    name = f"PaperVault-backup-{'auto-' if auto else ''}{time.strftime('%Y%m%d-%H%M%S')}.zip"
+    tmp = d / (name + ".part")
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("papervault-backup.json", json.dumps(backup_data(True), ensure_ascii=False))
+        for folder, sub in ((PDF_DIR, "pdfs"), (IMG_DIR, "images")):
+            if folder.exists():
+                for f in sorted(folder.iterdir()):
+                    if f.is_file():
+                        # PDF và ảnh đã nén sẵn: lưu nguyên cho nhanh
+                        z.write(f, f"{sub}/{f.name}", compress_type=zipfile.ZIP_STORED)
+    path = d / name
+    os.replace(tmp, path)
+    kv_set("lastBackup", {"at": now_iso(), "file": name, "auto": auto})
+    return backup_info(path)
+
+
+def backup_info(p):
+    st = p.stat()
+    return {"name": p.name, "size": st.st_size, "at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(st.st_mtime)), "auto": "-auto-" in p.name}
+
+
+def list_backups():
+    d = backup_dir()
+    files = sorted((f for f in d.iterdir() if f.is_file() and BACKUP_NAME.fullmatch(f.name)), key=lambda f: f.stat().st_mtime, reverse=True)
+    return {"dir": str(d), "list": [backup_info(f) for f in files], "last": kv_get("lastBackup"), "settings": get_settings().get("autoBackup") or {}}
+
+
+def prune_auto_backups(keep):
+    d = backup_dir()
+    autos = sorted((f for f in d.iterdir() if f.is_file() and f.name.startswith("PaperVault-backup-auto-") and f.suffix == ".zip"), key=lambda f: f.stat().st_mtime, reverse=True)
+    for f in autos[max(1, int(keep or 7)):]:
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+
+def restore_backup_zip(path, merge=True):
+    """Khôi phục từ file .zip: nhập dữ liệu, chép PDF và ảnh còn thiếu (không ghi đè file đã có)."""
+    files = 0
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        if "papervault-backup.json" not in names:
+            raise ValueError("File .zip không phải bản sao lưu PaperVault.")
+        data = json.loads(z.read("papervault-backup.json").decode("utf-8"))
+        for n in names:
+            m = re.fullmatch(r"(pdfs|images)/([A-Za-z0-9_.-]+)", n)
+            if not m:
+                continue
+            dest = (PDF_DIR if m.group(1) == "pdfs" else IMG_DIR) / m.group(2)
+            if dest.exists():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(z.read(n))
+            files += 1
+    # PDF mới chép vào cần có dòng trong bảng pdfs để mở được
+    for f in PDF_DIR.glob("*.pdf") if PDF_DIR.exists() else []:
+        if not db_one("SELECT 1 FROM pdfs WHERE id=?", (f.stem,)):
+            db_run("INSERT INTO pdfs (id, name, size, createdAt) VALUES (?,?,?,?)", (f.stem, f.name, f.stat().st_size, now_iso()))
+    added = import_data(data, merge=merge)
+    return {"papers": added, "files": files}
+
+
+def auto_backup_due():
+    cfg = get_settings().get("autoBackup") or {}
+    if not cfg.get("enabled"):
+        return False
+    last_auto = kv_get("lastAutoBackup")
+    days = 7 if cfg.get("every") == "week" else 1
+    if not last_auto:
+        return True
+    try:
+        t0 = time.mktime(time.strptime(last_auto[:19], "%Y-%m-%dT%H:%M:%S"))
+    except ValueError:
+        return True
+    return time.time() - t0 >= days * 86400 - 600
+
+
+def _auto_backup_loop():
+    time.sleep(90)  # để app khởi động xong
+    while True:
+        try:
+            if auto_backup_due():
+                make_backup_zip(auto=True)
+                kv_set("lastAutoBackup", time.strftime("%Y-%m-%dT%H:%M:%S"))
+                prune_auto_backups((get_settings().get("autoBackup") or {}).get("keep") or 7)
+        except Exception as e:  # pragma: no cover
+            print("[PaperVault] auto-backup:", e)
+        time.sleep(1800)
+
+
+# ---- xuất PDF: in trang HTML bằng Edge / Chrome chạy ẩn (Windows luôn có Edge) ----
+
+def find_browser():
+    cands = []
+    if sys.platform.startswith("win"):
+        for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles"), os.environ.get("LOCALAPPDATA")):
+            if base:
+                cands += [Path(base) / "Microsoft/Edge/Application/msedge.exe", Path(base) / "Google/Chrome/Application/chrome.exe"]
+    elif sys.platform == "darwin":
+        cands += [Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"), Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")]
+    for c in cands:
+        if c.exists():
+            return str(c)
+    for n in ("msedge", "microsoft-edge", "google-chrome", "chromium", "chromium-browser", "chrome"):
+        w = shutil.which(n)
+        if w:
+            return w
+    return None
+
+
+PRINT_DOCS = {}  # token -> HTML đang chờ in (Edge mở qua http để tải được phông KaTeX cùng nguồn)
+
+
+def html_to_pdf(doc_html, port):
+    exe = find_browser()
+    if not exe:
+        raise FileNotFoundError("no-browser")
+    work = Path(tempfile.mkdtemp(prefix="pv-pdf-"))
+    token = uid("pd")
+    PRINT_DOCS[token] = doc_html
+    try:
+        out = work / "page.pdf"
+        args = [exe, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--disable-extensions",
+                f"--user-data-dir={work / 'profile'}", "--no-pdf-header-footer", "--print-to-pdf-no-header",
+                "--virtual-time-budget=8000", "--run-all-compositor-stages-before-draw", f"--print-to-pdf={out}", f"http://127.0.0.1:{port}/api/print-doc/{token}"]
+        flags = 0x08000000 if sys.platform.startswith("win") else 0  # CREATE_NO_WINDOW
+        subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90, creationflags=flags)
+        # Edge trên Windows giao việc cho tiến trình con rồi thoát ngay: chờ file PDF ghi xong (kích thước đứng yên).
+        last, still, t0 = -1, 0, time.time()
+        while time.time() - t0 < 90:
+            size = out.stat().st_size if out.exists() else -1
+            if size > 200 and size == last:
+                still += 1
+                if still >= 2:
+                    break
+            else:
+                still = 0
+            last = size
+            time.sleep(0.3)
+        if not out.exists() or out.stat().st_size < 200:
+            raise RuntimeError("Trình duyệt không tạo được file PDF.")
+        time.sleep(0.3)
+        return out.read_bytes()
+    finally:
+        PRINT_DOCS.pop(token, None)
+        # Tiến trình con của Edge có thể còn giữ thư mục hồ sơ vài giây: dọn sau.
+        threading.Timer(20, shutil.rmtree, args=(work,), kwargs={"ignore_errors": True}).start()
+
+
+# ---- kiểm tra bản mới trên GitHub ----
+
+def _ver(s):
+    return tuple(int(x) for x in re.findall(r"\d+", str(s or ""))[:3]) or (0,)
+
+
+def update_check():
+    _, _, raw, _ = http_get(RELEASES_API, timeout=15, max_bytes=2 * 1024 * 1024, headers={"Accept": "application/vnd.github+json"})
+    rel = json.loads(raw.decode("utf-8"))
+    latest = (rel.get("tag_name") or "").lstrip("vV")
+    return {"current": APP_VERSION, "latest": latest, "newer": _ver(latest) > _ver(APP_VERSION),
+            "url": rel.get("html_url") or RELEASES_PAGE, "name": rel.get("name") or latest,
+            "download": next((x.get("browser_download_url") for x in rel.get("assets") or [] if str(x.get("name", "")).lower().endswith(".zip")), None),
+            "publishedAt": rel.get("published_at"), "notes": (rel.get("body") or "")[:4000]}
+
+
 # ---- sổ tay nghiên cứu (trang Markdown liên kết với nhau và với paper) ----
 
 def list_pages():
     return [json.loads(r[0]) for r in db_all("SELECT json FROM pages ORDER BY updatedAt DESC")]
 
 
+VERSION_GAP = 10 * 60   # tối đa một bản lưu mỗi 10 phút khi đang gõ liên tục
+VERSION_KEEP = 80       # số phiên bản giữ lại cho mỗi trang
+
+
+def snapshot_page(old, force=False):
+    """Lưu trạng thái cũ của trang vào lịch sử phiên bản (gộp các lần lưu liên tiếp trong VERSION_GAP)."""
+    if not old:
+        return
+    last = db_one("SELECT at, json FROM page_versions WHERE pageId=? ORDER BY id DESC LIMIT 1", (old["id"],))
+    if last:
+        prev = json.loads(last[1])
+        if prev.get("content") == old.get("content") and prev.get("title") == old.get("title"):
+            return
+        if not force:
+            try:
+                t0 = time.mktime(time.strptime(last[0][:19], "%Y-%m-%dT%H:%M:%S"))
+                if time.time() - t0 < VERSION_GAP:
+                    return
+            except ValueError:
+                pass
+    snap = {k: old.get(k) for k in ("id", "title", "icon", "content", "updatedAt")}
+    db_run("INSERT INTO page_versions (pageId, at, title, size, json) VALUES (?,?,?,?,?)",
+           (old["id"], time.strftime("%Y-%m-%dT%H:%M:%S"), old.get("title") or "", len(old.get("content") or ""), json.dumps(snap, ensure_ascii=False)))
+    db_run("DELETE FROM page_versions WHERE pageId=? AND id NOT IN (SELECT id FROM page_versions WHERE pageId=? ORDER BY id DESC LIMIT ?)", (old["id"], old["id"], VERSION_KEEP))
+
+
+def get_page(pid):
+    r = db_one("SELECT json FROM pages WHERE id=?", (pid,))
+    return json.loads(r[0]) if r else None
+
+
 def put_page(page):
     p = dict(page)
+    old = get_page(p["id"]) if p.get("id") else None
+    if old and (old.get("content") != p.get("content") or old.get("title") != p.get("title")):
+        snapshot_page(old)
     p["id"] = p.get("id") or uid("pg")
     p["createdAt"] = p.get("createdAt") or now_iso()
-    p["updatedAt"] = now_iso()
+    # Mốc sửa chính xác tới mili-giây và luôn khác bản trước: trình soạn dùng nó để phát hiện trang bị sửa ở nơi khác
+    # (409), hai lần lưu trong cùng một giây vẫn phân biệt được.
+    prev = (old or {}).get("updatedAt")
+    p["updatedAt"] = now_iso_ms()
+    while p["updatedAt"] == prev:
+        time.sleep(0.002)
+        p["updatedAt"] = now_iso_ms()
     db_run("INSERT OR REPLACE INTO pages (id, updatedAt, json) VALUES (?,?,?)", (p["id"], p["updatedAt"], json.dumps(p, ensure_ascii=False)))
     return p
 
@@ -1047,6 +1429,51 @@ def http_get(url, timeout=40, max_bytes=40 * 1024 * 1024, headers=None):
         if res.headers.get("Content-Encoding", "").lower() == "gzip":
             raw = gzip.decompress(raw)
         return res.status, ctype, raw, res.geturl()
+
+
+def fetch_ics(url):
+    """Tải một lịch .ics công khai / link bí mật (Google Calendar, Outlook…) cho tính năng Đăng ký lịch. Trả về văn bản."""
+    url = str(url or "").strip()
+    if url.lower().startswith("webcal://"):
+        url = "https://" + url[9:]
+    status, ctype, raw, _ = http_get(url, timeout=25, max_bytes=8 * 1024 * 1024, headers={"Accept": "text/calendar, text/plain, */*"})
+    text = raw.decode("utf-8", errors="replace").lstrip("\ufeff")
+    if "BEGIN:VCALENDAR" not in text[:4000].upper():
+        raise ValueError("Link không trả về lịch .ics (cần link “Địa chỉ bí mật ở định dạng iCal” hoặc link .ics công khai).")
+    return text
+
+
+import zotero_import  # noqa: E402
+
+# PDF mà lần quét Zotero gần nhất tìm thấy: chỉ những file này được chép vào app (không đọc file tuỳ ý theo đường dẫn).
+ZOTERO_PDFS = set()
+
+
+def zotero_scan(data_dir=""):
+    dirs = zotero_import.candidate_dirs()
+    d = (data_dir or "").strip().strip('"')
+    if d:
+        p = Path(d)
+        if p.is_file() and p.name.lower().startswith("zotero.sqlite"):
+            p = p.parent
+        if not (p / "zotero.sqlite").exists():
+            raise ValueError("Thư mục này không có zotero.sqlite. Trong Zotero: Edit → Settings → Advanced → Files and Folders → Data Directory Location.")
+    elif dirs:
+        p = dirs[0]
+    else:
+        return {"found": False, "candidates": []}
+    lib = zotero_import.read_library(p)
+    ZOTERO_PDFS.clear()
+    for it in lib["items"]:
+        ZOTERO_PDFS.update(it["pdfs"])
+    return {"found": True, "candidates": [str(x) for x in dirs], **lib}
+
+
+def zotero_pdf(path):
+    if path not in ZOTERO_PDFS:
+        raise ValueError("File không nằm trong lần quét Zotero gần nhất. Quét lại rồi thử.")
+    data = Path(path).read_bytes()
+    return save_pdf(data, Path(path).name)
 
 
 import rankings as _rankings  # noqa: E402  (cần http_get đã khai báo)
@@ -2295,6 +2722,14 @@ class Handler(BaseHTTPRequestHandler):
     def static(self, path):
         if path in ("", "/"):
             path = "/index.html"
+        # Test JS (tests/js) chỉ phục vụ khi chạy bộ test (PV_TEST=1), không có trong bản đóng gói.
+        if path.startswith("/__tests__/") and os.environ.get("PV_TEST") == "1":
+            tdir = (BASE / "tests" / "js").resolve()
+            target = (tdir / path[len("/__tests__/"):]).resolve()
+            if tdir not in target.parents or not target.is_file():
+                return self.error("Not found", 404)
+            ctype = "text/html; charset=utf-8" if target.suffix == ".html" else "application/javascript; charset=utf-8"
+            return self.send_bytes(target.read_bytes(), ctype, extra={"Cache-Control": "no-cache"})
         target = (STATIC / path.lstrip("/")).resolve()
         if STATIC not in target.parents and target != STATIC:
             return self.error("Forbidden", 403)
@@ -2360,13 +2795,66 @@ class Handler(BaseHTTPRequestHandler):
                 body = self.read_json()
                 if isinstance(body, list):  # lưu nhiều trang một lượt (đổi tên trang thì sửa liên kết ở các trang khác)
                     return self.ok([put_page(x) for x in body])
+                # baseUpdatedAt: phiên bản trang mà trình soạn bắt đầu sửa. Trang trên máy chủ đã được sửa ở nơi khác
+                # sau mốc đó (khung chia đôi, tab khác) thì không ghi đè: trả 409 kèm bản hiện có để người dùng chọn.
+                # force: người dùng chọn giữ bản của mình; bản bị đè vẫn được lưu vào lịch sử phiên bản.
+                base = body.pop("baseUpdatedAt", None)
+                force = body.pop("force", False)
+                cur = get_page(body.get("id")) if body.get("id") else None
+                if cur and base and cur.get("updatedAt") != base and not force and (
+                        (cur.get("content") or "") != (body.get("content") or "") or (cur.get("title") or "") != (body.get("title") or "")):
+                    return self.send_json({"ok": False, "error": "conflict", "current": cur}, 409)
+                if cur and force:
+                    snapshot_page(cur, force=True)
                 return self.ok(put_page(body))
             if method == "DELETE" and len(seg) == 2:
                 db_run("DELETE FROM pages WHERE id=?", (seg[1],))
+                db_run("DELETE FROM page_versions WHERE pageId=?", (seg[1],))
                 return self.ok(True)
+            # Lịch sử phiên bản: GET pages/<id>/versions · GET pages/<id>/versions/<vid> · POST .../<vid>/restore
+            if len(seg) >= 3 and seg[2] == "versions":
+                pid = seg[1]
+                if method == "GET" and len(seg) == 3:
+                    rows = db_all("SELECT id, at, title, size FROM page_versions WHERE pageId=? ORDER BY id DESC", (pid,))
+                    return self.ok([{"id": r[0], "at": r[1], "title": r[2], "size": r[3]} for r in rows])
+                if len(seg) >= 4 and seg[3].isdigit():
+                    r = db_one("SELECT json FROM page_versions WHERE pageId=? AND id=?", (pid, int(seg[3])))
+                    if not r:
+                        return self.error("Không có phiên bản này.", 404)
+                    snap = json.loads(r[0])
+                    if method == "GET" and len(seg) == 4:
+                        return self.ok(snap)
+                    if method == "POST" and len(seg) == 5 and seg[4] == "restore":
+                        cur = get_page(pid)
+                        if not cur:
+                            return self.error("Trang đã bị xoá hẳn.", 404)
+                        snapshot_page(cur, force=True)  # giữ lại bản hiện tại để có thể hoàn tác
+                        cur.update({"title": snap.get("title") or cur.get("title"), "content": snap.get("content") or "", "icon": snap.get("icon", cur.get("icon"))})
+                        cur["updatedAt"] = now_iso()
+                        db_run("INSERT OR REPLACE INTO pages (id, updatedAt, json) VALUES (?,?,?)", (pid, cur["updatedAt"], json.dumps(cur, ensure_ascii=False)))
+                        return self.ok(cur)
 
         if head == "search" and method == "GET":
             return self.ok(search_text((qs.get("q") or [""])[0]))
+
+        if head == "zotero" and len(seg) == 2 and seg[1] == "scan" and method == "GET":
+            try:
+                return self.ok(zotero_scan((qs.get("dir") or [""])[0]))
+            except (ValueError, OSError) as e:
+                return self.send_json({"ok": False, "error": str(e)}, 400)
+        if head == "zotero" and len(seg) == 2 and seg[1] == "pdf" and method == "POST":
+            try:
+                return self.ok(zotero_pdf(str((self.read_json() or {}).get("path") or "")))
+            except (ValueError, OSError) as e:
+                return self.send_json({"ok": False, "error": str(e)}, 400)
+
+        if head == "ics-fetch" and method == "GET":
+            try:
+                return self.ok({"text": fetch_ics((qs.get("url") or [""])[0])})
+            except urllib.error.HTTPError as e:
+                return self.send_json({"ok": False, "error": f"Máy chủ lịch trả về lỗi HTTP {e.code}{' (link sai hoặc đã bị đặt lại)' if e.code in (401, 403, 404) else ''}."}, 502)
+            except (ValueError, urllib.error.URLError, OSError) as e:
+                return self.send_json({"ok": False, "error": str(getattr(e, "reason", None) or e)}, 400)
 
         if head == "papers":
             if method == "GET" and len(seg) == 1:
@@ -2418,6 +2906,9 @@ class Handler(BaseHTTPRequestHandler):
             if method == "DELETE" and len(seg) == 2:
                 delete_paper(seg[1], permanent=(qs.get("permanent") or ["0"])[0] == "1")
                 return self.ok(True)
+
+        if head == "usage" and len(seg) == 2 and seg[1] == "cost" and method == "GET":
+            return self.ok(usage_cost((qs.get("since") or [""])[0]))
 
         if head == "usage":
             if method == "POST":
@@ -2685,47 +3176,96 @@ class Handler(BaseHTTPRequestHandler):
             return self.ok(write_files(root, body.get("files") or [], clean=bool(body.get("clean"))))
 
         if head == "backup" and method == "GET":
-            papers = get_papers(include_deleted=True)
-            texts = {r[0]: {"text": r[1], "kind": r[2]} for r in db_all("SELECT paperId, text, kind FROM texts")} if (qs.get("texts") or ["0"])[0] == "1" else {}
-            return self.ok({"format": "papervault-export", "version": 2, "exportedAt": now_iso(),
-                            "topics": get_topics(), "papers": papers, "texts": texts, "pages": list_pages(), "calendar": kv_get("calendar", []),
-                            "settings": {k: v for k, v in get_settings().items() if k != "apiKeys"}})
+            return self.ok(backup_data((qs.get("texts") or ["0"])[0] == "1"))
 
         if head == "import" and method == "POST":
             body = self.read_json()
-            data = body.get("data") or {}
-            merge = body.get("merge", True)
-            if not isinstance(data.get("papers"), list):
-                return self.error("File import không đúng định dạng PaperVault.")
-            existing = {p["id"] for p in get_papers()} if merge else set()
-            if not merge:
-                db_run("DELETE FROM papers")
-                db_run("DELETE FROM texts")
-            for t in data.get("topics") or []:
-                put_topic(t)
-            added = 0
-            for p in data["papers"]:
-                if merge and p.get("id") in existing:
-                    continue
-                saved = put_paper(p)
-                t = (data.get("texts") or {}).get(p.get("id"))
-                if t:
-                    put_text(saved["id"], t.get("text", ""), t.get("kind", ""))
-                added += 1
-            # Lịch: gộp theo id (giữ kế hoạch đang có), thay thế thì lấy nguyên bản trong file.
-            if isinstance(data.get("calendar"), list):
-                cur = [] if not merge else (kv_get("calendar", []) or [])
-                have = {e.get("id") for e in cur}
-                kv_set("calendar", cur + [e for e in data["calendar"] if isinstance(e, dict) and e.get("id") not in have])
-            # Sổ tay: gộp thì bỏ qua trang đã có, thay thế thì xoá hết rồi nạp lại.
-            if isinstance(data.get("pages"), list):
-                if not merge:
-                    db_run("DELETE FROM pages")
-                have = {r[0] for r in db_all("SELECT id FROM pages")}
-                for pg in data["pages"]:
-                    if pg.get("id") and pg["id"] not in have:
-                        db_run("INSERT OR REPLACE INTO pages (id, updatedAt, json) VALUES (?,?,?)", (pg["id"], pg.get("updatedAt") or now_iso(), json.dumps(pg, ensure_ascii=False)))
-            return self.ok(added)
+            try:
+                return self.ok(import_data(body.get("data") or {}, merge=body.get("merge", True)))
+            except ValueError as e:
+                return self.error(str(e))
+
+        if head == "backups":
+            # /api/backups: GET danh sách · POST tạo bản sao lưu .zip · GET /api/backups/<tên> tải file
+            # POST /api/backups/open mở thư mục · POST /api/backups/restore?merge=1 khôi phục (body = file .zip hoặc {"name"})
+            sub = seg[1] if len(seg) > 1 else ""
+            try:
+                if method == "GET" and not sub:
+                    return self.ok(list_backups())
+                if method == "POST" and not sub:
+                    return self.ok(make_backup_zip(auto=False))
+                if method == "POST" and sub == "open":
+                    d = backup_dir()
+                    if sys.platform.startswith("win"):
+                        os.startfile(str(d))  # type: ignore[attr-defined]
+                    elif sys.platform == "darwin":
+                        os.system(f'open "{d}"')
+                    else:
+                        os.system(f'xdg-open "{d}"')
+                    return self.ok(str(d))
+                if method == "POST" and sub == "restore":
+                    merge = (qs.get("merge") or ["1"])[0] != "0"
+                    ctype = self.headers.get("Content-Type") or ""
+                    if ctype.startswith("application/json"):
+                        name = (self.read_json().get("name") or "")
+                        if not BACKUP_NAME.fullmatch(name):
+                            return self.error("Tên file sao lưu không hợp lệ.")
+                        return self.ok(restore_backup_zip(backup_dir() / name, merge=merge))
+                    # file .zip tải lên (có thể lớn): ghi thẳng ra file tạm theo từng khúc
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if not n or n > 8 * 1024 ** 3:
+                        return self.error("File sao lưu trống hoặc quá lớn.")
+                    tmp = backup_dir() / f"restore-{uid('r')}.zip.part"
+                    try:
+                        with open(tmp, "wb") as fh:
+                            left = n
+                            while left > 0:
+                                chunk = self.rfile.read(min(left, 1024 * 1024))
+                                if not chunk:
+                                    break
+                                fh.write(chunk)
+                                left -= len(chunk)
+                        return self.ok(restore_backup_zip(tmp, merge=merge))
+                    finally:
+                        try:
+                            tmp.unlink()
+                        except OSError:
+                            pass
+                if method == "GET" and BACKUP_NAME.fullmatch(sub):
+                    p = backup_dir() / sub
+                    if not p.exists():
+                        return self.error("Không có file này.", 404)
+                    return self.send_bytes(p.read_bytes(), "application/zip", extra={"Content-Disposition": f'attachment; filename="{sub}"'})
+            except (ValueError, zipfile.BadZipFile, OSError) as e:
+                return self.error(str(e))
+            return self.error("Không hỗ trợ.", 404)
+
+        if head == "print-doc" and method == "GET" and len(seg) == 2:
+            doc = PRINT_DOCS.get(seg[1])
+            if doc is None:
+                return self.error("Không có.", 404)
+            return self.send_bytes(doc.encode("utf-8"), "text/html; charset=utf-8")
+
+        if head == "export" and method == "POST" and len(seg) == 2 and seg[1] == "pdf":
+            # body: {"html": "<!doctype html>…"} (trang đầy đủ). Ảnh, CSS dạng đường dẫn tương đối lấy từ chính app.
+            body = self.read_json()
+            doc = str(body.get("html") or "")
+            if not doc:
+                return self.error("Thiếu nội dung.")
+            base = f'<base href="http://127.0.0.1:{self.server.server_address[1]}/">'
+            doc = re.sub(r"<head>", "<head>" + base, doc, count=1, flags=re.I) if re.search(r"<head>", doc, re.I) else base + doc
+            try:
+                return self.send_bytes(html_to_pdf(doc, self.server.server_address[1]), "application/pdf")
+            except FileNotFoundError:
+                return self.error("no-browser", 501)
+            except Exception as e:
+                return self.error(f"Không xuất được PDF: {e}")
+
+        if head == "update-check" and method == "GET":
+            try:
+                return self.ok(update_check())
+            except Exception as e:
+                return self.error(f"Không kiểm tra được bản mới: {e}")
 
         if head == "open" and method == "POST":
             # mở thư mục xuất trong Explorer/Finder
@@ -2741,7 +3281,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.ok(True)
 
         if head == "health":
-            return self.ok({"version": "1.0.0", "db": str(DB_PATH), "dataDir": str(DATA), "pdfDir": str(PDF_DIR),
+            return self.ok({"version": APP_VERSION, "db": str(DB_PATH), "dataDir": str(DATA), "pdfDir": str(PDF_DIR),
                             "papers": db_one("SELECT COUNT(*) FROM papers")[0], "configFile": str(HOME_DIR / "config.json")})
 
         return self.error(f"Không có API: {method} /api/{route}", 404)
@@ -2767,6 +3307,7 @@ def _warm_rankings():
 
 
 threading.Thread(target=_warm_rankings, daemon=True).start()
+threading.Thread(target=_auto_backup_loop, daemon=True).start()
 
 try:
     _purged = purge_trash(30)

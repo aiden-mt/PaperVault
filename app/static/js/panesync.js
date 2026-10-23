@@ -55,6 +55,8 @@ export function initPaneSync({ currentName, rerender }) {
       await loadAll();
       if (kinds.has('pages')) { await loadPages(true); pagesChangedElsewhere(); }
       if (kinds.has('kv')) await loadEvents(true);
+      // báo các phần chạy nền (nhắc việc…) rằng dữ liệu vừa được nạp lại từ bản khác
+      window.dispatchEvent(new CustomEvent('pv:synced', { detail: { kinds: [...kinds] } }));
       if (kinds.has('settings')) applyAppearance(store.settings.appearance);
     } catch (_) { return; }
     const typing = document.activeElement?.matches?.('input, textarea, select, [contenteditable="true"]');

@@ -10,8 +10,10 @@ let timer = 0;
 /**
  * Bắt đầu theo dõi một job ({ status, step, of, done, error, listeners }).
  * here(): true khi trang đang mở đã tự hiện tiến độ của job này (khi đó bảng nổi ẩn thẻ của nó).
+ * open(): thay cho href, nút Xem / Mở gọi hàm này (ví dụ mở lại khung kết quả). keep: việc xong không tự ẩn sau 12 giây,
+ * giữ thẻ tới khi người dùng mở hoặc đóng.
  */
-export function trackJob(key, job, { label, title = '', href = '', here = () => false, expectedMs = () => 40000, doneText = '' }) {
+export function trackJob(key, job, { label, title = '', href = '', open = null, onDismiss = null, keep = false, here = () => false, expectedMs = () => 40000, doneText = '' }) {
   if (!job) return job;
   if (!job.tracked) {
     job.tracked = true;
@@ -23,9 +25,14 @@ export function trackJob(key, job, { label, title = '', href = '', here = () => 
       render();
     });
   }
-  tracked.set(key, { job, label, title, href, here, expectedMs, doneText });
+  tracked.set(key, { job, label, title, href, open, onDismiss, keep, here, expectedMs, doneText });
   render();
   return job;
+}
+
+/** Bỏ thẻ của một việc khỏi bảng nổi (người dùng đã huỷ hoặc đã dùng kết quả). */
+export function untrackJob(key) {
+  if (tracked.delete(key)) render();
 }
 
 /** Tuỳ chọn cho showProgress để thanh tiến độ của job chạy tiếp đúng chỗ khi vẽ lại. */
@@ -98,13 +105,23 @@ function ensureTray() {
   document.body.appendChild(tray);
   tray.addEventListener('click', (e) => {
     const x = e.target.closest('[data-bg-close]');
-    if (x) { tracked.delete(x.dataset.bgClose); render(); return; }
+    if (x) {
+      const t = tracked.get(x.dataset.bgClose);
+      // Việc giữ kết quả (keep) còn đang chạy: chỉ ẩn tạm, xong thì thẻ hiện lại để mở kết quả.
+      if (t?.keep && !t.job.done) t.snoozed = true;
+      else { tracked.delete(x.dataset.bgClose); if (t?.job.done) t.onDismiss?.(); }
+      render();
+      return;
+    }
     const open = e.target.closest('[data-bg-open]');
     if (open) {
       const t = tracked.get(open.dataset.bgOpen);
       if (t?.job.done) tracked.delete(open.dataset.bgOpen);
-      const href = typeof t?.href === 'function' ? t.href() : t?.href;
-      if (href) location.hash = href;
+      if (t?.open) t.open();
+      else {
+        const href = typeof t?.href === 'function' ? t.href() : t?.href;
+        if (href) location.hash = href;
+      }
       render();
     }
   });
@@ -114,10 +131,10 @@ function ensureTray() {
 function render() {
   const now = Date.now();
   // Việc đã xong được báo 12 giây rồi tự ẩn (trừ khi lỗi: giữ tới khi người dùng đóng).
-  for (const [k, t] of tracked) if (t.job.done && !t.job.error && t.job.finishedAt && now - t.job.finishedAt > 12000) tracked.delete(k);
+  for (const [k, t] of tracked) if (t.job.done && !t.job.error && !t.keep && t.job.finishedAt && now - t.job.finishedAt > 12000) tracked.delete(k);
   // Trang đang mở đã tự hiện việc này thì ẩn thẻ; việc đã xong mà người dùng đang xem kết quả thì bỏ luôn.
   for (const [k, t] of tracked) if (t.job.done && t.here()) tracked.delete(k);
-  const shown = [...tracked.entries()].filter(([, t]) => !t.here());
+  const shown = [...tracked.entries()].filter(([, t]) => !t.here() && !(t.snoozed && !t.job.done));
   if (!shown.length) { if (tray) tray.hidden = true; stopTimer(); return; }
   const node = ensureTray();
   node.hidden = false;
@@ -132,8 +149,8 @@ function render() {
     if (!card || card.dataset.state !== state) {
       const html = `<div class="bg-card ${state}" data-key="${escapeHtml(key)}" data-state="${state}">
         <div class="bg-head"><b>${state === 'ok' ? '✓ ' : state === 'err' ? '⚠ ' : ''}${escapeHtml(t.label)}</b><span class="spacer"></span>
-          ${t.href ? `<button class="sm" data-bg-open="${escapeHtml(key)}">${state === 'run' ? 'Xem' : 'Mở'}</button>` : ''}
-          <button class="ghost sm" data-bg-close="${escapeHtml(key)}" title="Ẩn (việc vẫn chạy tiếp)">✕</button></div>
+          ${t.href || t.open ? `<button class="sm" data-bg-open="${escapeHtml(key)}">${state === 'run' ? 'Xem' : 'Mở'}</button>` : ''}
+          <button class="ghost sm" data-bg-close="${escapeHtml(key)}" title="${state === 'run' ? 'Ẩn (việc vẫn chạy tiếp)' : 'Ẩn thẻ này'}">✕</button></div>
         ${t.title ? `<div class="bg-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>` : ''}
         <div class="bg-body">${state === 'ok' ? `<span class="hint">${escapeHtml((typeof t.doneText === 'function' ? t.doneText(t.job) : t.doneText) || 'Đã xong, kết quả đã được lưu.')}</span>` : state === 'err' ? `<span class="status err">${escapeHtml(t.job.error)}</span>` : ''}</div></div>`;
       const tmp = document.createElement('div');

@@ -15,7 +15,7 @@ python -m PyInstaller --noconfirm --clean --windowed --name PaperVault ^
   --add-data "static;static" ^
   --add-data "rankings;rankings" ^
   --collect-all webview --collect-all clr_loader --collect-all pythonnet ^
-  --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms ^
+  --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms --hidden-import tray --hidden-import zotero_import ^
   desktop.py
 if %errorlevel% neq 0 (
   echo.

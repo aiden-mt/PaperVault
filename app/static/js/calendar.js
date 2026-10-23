@@ -12,8 +12,31 @@ export const CATS = [
   ['meet', 'Họp / thảo luận', '#7c3aed'],
   ['other', 'Khác', '#64748b'],
 ];
-export const catOf = (k) => CATS.find((c) => c[0] === k) || CATS[CATS.length - 1];
+// Lịch đăng ký (calfeeds.js) mỗi lịch là một "loại" riêng: ['feed:<id>', tên, màu]. Sự kiện của chúng chỉ đọc, không lưu vào kv "calendar".
+const feedCats = new Map();
+let feedEvents = [];
+export function setFeedData(cats, evs) {
+  feedCats.clear();
+  for (const c of cats) feedCats.set(c[0], c);
+  feedEvents = evs;
+  emit();
+}
+export const feedCatList = () => [...feedCats.values()];
+export const isFeedEvent = (e) => !!e?.feed;
+export const catOf = (k) => CATS.find((c) => c[0] === k) || feedCats.get(k) || CATS[CATS.length - 1];
 export const REPEATS = [['none', 'Không lặp'], ['daily', 'Hằng ngày'], ['weekly', 'Hằng tuần'], ['monthly', 'Hằng tháng']];
+// Nhắc việc: số phút trước giờ bắt đầu ('' = không nhắc). Kế hoạch cả ngày (không có giờ) tính từ 8:00 sáng.
+export const REMINDS = [['', 'Không nhắc'], ['0', 'Đúng giờ'], ['5', 'Trước 5 phút'], ['10', 'Trước 10 phút'], ['15', 'Trước 15 phút'], ['30', 'Trước 30 phút'], ['60', 'Trước 1 giờ'], ['120', 'Trước 2 giờ'], ['1440', 'Trước 1 ngày']];
+export const ALLDAY_REMIND_AT = '08:00';
+export const hasRemind = (e) => e?.remind !== undefined && e.remind !== null && e.remind !== '';
+/** Thời điểm nhắc (Date) của một lần diễn ra vào ngày date, null nếu không nhắc. */
+export function remindAt(e, date) {
+  if (!hasRemind(e)) return null;
+  const [h, m] = String(e.start || ALLDAY_REMIND_AT).split(':').map(Number);
+  const d = parseYmd(date);
+  d.setHours(h || 0, m || 0, 0, 0);
+  return new Date(d.getTime() - Number(e.remind) * 60000);
+}
 
 let events = null;
 const subs = new Set();
@@ -26,7 +49,10 @@ export async function loadEvents(force = false) {
   events = Array.isArray(v) ? v : [];
   return events;
 }
-export const allEvents = () => events || [];
+/** Mọi sự kiện để hiện: kế hoạch của bạn và sự kiện của các lịch đăng ký đang bật. */
+export const allEvents = () => (feedEvents.length ? [...(events || []), ...feedEvents] : events || []);
+/** Chỉ kế hoạch của bạn (xuất .ics, quá hạn…). */
+export const ownEvents = () => events || [];
 async function persist() { await api.kvSet('calendar', events); emit(); }
 
 export async function saveEvent(ev) {
@@ -36,6 +62,17 @@ export async function saveEvent(ev) {
   if (i >= 0) events[i] = e; else events.push(e);
   await persist();
   return e;
+}
+/** Lưu nhiều kế hoạch một lượt (nhập .ics). Kế hoạch trùng id thì thay. */
+export async function saveEvents(list) {
+  await loadEvents();
+  const at = new Date().toISOString();
+  for (const ev of list) {
+    const e = { repeat: 'none', cat: 'other', ...ev, id: ev.id || uid('ev'), updatedAt: at };
+    const i = events.findIndex((x) => x.id === e.id);
+    if (i >= 0) events[i] = e; else events.push(e);
+  }
+  await persist();
 }
 export async function removeEvent(id) {
   await loadEvents();

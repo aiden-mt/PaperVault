@@ -3,7 +3,7 @@
 /** Tham số truy vấn cho kết quả khám phá Semantic Scholar: lấy mới ngay, hoặc tự lấy mới khi bản lưu cũ hơn N ngày. */
 const s2q = (refresh, maxAgeDays, limit = 0) => { const q = [refresh ? 'refresh=1' : '', maxAgeDays > 0 ? `maxAgeDays=${maxAgeDays}` : '', limit > 0 ? `limit=${limit}` : ''].filter(Boolean).join('&'); return q ? `?${q}` : ''; };
 
-const MUTATING = /^(papers|topics|settings|kv\/|pages|import|inbox|venue\/reclassify)/;
+const MUTATING = /^(papers|topics|settings|kv\/|pages|import|backups\/restore|inbox|venue\/reclassify)/;
 
 async function req(method, path, body, { raw = false, headers = {} } = {}) {
   const opts = { method, headers: { ...headers } };
@@ -24,7 +24,7 @@ async function req(method, path, body, { raw = false, headers = {} } = {}) {
   if (raw) return res;
   let data;
   try { data = await res.json(); } catch (_) { throw new Error(`Máy chủ trả về lỗi HTTP ${res.status}.`); }
-  if (!data.ok) throw new Error(data.error || `Lỗi HTTP ${res.status}`);
+  if (!data.ok) { const err = new Error(data.error || `Lỗi HTTP ${res.status}`); err.status = res.status; err.body = data; throw err; }
   // Đã ghi dữ liệu: báo để các bản app khác đang mở (khung chia đôi, tab khác) nạp lại.
   if (method !== 'GET' && MUTATING.test(path)) window.dispatchEvent(new CustomEvent('pv:mutated', { detail: { path } }));
   return data.data;
@@ -87,9 +87,13 @@ export const api = {
   arxivSearch: (keywords, cats, max = 50) => req('GET', `arxiv/search?q=${encodeURIComponent(keywords.join(','))}&cats=${encodeURIComponent(cats.join(','))}&max=${max}`),
 
   logUsage: (row) => req('POST', 'usage', row).catch(() => null),
+  usageCost: (since) => req('GET', `usage/cost?since=${encodeURIComponent(since)}`),
   usage: (since = '') => req('GET', `usage?since=${encodeURIComponent(since)}`),
   prices: (models, refresh = false) => req('GET', `prices?models=${encodeURIComponent(models.join(','))}${refresh ? '&refresh=1' : ''}`),
 
+  zoteroScan: (dir = '') => req('GET', `zotero/scan?dir=${encodeURIComponent(dir)}`),
+  zoteroPdf: (path) => req('POST', 'zotero/pdf', { path }),
+  icsFetch: (url) => req('GET', `ics-fetch?url=${encodeURIComponent(url)}`),
   chats: () => req('GET', 'chats'),
   chat: (id) => req('GET', `chats/${id}`),
   putChat: (c) => req('POST', 'chats', c),
@@ -111,5 +115,25 @@ export const api = {
   sync: (files, { root, clean = false } = {}) => req('POST', 'sync', { files, root, clean }),
   backup: (withTexts = true) => req('GET', `backup?texts=${withTexts ? 1 : 0}`),
   importData: (data, merge = true) => req('POST', 'import', { data, merge }),
+  // Sao lưu đầy đủ dạng .zip (dữ liệu + PDF + ảnh) trong thư mục sao lưu
+  backups: () => req('GET', 'backups'),
+  createBackup: () => req('POST', 'backups'),
+  openBackupDir: () => req('POST', 'backups/open'),
+  backupFile: async (name) => { const r = await fetch(`/api/backups/${encodeURIComponent(name)}`); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); },
+  restoreBackup: (fileOrName, merge = true) => (typeof fileOrName === 'string'
+    ? req('POST', `backups/restore?merge=${merge ? 1 : 0}`, { name: fileOrName })
+    : req('POST', `backups/restore?merge=${merge ? 1 : 0}`, fileOrName, { headers: { 'content-type': 'application/zip' } })),
+  updateCheck: () => req('GET', 'update-check'),
+  /** Trang HTML đầy đủ -> Blob PDF (máy chủ in bằng Edge / Chrome chạy ẩn). Lỗi 'no-browser' khi máy không có trình duyệt hợp. */
+  htmlToPdf: async (html) => {
+    const r = await req('POST', 'export/pdf', { html }, { raw: true });
+    if (r.ok && (r.headers.get('content-type') || '').includes('pdf')) return r.blob();
+    let msg = `HTTP ${r.status}`;
+    try { msg = (await r.json()).error || msg; } catch (_) { /* bỏ qua */ }
+    throw new Error(msg);
+  },
+  pageVersions: (id) => req('GET', `pages/${id}/versions`),
+  pageVersion: (id, vid) => req('GET', `pages/${id}/versions/${vid}`),
+  restorePageVersion: (id, vid) => req('POST', `pages/${id}/versions/${vid}/restore`),
   openFolder: (path) => req('POST', 'open', { path }),
 };

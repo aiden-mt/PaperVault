@@ -107,9 +107,32 @@ export function parseRis(text) {
   return entries;
 }
 
+/** CSL JSON (Zotero, Mendeley, Paperpile… "Export → CSL JSON"): mảng các mục { title, author: [{ family, given }], issued… }. */
+export function parseCslJson(text) {
+  let data;
+  try { data = JSON.parse(text); } catch (_) { return []; }
+  const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [data];
+  return list.filter((x) => x && typeof x === 'object' && x.title).map((x) => {
+    const doi = String(x.DOI || '').replace(/^https?:\/\/(dx\.)?doi\.org\//i, '');
+    const url = String(x.URL || '');
+    const arxivId = parseArxivId(url) || parseArxivId(String(x.number || '')) || parseArxivId(String(x.note || ''));
+    const year = String(x.issued?.['date-parts']?.[0]?.[0] || x.issued?.raw || '').slice(0, 4);
+    return {
+      key: String(x.id || x['citation-key'] || ''), type: String(x.type || ''),
+      title: String(x.title).trim(),
+      authors: (x.author || []).map((a) => a.literal || [a.given, a.family].filter(Boolean).join(' ')).filter(Boolean),
+      year, venue: String(x['container-title'] || x['event-title'] || x.publisher || ''),
+      doi, arxivId, url: /^https?:/.test(url) ? url : (arxivId ? `https://arxiv.org/abs/${arxivId}` : (doi ? `https://doi.org/${doi}` : '')),
+      abstract: String(x.abstract || ''),
+      keywords: String(x.keyword || '').split(/[,;]/).map((k) => k.trim().toLowerCase()).filter(Boolean),
+    };
+  });
+}
+
 /** Đoán định dạng theo nội dung rồi parse. */
 export function parseReferences(text, filename = '') {
   const t = String(text || '');
+  if (/\.json$/i.test(filename) || /^\s*[[{]/.test(t)) return parseCslJson(t);
   if (/\.ris$/i.test(filename) || /^TY\s{2}-/m.test(t)) return parseRis(t);
   return parseBibtex(t);
 }

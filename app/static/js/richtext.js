@@ -14,7 +14,12 @@ let MACROS = {};
 export const setMathMacros = (m) => { MACROS = m && typeof m === 'object' ? { ...m } : {}; };
 export const mathMacros = () => ({ ...MACROS });
 
+// Khi xuất Word: công thức giữ dạng mã TeX (Word không hiểu HTML của KaTeX).
+let plainMath = false;
+export function withPlainMath(fn) { plainMath = true; try { return fn(); } finally { plainMath = false; } }
+
 export function renderMath(tex, display = false) {
+  if (plainMath) return `<em class="tex">${escapeHtml(display ? `$$${tex.trim()}$$` : `$${tex.trim()}$`)}</em>`;
   const k = window.katex;
   if (!k) return escapeHtml(display ? `$$${tex}$$` : `$${tex}$`);
   try {

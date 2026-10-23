@@ -1,19 +1,33 @@
 // Tạo file Word .docx thật (Office Open XML) từ HTML đơn giản, không cần thư viện ngoài.
-// Hỗ trợ: h1-h3, p, b/strong, i/em, u, a, code, sup/sub, br, ul/ol (lồng nhau), blockquote, table (th, colspan).
+// Hỗ trợ: h1-h3, p, b/strong, i/em, u, a, code, sup/sub, br, ul/ol (lồng nhau), blockquote, table (th, colspan),
+// img (qua htmlToDocxWithImages: tải ảnh trước rồi nhúng vào file).
 // File zip được ghi kiểu "stored" (không nén), Word / LibreOffice / Google Docs đều mở được.
 
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-const W_NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+const W_NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
 const xml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
   // Ký tự điều khiển không hợp lệ trong XML.
   .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
 
-const INLINE = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'A', 'SPAN', 'CODE', 'SUP', 'SUB', 'BR', 'SMALL', 'MARK', 'S', 'DEL', 'FONT', 'KBD']);
+const INLINE = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'A', 'SPAN', 'CODE', 'SUP', 'SUB', 'BR', 'SMALL', 'MARK', 'S', 'DEL', 'FONT', 'KBD', 'IMG']);
 
 /* ---------------------------------------------------------------- chuyển HTML -> WordprocessingML */
 
-function makeConverter(textWidth) {
+function makeConverter(textWidth, images = null) {
+  let pics = 0;
+  // Ảnh nằm trong dòng; rộng quá khổ giấy thì thu nhỏ cho vừa (1 px = 9525 EMU, 1 twip = 635 EMU).
+  function drawing(im) {
+    const maxEmu = textWidth * 635;
+    let cx = Math.round(im.w * 9525);
+    let cy = Math.round(im.h * 9525);
+    if (cx > maxEmu) { cy = Math.round(cy * maxEmu / cx); cx = maxEmu; }
+    const id = ++pics;
+    return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${id}" name="Picture ${id}"/>`
+      + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${id}" name="image${id}"/><pic:cNvPicPr/></pic:nvPicPr>`
+      + `<pic:blipFill><a:blip r:embed="${im.rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>`
+      + '</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+  }
   const nums = []; // [{ id, ordered }]
   const newNum = (ordered) => { const id = nums.length + 1; nums.push({ id, ordered }); return id; };
 
@@ -43,6 +57,13 @@ function makeConverter(textWidth) {
       if (n.nodeType !== 1) continue;
       const tag = n.tagName;
       if (tag === 'BR') { out += '<w:r><w:br/></w:r>'; state.atStart = true; continue; }
+      if (tag === 'IMG') {
+        const im = images?.get(n.getAttribute('src') || '');
+        if (im) out += drawing(im);
+        else if (n.getAttribute('alt')) out += run(`[${n.getAttribute('alt')}]`, { ...f, italic: true });
+        state.atStart = false;
+        continue;
+      }
       const g = { ...f };
       if (tag === 'B' || tag === 'STRONG') g.bold = true;
       if (tag === 'I' || tag === 'EM') g.italic = true;
@@ -132,6 +153,7 @@ function makeConverter(textWidth) {
       else if (tag === 'BLOCKQUOTE') out += blocks(n, { ...ctx, style: ctx.inTable ? '' : 'Quote', italic: true });
       else if (tag === 'TABLE') out += table(n, ctx);
       else if (tag === 'PRE') out += n.textContent.split('\n').map((l) => `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr>${run(l, { code: true, size: 18 })}</w:p>`).join('');
+      else if (n.classList.contains('docx-pb')) out += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'; // ngắt trang
       else if (['HR', 'SCRIPT', 'STYLE', 'TITLE', 'META', 'XML'].includes(tag)) continue;
       else out += blocks(n, ctx);
     }
@@ -183,7 +205,7 @@ function crc32(bytes) {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-function zip(files) {
+function zip(files, type = DOCX_MIME) {
   const enc = new TextEncoder();
   const parts = [];
   const central = [];
@@ -211,8 +233,11 @@ function zip(files) {
   const end = new DataView(new ArrayBuffer(22));
   end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
   end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
-  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: DOCX_MIME });
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type });
 }
+
+/** Gói nhiều file thành .zip (không nén). files: [{ name: 'thư mục/tên.md', data: string | Uint8Array }]. */
+export const zipBlob = (files) => zip(files, 'application/zip');
 
 /* ---------------------------------------------------------------- API */
 
@@ -220,10 +245,14 @@ function zip(files) {
  * HTML (một đoạn hoặc cả trang) -> Blob .docx.
  * opts.title: tiêu đề tài liệu (thuộc tính file); opts.landscape: trang A4 nằm ngang cho bảng nhiều cột.
  */
-export function htmlToDocx(html, { title = 'PaperVault', landscape = false } = {}) {
+export function htmlToDocx(html, { title = 'PaperVault', landscape = false, images = null } = {}) {
   const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
   const [pw, ph, margin] = landscape ? [16838, 11906, 851] : [11906, 16838, 1134];
-  const conv = makeConverter(pw - margin * 2);
+  // images: Map(src -> { data: Uint8Array, ext: 'png' | 'jpeg' | 'gif', w, h }) do htmlToDocxWithImages chuẩn bị.
+  const media = [];
+  const refs = new Map();
+  for (const [src, im] of images || []) { const k = media.length + 1; media.push({ ...im, name: `image${k}.${im.ext}`, rid: `rIdImg${k}` }); refs.set(src, media[k - 1]); }
+  const conv = makeConverter(pw - margin * 2, refs);
   const body = conv.blocks(doc.body, {}) || '<w:p/>';
   const sect = `<w:sectPr><w:pgSz w:w="${pw}" w:h="${ph}"${landscape ? ' w:orient="landscape"' : ''}/><w:pgMar w:top="${margin}" w:right="${margin}" w:bottom="${margin}" w:left="${margin}" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>`;
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
@@ -231,6 +260,7 @@ export function htmlToDocx(html, { title = 'PaperVault', landscape = false } = {
   return zip([
     { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>
+${[...new Set(media.map((m) => m.ext))].map((e) => `<Default Extension="${e}" ContentType="image/${e}"/>`).join('')}
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 ${hasNum ? '<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>' : ''}
@@ -243,10 +273,47 @@ ${hasNum ? '<Override PartName="/word/numbering.xml" ContentType="application/vn
 <dc:title>${xml(title)}</dc:title><dc:creator>PaperVault</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>` },
     { name: 'word/_rels/document.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-${hasNum ? '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>' : ''}</Relationships>` },
+${hasNum ? '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>' : ''}
+${media.map((m) => `<Relationship Id="${m.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${m.name}"/>`).join('')}</Relationships>` },
     { name: 'word/styles.xml', data: STYLES },
     ...(hasNum ? [{ name: 'word/numbering.xml', data: numberingXml(conv.nums) }] : []),
+    ...media.map((m) => ({ name: `word/media/${m.name}`, data: m.data })),
     { name: 'word/document.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document ${W_NS}><w:body>${body}${sect}</w:body></w:document>` },
   ]);
+}
+
+/** Đọc ảnh về dạng Word nhúng được: PNG / JPEG / GIF giữ nguyên, định dạng khác (WebP, BMP) vẽ lại thành PNG. */
+async function loadImage(src, cssWidth) {
+  const res = await fetch(src);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const bmp = await createImageBitmap(blob);
+  let { width: w, height: h } = bmp;
+  let data;
+  let ext = { 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/gif': 'gif' }[blob.type] || '';
+  if (ext) data = new Uint8Array(await blob.arrayBuffer());
+  else {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    c.getContext('2d').drawImage(bmp, 0, 0);
+    data = new Uint8Array(await (await new Promise((r) => c.toBlob(r, 'image/png'))).arrayBuffer());
+    ext = 'png';
+  }
+  bmp.close?.();
+  if (cssWidth && cssWidth < w) { h = Math.round(h * cssWidth / w); w = cssWidth; }
+  return { data, ext, w, h };
+}
+
+/** Như htmlToDocx nhưng tải và nhúng ảnh (<img src>) vào file. Ảnh không tải được thì ghi chú thích thay cho ảnh. */
+export async function htmlToDocxWithImages(html, opts = {}) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  const images = new Map();
+  await Promise.all([...doc.querySelectorAll('img[src]')].map(async (img) => {
+    const src = img.getAttribute('src');
+    if (images.has(src)) return;
+    const px = /width:\s*(\d+)px/.exec(img.getAttribute('style') || '');
+    try { images.set(src, await loadImage(src, px ? Number(px[1]) : 0)); } catch (_) { /* bỏ qua ảnh lỗi */ }
+  }));
+  return htmlToDocx(html, { ...opts, images });
 }

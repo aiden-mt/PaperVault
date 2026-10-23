@@ -28,6 +28,9 @@ export const desktop = {
   setDataDir: (path, move = false) => call('set_data_dir', path, move),
   openPath: (path) => call('open_path', path),
   openUrl: (url) => call('open_url', url),
+  attention: () => call('attention'),
+  notify: (title, body = '', hash = '') => call('notify', title, body, hash),
+  closeChoice: (action) => call('close_choice', action),
   restart: () => call('restart'),
   quit: () => call('quit'),
 };

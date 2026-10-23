@@ -1,8 +1,10 @@
 // Cài đặt: model & API key, đề tài, tham số trích xuất, thư mục xuất Markdown, sao lưu, dữ liệu & cloud.
 import { api } from '../api.js';
 import { store, saveSettings, loadAll } from '../store.js';
-import { escapeHtml, download } from '../util.js';
-import { $, toast, setStatus, spinner, showProgress, confirmDialog } from '../ui.js';
+import { escapeHtml, download, fmtSize } from '../util.js';
+import { $, toast, setStatus, spinner, showProgress, confirmDialog, dialog } from '../ui.js';
+import { checkForUpdate, openRelease, releaseNotesHtml } from '../updates.js';
+import { budgetOf, monthCost, CHEAP_MODELS } from '../budget.js';
 import { testConnection, PROVIDERS, TASK_GROUPS, DEFAULT_MODELS } from '../llm.js';
 import { TRANSLATE_LANGS, translateConfig } from '../translate.js';
 import { buildLibraryFiles } from '../markdown.js';
@@ -28,7 +30,7 @@ function fontPicker(id, list, value) {
     <input type="text" id="${id}-custom" placeholder="Tên phông đã cài, ví dụ Be Vietnam Pro" value="${known ? '' : escapeHtml(value)}" ${known ? 'hidden' : ''} style="flex:1;min-width:140px"></div>`;
 }
 
-export async function render(root) {
+export async function render(root, { query } = {}) {
   const s = store.settings;
   const ap = normalizeAppearance(s.appearance);
   const tr = translateConfig(s);
@@ -99,9 +101,27 @@ export async function render(root) {
       <div class="row wrap"><button id="st-sync" class="sm">Đồng bộ ngay</button><button id="st-open" class="sm">Mở thư mục</button><span id="st-sync-status" class="status"></span></div>
     </section>
 
-    <section class="card"><h2>Sao lưu &amp; nhập dữ liệu</h2>
-      <div class="row wrap"><button id="st-backup" class="sm">Tải file sao lưu JSON</button><button id="st-import" class="sm">Nhập JSON (gộp)</button><button id="st-import-replace" class="sm danger">Nhập JSON (thay thế toàn bộ)</button><input type="file" id="st-file" accept="application/json" hidden><span id="st-import-status" class="status"></span></div>
-      <p class="hint" style="margin-top:8px">Nhận cả file sao lưu của <b>extension PaperVault</b> (Thư viện → Xuất → 3) lẫn của app này. File của app có kèm nội dung nguồn (full text) từng paper.</p>
+    <section class="card" id="st-backup-card"><h2>Sao lưu &amp; khôi phục</h2>
+      <p class="hint">Bản sao lưu đầy đủ là một file <b>.zip</b> chứa mọi thứ: paper, toàn văn, Sổ tay, Lịch, Chat, cài đặt (trừ API key), <b>file PDF</b> và <b>ảnh</b> trong Sổ tay. Khôi phục được trên máy khác.</p>
+      <div class="row wrap"><button id="st-bk-now" class="sm primary">Sao lưu đầy đủ ngay</button><button id="st-bk-open" class="sm">Mở thư mục sao lưu</button><button id="st-bk-restore" class="sm">Khôi phục từ file .zip…</button><input type="file" id="st-bk-file" accept=".zip,application/zip" hidden><span id="st-bk-status" class="status"></span></div>
+      <div class="bk-auto">
+        <label class="check"><input type="checkbox" id="st-bk-auto"> Tự sao lưu</label>
+        <select id="st-bk-every"><option value="day">mỗi ngày</option><option value="week">mỗi tuần</option></select>
+        <span class="hint">giữ lại</span><input type="number" id="st-bk-keep" min="1" max="100" style="width:64px"><span class="hint">bản tự động gần nhất</span>
+      </div>
+      <div class="row" style="gap:6px;margin-top:8px"><label class="field" style="flex:1;margin:0"><span class="label-text">Thư mục sao lưu <span class="hint">(trống = thư mục <span class="mono">backups</span> trong dữ liệu app; nên chọn ổ khác hoặc thư mục OneDrive / Drive)</span></span>
+        <input id="st-bk-dir" placeholder="ví dụ D:\\Backup\\PaperVault"></label>${isDesktop() ? '<button id="st-bk-pick" class="sm" style="align-self:flex-end">Chọn…</button>' : ''}</div>
+      <div id="st-bk-list" class="bk-list">${spinner('Đang tải…')}</div>
+      <details class="bk-json"><summary>Sao lưu dạng JSON (không kèm PDF, ảnh)</summary>
+        <div class="row wrap" style="margin-top:8px"><button id="st-backup" class="sm">Tải file sao lưu JSON</button><button id="st-import" class="sm">Nhập JSON (gộp)</button><button id="st-import-replace" class="sm danger">Nhập JSON (thay thế toàn bộ)</button><input type="file" id="st-file" accept="application/json" hidden><span id="st-import-status" class="status"></span></div>
+        <p class="hint" style="margin-top:8px">Nhận cả file sao lưu của <b>extension PaperVault</b> (Thư viện → Xuất → 3) lẫn của app này. File của app có kèm nội dung nguồn (full text) từng paper.</p>
+      </details>
+    </section>
+
+    <section class="card" id="st-ver-card"><h2>Phiên bản &amp; cập nhật</h2>
+      <div class="row wrap"><span>PaperVault <b>${escapeHtml(health.version || '?')}</b></span><button id="st-upd" class="sm">Kiểm tra bản mới</button>
+        <label class="check"><input type="checkbox" id="st-upd-auto" ${s.updateCheck !== false ? 'checked' : ''}> Tự kiểm tra mỗi ngày một lần</label></div>
+      <div id="st-upd-out" class="upd-out" hidden></div>
     </section>
 
     <section class="card"><h2>Bảng xếp hạng venue</h2>
@@ -115,7 +135,19 @@ export async function render(root) {
       <div class="row wrap"><button id="st-cites" class="sm">Cập nhật số trích dẫn</button><span id="st-cites-status" class="status">${store.lastCitationRefresh ? `Lần cuối: ${escapeHtml(new Date(store.lastCitationRefresh).toLocaleString('vi-VN'))}` : 'Chưa cập nhật lần nào.'}</span></div>
     </section>
 
-    <section class="card"><h2>Sử dụng API &amp; chi phí</h2>
+    <section class="card" id="st-usage-card"><h2>Sử dụng API &amp; chi phí</h2>
+      <div class="budget-box">
+        <div class="budget-f">
+          <label class="field"><span class="label-text">Ngân sách AI / tháng (USD)</span><input type="number" id="st-budget" min="0" step="1" placeholder="0 = không giới hạn"></label>
+          <label class="field"><span class="label-text">Khi vượt ngân sách</span><select id="st-budget-mode">
+            <option value="warn">Chỉ cảnh báo</option>
+            <option value="cheap">Đổi sang model rẻ</option>
+            <option value="block">Chặn gọi AI</option></select></label>
+          <label class="field"><span class="label-text">Cảnh báo khi đạt</span><select id="st-budget-warn">${[0.5, 0.7, 0.8, 0.9].map((v) => `<option value="${v}">${v * 100}%</option>`).join('')}</select></label>
+        </div>
+        <div id="st-budget-bar" class="budget-bar"></div>
+        <div class="hint">Đổi sang model rẻ: dùng ${Object.values(CHEAP_MODELS).join(' / ')} (cùng nhà cung cấp, cùng API key) tới hết tháng. Chặn gọi AI: các nút AI báo lỗi tới đầu tháng sau; nút <i>Thử</i> kết nối vẫn chạy.</div>
+      </div>
       <div id="st-usage"><span class="hint">${spinner('Đang tải…')}</span></div>
       <p class="hint" style="margin-top:8px">Chi phí là ước tính (USD cho 1 triệu token vào / ra). Khi bật <b>Tự cập nhật đơn giá</b>, app lấy giá mới nhất từ bảng giá công khai LiteLLM (làm mới mỗi tuần, kể cả giá đọc / ghi cache) và điền vào các ô có nhãn <i>tự động</i>. Ô bạn tự sửa được giữ nguyên; xoá trống ô rồi bấm Lưu để dùng lại giá tự động. Model không có trong bảng giá thì tự nhập.</p>
     </section>
@@ -127,7 +159,13 @@ export async function render(root) {
         <span class="mono">{"dataDir": "C:\\\\Users\\\\ban\\\\OneDrive\\\\PaperVault"}</span> (hoặc đặt biến môi trường <span class="mono">PV_DATA</span>) rồi khởi động lại app. Toàn bộ CSDL và PDF sẽ nằm trong thư mục đó và được client OneDrive/Drive đồng bộ lên cloud. Chỉ mở app trên <b>một máy tại một thời điểm</b> để tránh xung đột file.
         Nếu đang có dữ liệu ở thư mục cũ, tải file sao lưu JSON rồi nhập lại sau khi đổi thư mục, hoặc copy nguyên thư mục <span class="mono">data</span> sang.</p>`}
     </section>
-    ${isDesktop() ? `<section class="card"><h2>Ứng dụng</h2><div class="row wrap"><button id="st-restart" class="sm">Khởi động lại</button><button id="st-quit" class="sm danger">Thoát PaperVault</button><span class="hint">Cửa sổ nhớ kích thước và vị trí lần trước.</span></div></section>` : ''}
+    ${isDesktop() ? `<section class="card"><h2>Ứng dụng</h2>
+      <label class="field" style="max-width:420px"><span class="label-text">Khi bấm ✕ đóng cửa sổ</span><select id="st-close">
+        <option value="ask">Hỏi mỗi lần</option>
+        <option value="tray">Thu xuống khay hệ thống (vẫn nhắc việc)</option>
+        <option value="quit">Thoát hẳn</option></select>
+        <span class="hint">Thu xuống khay: app chạy ở biểu tượng cạnh đồng hồ, vẫn nhắc việc bằng thông báo của Windows.</span></label>
+      <div class="row wrap" style="margin-top:8px"><button id="st-restart" class="sm">Khởi động lại</button><button id="st-quit" class="sm danger">Thoát PaperVault</button><span class="hint">Cửa sổ nhớ kích thước và vị trí lần trước. Thoát hẳn: chuột phải biểu tượng ở khay → Thoát.</span></div></section>` : ''}
 
     <section class="card" id="st-font-card"><h2>Phông chữ &amp; cỡ chữ</h2>
       <p class="hint" style="margin-top:0">Đổi là thấy ngay và được lưu luôn, không cần bấm Lưu cài đặt.</p>
@@ -300,6 +338,11 @@ export async function render(root) {
     setTimeout(() => desktop.restart(), 600);
   });
   $('st-restart')?.addEventListener('click', () => desktop.restart());
+  if ($('st-close')) $('st-close').value = ['ask', 'tray', 'quit'].includes(s.closeAction) ? s.closeAction : (s.closeToTray === false ? 'quit' : 'ask');
+  $('st-close')?.addEventListener('change', async (e) => {
+    await saveSettings({ closeAction: e.target.value });
+    toast({ ask: 'Bấm ✕ sẽ hỏi thu xuống khay hay thoát.', tray: 'Bấm ✕ sẽ thu xuống khay.', quit: 'Bấm ✕ sẽ thoát hẳn app.' }[e.target.value], 2500, 'ok');
+  });
   $('st-quit')?.addEventListener('click', async () => { if (await confirmDialog('Thoát PaperVault?', { okLabel: 'Thoát' })) desktop.quit(); });
   $('st-cites').addEventListener('click', async () => {
     $('st-cites').disabled = true;
@@ -437,6 +480,127 @@ Tạp chí:  ${i.sjr ? `SJR ${i.sjr.year} · ${i.sjr.count.toLocaleString('vi-VN
     });
   };
   drawUsage();
+
+  /* ---------- ngân sách AI ---------- */
+  const bud = budgetOf(s);
+  $('st-budget').value = bud.limit || 0;
+  $('st-budget-mode').value = bud.mode;
+  $('st-budget-warn').value = String(bud.warnAt);
+  async function drawBudget() {
+    const box = $('st-budget-bar');
+    if (!box) return;
+    const b = budgetOf(store.settings);
+    let c;
+    try { c = await monthCost({ fresh: true }); } catch (e) { box.innerHTML = `<span class="status err">${escapeHtml(e.message)}</span>`; return; }
+    if (!$('st-budget-bar')) return;
+    const pct = b.limit > 0 ? Math.min(100, (c.cost / b.limit) * 100) : 0;
+    const level = !b.limit ? '' : c.cost >= b.limit ? 'over' : c.cost >= b.limit * b.warnAt ? 'warn' : '';
+    const modeTxt = { warn: 'chỉ cảnh báo', cheap: `chuyển sang model rẻ (${Object.values(CHEAP_MODELS).join(', ')})`, block: 'chặn gọi AI' }[b.mode];
+    box.innerHTML = b.limit > 0
+      ? `<div class="budget-meter ${level}"><i style="width:${pct}%"></i></div>
+        <div class="hint">Tháng này: <b>$${c.cost.toFixed(2)}</b> / $${Number(b.limit).toFixed(2)} (${Math.round((c.cost / b.limit) * 100)}%)${level === 'over' ? ` · <b class="danger-text">đã vượt</b>: ${modeTxt}` : ''}${c.missingPrice.length ? ` · chưa tính ${c.missingPrice.length} model chưa có đơn giá` : ''}</div>`
+      : `<div class="hint">Tháng này đã dùng khoảng <b>$${c.cost.toFixed(2)}</b>. Đặt ngân sách để app cảnh báo hoặc tự hạn chế khi gần chạm ngưỡng.</div>`;
+  }
+  const saveBudget = async () => {
+    const limit = Math.max(0, Number($('st-budget').value) || 0);
+    await saveSettings({ aiBudget: { limit, mode: $('st-budget-mode').value, warnAt: Number($('st-budget-warn').value) || 0.8 } });
+    toast(limit ? `Đã lưu ngân sách $${limit}/tháng.` : 'Đã tắt giới hạn ngân sách.', 2500, 'ok');
+    drawBudget();
+  };
+  for (const id of ['st-budget', 'st-budget-mode', 'st-budget-warn']) $(id).addEventListener('change', saveBudget);
+  drawBudget();
+  // Mở từ thông báo ngân sách (#/settings?s=usage): cuộn tới thẻ chi phí.
+  if (query?.get('s') === 'usage') setTimeout(() => $('st-usage-card')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 100);
+
+  /* ---------- sao lưu .zip ---------- */
+  const bk = { enabled: false, every: 'day', keep: 7, dir: '', ...(s.autoBackup || {}) };
+  $('st-bk-auto').checked = !!bk.enabled;
+  $('st-bk-every').value = bk.every === 'week' ? 'week' : 'day';
+  $('st-bk-keep').value = bk.keep || 7;
+  $('st-bk-dir').value = bk.dir || '';
+  const syncAuto = () => { for (const id of ['st-bk-every', 'st-bk-keep']) $(id).disabled = !$('st-bk-auto').checked; };
+  syncAuto();
+  const saveBk = async () => {
+    const next = { enabled: $('st-bk-auto').checked, every: $('st-bk-every').value, keep: Math.max(1, Math.min(100, Number($('st-bk-keep').value) || 7)), dir: $('st-bk-dir').value.trim() };
+    await saveSettings({ autoBackup: next });
+    syncAuto();
+    drawBackups();
+    toast(next.enabled ? `Đã lưu: tự sao lưu ${next.every === 'week' ? 'mỗi tuần' : 'mỗi ngày'}, giữ ${next.keep} bản.` : 'Đã tắt tự sao lưu.', 2500, 'ok');
+  };
+  for (const id of ['st-bk-auto', 'st-bk-every', 'st-bk-keep', 'st-bk-dir']) $(id).addEventListener('change', saveBk);
+  $('st-bk-pick')?.addEventListener('click', async () => { const d = await desktop.pickFolder($('st-bk-dir').value); if (d) { $('st-bk-dir').value = d; saveBk(); } });
+  const when = (iso) => (iso ? new Date(iso).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }) : '');
+  async function drawBackups() {
+    const box = $('st-bk-list');
+    if (!box) return;
+    try {
+      const r = await api.backups();
+      const rows = r.list.slice(0, 8);
+      box.innerHTML = `<div class="hint bk-where">Thư mục: <span class="mono">${escapeHtml(r.dir)}</span>${r.list.length ? ` · ${r.list.length} bản` : ''}${$('st-bk-auto').checked ? ` · tự sao lưu ${$('st-bk-every').value === 'week' ? 'mỗi tuần' : 'mỗi ngày'} khi app đang mở` : ''}</div>
+        ${rows.length ? `<table class="bk-table"><tbody>${rows.map((b) => `<tr><td>${b.auto ? '<span class="bk-kind">tự động</span>' : '<span class="bk-kind man">thủ công</span>'}</td><td>${escapeHtml(when(b.at))}</td><td class="hint">${fmtSize(b.size)}</td>
+          <td class="bk-acts"><button type="button" class="sm ghost" data-bk-restore="${escapeHtml(b.name)}">Khôi phục</button>${isDesktop() ? '' : `<button type="button" class="sm ghost" data-bk-get="${escapeHtml(b.name)}">Tải về</button>`}</td></tr>`).join('')}</tbody></table>` : '<p class="hint">Chưa có bản sao lưu nào.</p>'}`;
+    } catch (e) { box.innerHTML = `<p class="status err">${escapeHtml(e.message)}</p>`; }
+  }
+  drawBackups();
+  $('st-bk-now').addEventListener('click', async () => {
+    const b = $('st-bk-now');
+    b.disabled = true;
+    showProgress('st-bk-status', 'Đang sao lưu (kèm PDF, ảnh)…', { expectedMs: 8000 });
+    try {
+      const r = await api.createBackup();
+      setStatus('st-bk-status', `Đã sao lưu ${fmtSize(r.size)}.`, 'ok');
+      drawBackups();
+    } catch (e) { setStatus('st-bk-status', escapeHtml(e.message), 'err'); }
+    b.disabled = false;
+  });
+  $('st-bk-open').addEventListener('click', () => api.openBackupDir().catch((e) => toast(e.message, 4000, 'err')));
+  /** Hỏi cách khôi phục: gộp (giữ dữ liệu đang có) hay thay thế. */
+  const askMerge = (label) => dialog({
+    title: 'Khôi phục bản sao lưu', width: 520,
+    body: `<p>Khôi phục từ <b>${escapeHtml(label)}</b>.</p>
+      <p class="hint"><b>Gộp</b>: thêm những gì chưa có, giữ nguyên dữ liệu hiện tại. <b>Thay thế</b>: xoá paper, Sổ tay, Lịch, Chat hiện có rồi nạp lại từ bản sao lưu, kể cả cài đặt (API key trên máy này giữ nguyên). PDF và ảnh đã có không bị ghi đè. Nên bấm “Sao lưu đầy đủ ngay” trước khi thay thế.</p>`,
+    buttons: [{ label: 'Huỷ', value: null }, { label: 'Thay thế toàn bộ', danger: true, value: 'replace' }, { label: 'Gộp', primary: true, value: 'merge' }],
+  });
+  async function restore(src, label) {
+    const how = await askMerge(label);
+    if (!how) return;
+    if (how === 'replace' && !(await confirmDialog('Thay thế TOÀN BỘ dữ liệu hiện có bằng bản sao lưu? Không hoàn tác được (trừ khi bạn vừa sao lưu).', { danger: true, okLabel: 'Thay thế' }))) return;
+    showProgress('st-bk-status', 'Đang khôi phục…', { expectedMs: 10000 });
+    try {
+      const r = await api.restoreBackup(src, how === 'merge');
+      await loadAll();
+      setStatus('st-bk-status', `Đã khôi phục: ${r.papers} paper, ${r.files} file PDF / ảnh.`, 'ok');
+      toast(`Đã khôi phục ${r.papers} paper, ${r.files} file.`, 5000, 'ok');
+    } catch (e) { setStatus('st-bk-status', escapeHtml(e.message), 'err'); }
+  }
+  $('st-bk-restore').addEventListener('click', () => $('st-bk-file').click());
+  $('st-bk-file').addEventListener('change', async (ev) => {
+    const f = ev.target.files?.[0];
+    ev.target.value = '';
+    if (f) await restore(f, f.name);
+  });
+  $('st-bk-list').addEventListener('click', async (e) => {
+    const r = e.target.closest('[data-bk-restore]');
+    if (r) return restore(r.dataset.bkRestore, r.dataset.bkRestore);
+    const g = e.target.closest('[data-bk-get]');
+    if (g) download(g.dataset.bkGet, await api.backupFile(g.dataset.bkGet), 'application/zip');
+  });
+
+  /* ---------- phiên bản ---------- */
+  $('st-upd-auto').addEventListener('change', (e) => saveSettings({ updateCheck: e.target.checked }));
+  $('st-upd').addEventListener('click', async () => {
+    const out = $('st-upd-out');
+    out.hidden = false;
+    out.innerHTML = spinner('Đang hỏi GitHub…');
+    try {
+      const r = await checkForUpdate({ force: true });
+      out.innerHTML = r.newer
+        ? `<div class="upd-new"><b>Có bản mới ${escapeHtml(r.latest)}</b> (đang dùng ${escapeHtml(r.current)})${r.publishedAt ? ` · phát hành ${escapeHtml(new Date(r.publishedAt).toLocaleDateString('vi-VN'))}` : ''}
+            ${r.notes ? `<div class="upd-notes">${releaseNotesHtml(r.notes)}</div>` : ''}<div class="row" style="margin-top:8px"><button type="button" class="sm primary" id="st-upd-get">Tải bản mới</button></div></div>`
+        : `<span class="status ok">Bạn đang dùng bản mới nhất (${escapeHtml(r.current)}).</span>`;
+      $('st-upd-get')?.addEventListener('click', () => openRelease(r.url));
+    } catch (e) { out.innerHTML = `<span class="status err">${escapeHtml(e.message)}</span>`; }
+  });
 
   $('st-backup').addEventListener('click', async () => {
     const data = await api.backup(true);

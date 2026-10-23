@@ -64,11 +64,12 @@ export function stopSpeaking() {
 }
 
 /** Dự phòng khi không lấy được âm thanh từ máy chủ: giọng của hệ điều hành, đúng giọng Anh-Mỹ / Anh-Anh nếu máy có. */
-function speakLocal(text, tag) {
+function speakLocal(text, tag, rate = 1) {
   const synth = window.speechSynthesis;
   if (!synth) return;
   const u = new SpeechSynthesisUtterance(String(text).slice(0, MAX_SPEAK));
   u.lang = tag;
+  u.rate = rate;
   const v = (synth.getVoices() || []).find((x) => x.lang === tag && /natural|neural|online/i.test(x.name)) || (synth.getVoices() || []).find((x) => x.lang === tag);
   if (v) u.voice = v;
   synth.speak(u);
@@ -90,8 +91,8 @@ function fetchAudio(text, accent) {
   return audioCache.get(k);
 }
 
-/** Phát đoạn tiếng Anh theo giọng ('us' | 'uk'). onState(playing, src) để đổi trạng thái nút và nhãn nguồn. */
-export function play(text, accent, onState) {
+/** Phát đoạn tiếng Anh theo giọng ('us' | 'uk'). onState(playing, src) để đổi trạng thái nút và nhãn nguồn. opts.rate: tốc độ (0.7 = chậm). */
+export function play(text, accent, onState, { rate = 1 } = {}) {
   stopSpeaking();
   const acc = ACCENTS.find((a) => a.key === accent) || ACCENTS[0];
   onState?.(true, '');
@@ -100,11 +101,13 @@ export function play(text, accent, onState) {
   fetchAudio(text, acc.key).then(({ url, src }) => {
     if (current !== token) return;
     const audio = new Audio(url);
+    audio.playbackRate = rate;
+    audio.preservesPitch = true;
     current = audio;
     onState?.(true, src);
     audio.addEventListener('ended', () => onState?.(false, src));
-    audio.play().catch(() => { onState?.(false, src); speakLocal(text, acc.tag); });
-  }).catch(() => { if (current === token) { onState?.(false, 'local'); speakLocal(text, acc.tag); } });
+    audio.play().catch(() => { onState?.(false, src); speakLocal(text, acc.tag, rate); });
+  }).catch(() => { if (current === token) { onState?.(false, 'local'); speakLocal(text, acc.tag, rate); } });
 }
 
 /** Tải MP3 của đoạn theo giọng. Trong app dùng hộp thoại "Lưu thành" của app; nơi khác tải xuống thường. */

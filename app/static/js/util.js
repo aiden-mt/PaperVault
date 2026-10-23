@@ -87,7 +87,7 @@ export function fmtRelative(iso) {
 export const fmtSize = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`);
 
 const FILE_KINDS = {
-  csv: 'Bảng CSV', bib: 'BibTeX', tex: 'LaTeX', doc: 'Tài liệu Word', docx: 'Tài liệu Word', md: 'Markdown', json: 'JSON', txt: 'Văn bản', pdf: 'PDF',
+  csv: 'Bảng CSV', bib: 'BibTeX', tex: 'LaTeX', doc: 'Tài liệu Word', docx: 'Tài liệu Word', md: 'Markdown', json: 'JSON', txt: 'Văn bản', pdf: 'PDF', zip: 'File nén ZIP', ics: 'Lịch iCalendar',
 };
 
 async function blobToBase64(blob) {

@@ -65,6 +65,82 @@ def _usable_geometry(st):
 
 
 _window = None  # giữ ở module, KHÔNG gắn vào DesktopApi: pywebview duyệt đệ quy thuộc tính của js_api
+_tray = None     # biểu tượng ở khay hệ thống (tray.py), None nếu không tạo được
+_quitting = False
+
+
+def close_action():
+    """Bấm ✕: "ask" hỏi mỗi lần (thu xuống khay hay thoát), "tray" thu xuống khay (vẫn nhắc việc), "quit" thoát hẳn.
+    Đổi trong Cài đặt → Ứng dụng, hoặc tick "Ghi nhớ lựa chọn" trong hộp thoại hỏi."""
+    try:
+        s = server.get_settings()
+    except Exception:
+        return "ask"
+    a = s.get("closeAction")
+    if a in ("ask", "tray", "quit"):
+        return a
+    return "quit" if s.get("closeToTray") is False else "ask"  # cài đặt cũ (trước khi có hộp thoại hỏi)
+
+
+def hide_to_tray():
+    """Ẩn cửa sổ xuống khay. Lần đầu báo cho người dùng biết app vẫn chạy ở đó."""
+    if _window is None:
+        return
+    try:
+        _window.hide()
+    except Exception:
+        pass
+    st = load_window_state()
+    if _tray is not None and _tray.ok and not st.get("trayHintShown"):
+        _tray.notify("PaperVault vẫn đang chạy", "App thu xuống khay hệ thống để nhắc việc. Bấm biểu tượng để mở lại; chuột phải → Thoát để tắt hẳn.")
+        save_window_state({**st, "trayHintShown": True})
+
+
+def mark_quitting():
+    """Windows sắp tắt / đăng xuất: cho cửa sổ đóng luôn, không hỏi, không thu xuống khay."""
+    global _quitting
+    _quitting = True
+
+
+def show_window(hash_=""):
+    """Hiện lại cửa sổ (từ khay / bấm thông báo), đưa lên trước và mở trang hash_ nếu có."""
+    w = _window
+    if w is None:
+        return
+    try:
+        w.show()
+        w.restore()
+    except Exception:
+        pass
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.FindWindowW(None, w.title)
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+    if hash_ and str(hash_).startswith("#/"):
+        try:
+            w.evaluate_js(f"window.pvShowHash ? window.pvShowHash({json.dumps(hash_)}) : (location.hash = {json.dumps(hash_)})")
+        except Exception:
+            pass
+
+
+def quit_app():
+    global _quitting
+    _quitting = True
+    if _tray:
+        _tray.remove()
+    # Đóng cửa sổ có thể bị kẹt (trang đang mở hộp thoại, WebView2 dọn dẹp lâu): quá 3 giây thì thoát hẳn.
+    threading.Timer(3, lambda: os._exit(0)).start()
+    try:
+        if _window is not None:
+            _window.destroy()
+    except Exception:
+        pass
+    os._exit(0)
 
 
 class DesktopApi:
@@ -164,15 +240,54 @@ class DesktopApi:
         webbrowser.open(url)
         return True
 
+    def attention(self):
+        """Nháy nút app trên thanh tác vụ (nhắc việc) khi cửa sổ không ở trước."""
+        if not sys.platform.startswith("win") or _window is None:
+            return False
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class FLASHWINFO(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.UINT), ("hwnd", wintypes.HWND), ("dwFlags", wintypes.DWORD), ("uCount", wintypes.UINT), ("dwTimeout", wintypes.DWORD)]
+            hwnd = ctypes.windll.user32.FindWindowW(None, _window.title)
+            if not hwnd:
+                return False
+            # FLASHW_ALL | FLASHW_TIMERNOFG: nháy tới khi người dùng mở cửa sổ
+            info = FLASHWINFO(ctypes.sizeof(FLASHWINFO), hwnd, 0x03 | 0x0C, 0, 0)
+            ctypes.windll.user32.FlashWindowEx(ctypes.byref(info))
+            return True
+        except Exception:
+            return False
+
+    def notify(self, title, body="", hash_=""):
+        """Thông báo của Windows (qua biểu tượng khay); bấm thông báo thì mở app tới trang hash_. False nếu không có khay."""
+        if _tray is None or not _tray.ok:
+            return False
+        return _tray.notify(title, body, on_click=lambda: show_window(hash_))
+
+    def tray_info(self):
+        return {"tray": bool(_tray and _tray.ok), "closeAction": close_action()}
+
+    def close_choice(self, action):
+        """Trả lời hộp thoại "Đóng PaperVault?": "tray" thu xuống khay, "quit" thoát hẳn, khác thì giữ cửa sổ."""
+        if action == "tray":
+            hide_to_tray()
+        elif action == "quit":
+            threading.Timer(0.15, quit_app).start()  # để lời gọi từ JS trả về trước khi tiến trình thoát
+        return True
+
     def restart(self):
         """Khởi động lại tiến trình (sau khi đổi thư mục dữ liệu)."""
         exe = sys.executable
         args = [exe] + ([] if server.FROZEN else [str(Path(__file__).resolve())])
         subprocess.Popen(args, cwd=str(server.BASE))
+        if _tray:
+            _tray.remove()
         os._exit(0)
 
     def quit(self):
-        os._exit(0)
+        quit_app()
 
 
 LOCK_FILE = server.DATA / "app.lock"
@@ -244,6 +359,20 @@ def set_app_id():
             pass
 
 
+def start_tray():
+    global _tray
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import tray
+        t = tray.Tray(APP_ICON if APP_ICON.exists() else None, tip="PaperVault · bấm để mở, chuột phải để thoát",
+                      on_open=show_window, on_quit=quit_app, on_session_end=mark_quitting)
+        if t.start():
+            _tray = t
+    except Exception as e:
+        print("Không tạo được biểu tượng khay:", e)
+
+
 def run_pywebview(url):
     global _window
     import webview
@@ -267,14 +396,59 @@ def run_pywebview(url):
     def on_closing():
         try:
             # Đang thu nhỏ (Windows đặt toạ độ -32000) thì không lưu vị trí / kích thước, giữ lần lưu trước.
-            if (window.x or 0) <= -10000 or (window.y or 0) <= -10000 or (window.width or 0) < 300:
-                return
-            save_window_state({**load_window_state(), "width": window.width, "height": window.height, "x": window.x, "y": window.y})
+            if (window.x or 0) > -10000 and (window.y or 0) > -10000 and (window.width or 0) >= 300:
+                save_window_state({**load_window_state(), "width": window.width, "height": window.height, "x": window.x, "y": window.y})
         except Exception:
             pass
+        if _quitting or _tray is None or not _tray.ok:
+            return None
+        action = close_action()
+        if action == "quit":
+            return None
+        if action == "tray":
+            hide_to_tray()
+            return False
+
+        # Hỏi trong app (thu xuống khay / thoát, có ô ghi nhớ). Gọi JS ở luồng khác: sự kiện closing chạy trên luồng
+        # giao diện, gọi evaluate_js ngay tại đây sẽ treo. Trang không trả lời được thì thu xuống khay cho an toàn.
+        def ask():
+            try:
+                window.restore()  # đóng từ thanh tác vụ khi đang thu nhỏ: hiện cửa sổ để thấy hộp thoại
+            except Exception:
+                pass
+            try:
+                ok = window.evaluate_js("window.pvAskClose ? (window.pvAskClose(), true) : false")
+            except Exception as e:
+                print("[close] không hỏi được trong trang:", repr(e))
+                ok = False
+            if not ok:
+                ask_native()
+
+        def ask_native():
+            """Trang chưa tải xong / bị lỗi: hỏi bằng hộp thoại của Windows (Có = khay, Không = thoát, Huỷ = ở lại)."""
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.FindWindowW(None, window.title)
+                msg = "Thu PaperVault xuống khay hệ thống (vẫn nhắc việc)?\n\nCó: thu xuống khay · Không: thoát hẳn · Huỷ: ở lại"
+                r = ctypes.windll.user32.MessageBoxW(hwnd, msg, "Đóng PaperVault?", 0x03 | 0x20)  # MB_YESNOCANCEL | MB_ICONQUESTION
+            except Exception:
+                r = 6
+            if r == 6:
+                hide_to_tray()
+            elif r == 7:
+                quit_app()
+
+        threading.Thread(target=ask, daemon=True).start()
+        return False
+
+    def on_closed():
+        if _tray:
+            _tray.remove()
+        os._exit(0)
 
     window.events.closing += on_closing
-    window.events.closed += lambda: os._exit(0)
+    window.events.closed += on_closed
+    start_tray()
     webview.start(debug=bool(os.environ.get("PV_DEBUG")), private_mode=False, storage_path=str(WEBVIEW_DIR),
                   icon=str(APP_ICON) if APP_ICON.exists() else None)
 

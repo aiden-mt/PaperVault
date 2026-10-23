@@ -6,6 +6,8 @@ import { $, el, toast, confirmDialog, mdToHtml, ratingControl, topicBadge, setSt
 import { renderSections } from '../render.js';
 import { paperToMarkdown, quickNoteLine, bibtexOf } from '../markdown.js';
 import { normalizeExtraction } from '../schema.js';
+import { attachRowHtml, createAttachBox, attachmentParts, msgImgsHtml, msgFilesHtml, zoomImage } from '../attach.js';
+import { saveAnswerToNotebook } from '../notebook-save.js';
 import { askPaper, NATIVE_PDF_PROVIDERS, hasCredentials, translateText, translateNotesAI, settingsFor, modelLabel } from '../llm.js';
 import { CHAT_LANGS } from '../prompts.js';
 import { s2Ident, pubTime, citeVelocity, fmtPub, citeRole, ROLE_LABELS, ROLE_HINTS, s2Key, ctxQuotes } from '../s2util.js';
@@ -847,16 +849,32 @@ export async function render(root, { params, query }) {
     ];
     body.innerHTML = `<div class="row" style="gap:8px;margin-bottom:6px"><span class="lang-label">Ngôn ngữ trả lời</span><select id="pp-ask-lang" style="width:auto" title="Dùng chung với trang Chat với paper">${CHAT_LANGS.map(([k, l]) => `<option value="${k}" ${(store.settings.chatLang || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="hint" style="margin-bottom:8px">Hỏi model về paper này. Ngữ cảnh gồm ghi chú đã trích xuất${p.pdfId && NATIVE_PDF_PROVIDERS.has(settingsFor(store.settings, 'ask').provider) ? ', và file PDF gửi kèm' : ''}, cùng nội dung nguồn đã lưu (nếu có). Lịch sử được lưu cùng paper.</div>
-      <div class="chat" id="pp-chat">${qa.map((x) => `<div class="msg q">${escapeHtml(x.q)}</div><div class="msg a">${mdToHtml(readableChatMd(x.a))}</div>`).join('')}</div>
+      <div class="chat" id="pp-chat">${qa.map((x, k) => `${qaQuestionHtml(x)}<div class="msg a">${mdToHtml(readableChatMd(x.a))}${qaFoot(k)}</div>`).join('')}</div>
       <div class="suggest-q">${suggestions.map((s) => `<button data-q="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')}</div>
-      <div class="chat-input"><textarea id="pp-q" placeholder="Câu hỏi của bạn… (Enter để gửi, Shift+Enter xuống dòng)"></textarea><button id="pp-ask" class="primary">Hỏi</button>${qa.length ? '<button id="pp-clear-chat" class="sm ghost">Xoá lịch sử</button>' : ''}</div>
+      <div class="pp-compose" id="pp-compose">
+        <div class="chat-input"><textarea id="pp-q" placeholder="Câu hỏi của bạn… (Enter để gửi, Shift+Enter xuống dòng; dán hoặc kéo thả ảnh, file vào đây)"></textarea><button id="pp-ask" class="primary">Hỏi</button>${qa.length ? '<button id="pp-clear-chat" class="sm ghost">Xoá lịch sử</button>' : ''}</div>
+        ${attachRowHtml('pp', 'Hỏi về hình, bảng, ảnh chụp màn hình hoặc một file khác cùng paper này')}
+      </div>
       <div id="pp-ask-status" class="status"></div>`;
+    const att = createAttachBox({ button: $('pp-attach'), input: $('pp-file'), chips: $('pp-att'), textarea: $('pp-q'), dropZone: $('pp-compose') });
+    // "Xoá lịch sử" xuống hàng đính kèm (bên phải) để ô hỏi rộng hơn, nhất là khi chia đôi màn hình.
+    { const cb = $('pp-clear-chat'); if (cb) { cb.classList.add('pp-clear'); $('pp-att').parentElement.appendChild(cb); } }
     const ask = async (q) => {
       q = (q || '').trim();
+      if (att.busy()) return toast('Đang xử lý tệp đính kèm, chờ một chút rồi hỏi.', 2500);
+      const items = att.items.slice();
+      if (!q && items.length) q = `Giải thích ${items.some((a) => a.kind === 'image') ? 'ảnh' : 'file'} đính kèm và liên hệ với paper này.`;
       if (!q) return;
-      if (!hasCredentials(store.settings)) return setStatus('pp-ask-status', 'Chưa có API key. <a href="#/settings">Mở Cài đặt</a>.', 'err');
+      if (!hasCredentials(store.settings, 'ask')) return setStatus('pp-ask-status', 'Chưa có API key. <a href="#/settings">Mở Cài đặt</a>.', 'err');
+      setStatus('pp-ask-status', '');
       const pid = p.id;
       if (jobRunning(`ask:${pid}`)) return toast('Đang trả lời câu hỏi trước, chờ một chút.');
+      // Lưu cùng lịch sử: ảnh (đường dẫn) và tên file; nội dung file chỉ gửi cho model, không lưu vào paper.
+      const shown = {
+        ...(items.some((a) => a.kind === 'image') ? { images: items.filter((a) => a.kind === 'image').map(({ url, name, mime }) => ({ url, name, mime })) } : {}),
+        ...(items.some((a) => a.kind !== 'image') ? { files: items.filter((a) => a.kind !== 'image').map(({ kind, name, chars, clipped }) => ({ kind, name, chars, clipped })) } : {}),
+      };
+      att.clear();
       // Chạy nền: rời trang vẫn trả lời tiếp và lưu vào lịch sử hỏi đáp của paper.
       const job = runJob(`ask:${pid}`, async (update) => {
         update('Đang suy nghĩ…');
@@ -867,26 +885,28 @@ export async function render(root, { params, query }) {
         if (cur.pdfId && NATIVE_PDF_PROVIDERS.has(settingsFor(store.settings, 'ask').provider) && store.settings.pdfMode !== 'text' && text.length < 2000) {
           pdfBase64 = (await api.pdfBase64(cur.pdfId)).base64;
         }
-        const a = await askPaper({ paper: cur, text, settings: store.settings, question: q, history, pdfBase64 });
-        const next = [...(paperById(pid).qa || []), { q, a, at: new Date().toISOString() }].slice(-30);
+        if (items.length) update('Đang đọc tệp đính kèm…');
+        const { images, textPrefix } = await attachmentParts(items);
+        const a = await askPaper({ paper: cur, text, settings: store.settings, question: `${textPrefix}${q}`, history, pdfBase64, images });
+        const next = [...(paperById(pid).qa || []), { q, a, at: new Date().toISOString(), ...shown }].slice(-30);
         await savePaper({ ...paperById(pid), qa: next });
         return a;
       }, { label: 'Hỏi đáp về paper', title: p.title, href: `#/paper/${pid}?tab=ask`, here: onPaperTab(pid, 'ask'), expectedMs: () => 20000 });
-      job.info = { q };
+      job.info = { q, ...shown };
       $('pp-q').value = '';
       followAsk(job);
     };
     /** Câu hỏi đang chờ trả lời: bong bóng câu hỏi + thanh tiến độ ở chỗ câu trả lời. */
     const followAsk = (job) => {
       const chat = $('pp-chat');
-      chat.insertAdjacentHTML('beforeend', `<div class="msg q">${escapeHtml(job.info.q)}</div><div class="msg a"></div>`);
+      chat.insertAdjacentHTML('beforeend', `${qaQuestionHtml(job.info)}<div class="msg a"></div>`);
       const node = chat.lastElementChild;
       $('pp-ask').disabled = true;
       node.scrollIntoView({ block: 'end' });
       followJob(job, node, { expectedMs: 20000, onDone: (j) => {
         if ($('pp-ask')) $('pp-ask').disabled = false;
-        node.innerHTML = j.error ? `<span class="status err">${escapeHtml(j.error)}</span>` : mdToHtml(readableChatMd(j.result));
         p = paperById(p.id) || p;
+        node.innerHTML = j.error ? `<span class="status err">${escapeHtml(j.error)}</span>` : `${mdToHtml(readableChatMd(j.result))}${qaFoot((p.qa || []).length - 1)}`;
       } });
     };
     { const j = getJob(`ask:${p.id}`); if (j && !j.done) followAsk(j); }
@@ -895,6 +915,22 @@ export async function render(root, { params, query }) {
     $('pp-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask($('pp-q').value); } });
     body.querySelector('.suggest-q').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (b) ask(b.dataset.q); });
     $('pp-clear-chat')?.addEventListener('click', async () => { p = await savePaper({ ...paperById(p.id), qa: [] }); drawAsk(); });
+    $('pp-chat').addEventListener('click', async (e) => {
+      const img = e.target.closest('.msg-imgs img[data-zoom]');
+      if (img) return zoomImage(img);
+      const sv = e.target.closest('[data-qa-save]');
+      const cp = e.target.closest('[data-qa-copy]');
+      const x = (paperById(p.id)?.qa || [])[Number((sv || cp)?.dataset.qaSave ?? (sv || cp)?.dataset.qaCopy)];
+      if (!x) return;
+      if (cp) { await copyText(x.a); toast('Đã copy.'); return; }
+      saveAnswerToNotebook({ question: x.q, answer: x.a, paperIds: [p.id], labels: new Map([['P1', p.id]]), from: 'Hỏi đáp' });
+    });
+  }
+  function qaQuestionHtml(x) {
+    return `<div class="msg q">${msgImgsHtml(x.images)}${msgFilesHtml(x.files)}${escapeHtml(x.q)}</div>`;
+  }
+  function qaFoot(k) {
+    return `<div class="msg-foot"><span class="spacer"></span><button type="button" class="ghost sm" data-qa-save="${k}" title="Chép câu trả lời này vào nhật ký hôm nay, một trang có sẵn hoặc trang mới">📓 Lưu vào Sổ tay</button><button type="button" class="ghost sm" data-qa-copy="${k}">Copy</button></div>`;
   }
 
   /* Bài giảng: tám mục đưa người đọc từ kiến thức nền tới chỗ hiểu cơ chế của bài. Dựng chạy nền, rời tab vẫn chạy tiếp. */

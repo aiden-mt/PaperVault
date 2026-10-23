@@ -1,5 +1,6 @@
 // Trang Sổ tay nghiên cứu (#/notebook, #/notebook/<id>): cây trang bên trái, trình soạn thảo Markdown + xem trước,
 // liên kết ngược, đồ thị liên kết. Dữ liệu và cách dựng nội dung nằm ở ../notebook.js.
+import { exportPagePdf, exportPageDocx, exportTree, openVersions, diffHtml, lineDiff } from '../notebook-export.js';
 import { api } from '../api.js';
 import { store, paperById } from '../store.js';
 import { $, toast, dialog, confirmDialog } from '../ui.js';
@@ -13,7 +14,7 @@ import {
 import { pickTemplate, paperQueryBuilder, openGuide, setGuideBlocks, codeDialog, formulaDialog, mathLibraryDialog, parentOptions, imageUrlDialog } from './notebook-ui.js';
 import { loadMathLib } from '../mathlib.js';
 import { aiDialog } from '../notebook-ai.js';
-import { openInlineAI, closeInlineAI } from '../notebook-inline-ai.js';
+import { openInlineAI, closeInlineAI, setLiveEditor, locate, locateAfter } from '../notebook-inline-ai.js';
 import { loadEvents, occurrences, toggleDone, saveEvent, catOf, fmtDay } from '../calendar.js';
 
 const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { /* bỏ qua */ } return null; };
@@ -27,7 +28,7 @@ export async function render(root, { params, query }) {
     <div class="nb-side-scrim" title="Đóng danh sách trang"></div>
     <aside class="nb-side">
       <div class="nb-side-h"><button type="button" class="nb-side-title" id="nb-home" title="Về trang chủ Sổ tay">📓 Sổ tay nghiên cứu</button><span class="spacer"></span><button class="ghost sm" id="nb-help" title="Hướng dẫn: Markdown, liên kết, khối, bảng paper, phím tắt (Ctrl + /)">❔</button><button class="ghost sm" id="nb-graph" title="Đồ thị liên kết giữa các trang và paper">🕸</button></div>
-      <input type="search" id="nb-search" placeholder="Tìm trang, nội dung, #tag… (Ctrl+K)">
+      <input type="search" id="nb-search" placeholder="Tìm trang, nội dung, #tag… (Ctrl+O mở nhanh)">
       <div class="nb-side-acts"><button class="primary sm" id="nb-new">+ Trang mới</button><button class="sm" id="nb-daily" title="Mở (hoặc tạo) trang nhật ký của hôm nay">📅 Hôm nay</button></div>
       <div class="nb-selbar" id="nb-selbar" hidden></div>
       <div class="nb-tree" id="nb-tree"></div>
@@ -55,18 +56,86 @@ export async function render(root, { params, query }) {
   /* ---------------- lưu ---------------- */
 
   const status = (msg) => { const s = $('nb-status'); if (s) s.textContent = msg; };
+  // baseAt: phiên bản (updatedAt) của trang mà trình soạn đang sửa dựa trên. Lưu kèm mốc này để máy chủ báo nếu
+  // trang đã được sửa ở nơi khác (khung chia đôi, tab khác) trong lúc mình sửa, thay vì lặng lẽ ghi đè.
+  let baseAt = null;
+  let conflictOpen = false;
   async function persist() {
-    if (!cur || !dirty) return;
+    if (!cur || !dirty || conflictOpen) return;
     const p = pageById(cur);
     const ed = $('nb-ed');
     const ti = $('nb-title');
     if (!p) return;
     dirty = false;
     status('Đang lưu…');
-    saving = savePage({ ...p, content: ed ? ed.value : p.content, title: ti ? ti.value.trim() : p.title })
-      .then(() => status('Đã lưu'))
-      .catch((e) => { dirty = true; status(`Chưa lưu được: ${e.message}`); });
+    const mine = { ...p, content: ed ? ed.value : p.content, title: ti ? ti.value.trim() : p.title };
+    saving = savePage(mine, { base: baseAt || p.updatedAt })
+      .then((saved) => { if (saved.id === cur) baseAt = saved.updatedAt; status('Đã lưu'); hideConflictBar(); })
+      .catch((e) => {
+        dirty = true;
+        if (e.status === 409 && e.body?.current) { status('Chưa lưu: trang đã được sửa ở nơi khác'); resolveConflict(mine, e.body.current); }
+        else status(`Chưa lưu được: ${e.message}`);
+      });
     await saving;
+  }
+  /** Dải cảnh báo trên trình soạn khi trang vừa được sửa ở nơi khác trong lúc đang sửa dở ở đây. */
+  function showConflictBar(current) {
+    let bar = $('nb-conflict');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'nb-conflict';
+      bar.className = 'nb-conflict';
+      $('nb-body')?.before(bar);
+    }
+    bar.innerHTML = `<span>⚠ Trang này vừa được sửa ở khung / tab khác trong lúc bạn đang sửa ở đây.</span><span class="spacer"></span><button type="button" class="sm primary" data-cf="open">So sánh &amp; chọn bản</button>`;
+    bar.querySelector('[data-cf]').onclick = () => {
+      const ed = $('nb-ed');
+      const p = pageById(cur);
+      if (p) resolveConflict({ ...p, content: ed ? ed.value : p.content, title: $('nb-title')?.value.trim() || p.title }, current);
+    };
+  }
+  function hideConflictBar() { $('nb-conflict')?.remove(); }
+  /** Hộp thoại xung đột: so sánh bản ở đây với bản vừa lưu ở nơi khác, chọn giữ / dùng / ghép. */
+  async function resolveConflict(mine, current) {
+    if (conflictOpen) return;
+    conflictOpen = true;
+    const theirs = current.content || '';
+    const choice = await dialog({
+      title: 'Trang vừa được sửa ở nơi khác', width: 860,
+      body: `<p>Trang <b>${escapeHtml(current.title || 'Không tên')}</b> đã được lưu từ một khung chia đôi hoặc tab khác (${escapeHtml(fmtRelative(current.updatedAt))}) trong lúc bạn sửa ở đây. Chọn cách xử lý; bản bị thay luôn được giữ trong <b>Lịch sử phiên bản</b>.</p>
+        <div class="vh-body nb-cf-diff">${diffHtml(theirs, mine.content || '', { oldLabel: 'bản ở nơi khác', curLabel: 'bản của bạn' })}</div>`,
+      buttons: [
+        { label: 'Dùng bản kia', value: 'theirs' },
+        { label: 'Ghép hai bản', value: 'merge' },
+        { label: 'Giữ bản của tôi', primary: true, value: 'mine' },
+      ],
+    });
+    conflictOpen = false;
+    hideConflictBar();
+    const ed = $('nb-ed');
+    if (choice === 'theirs') {
+      dirty = false;
+      baseAt = current.updatedAt;
+      await loadPages(true);
+      if (ed && cur === current.id) { ed.value = theirs; if ($('nb-title')) $('nb-title').value = current.title || ''; drawPreview(); }
+      status('Đã dùng bản ở nơi khác');
+      toast('Đã chuyển sang bản ở nơi khác. Bản của bạn vẫn copy lại được nếu cần: Ctrl+Z ngay trong ô soạn.', 5000);
+      return;
+    }
+    let content = mine.content || '';
+    if (choice === 'merge') {
+      // Ghép: giữ bản của bạn, chèn bên dưới các dòng chỉ có ở bản kia (theo thứ tự), trong một khối để dễ xem lại.
+      const extra = (lineDiff(content, theirs) || []).filter((x) => x.t === '+').map((x) => x.s);
+      if (extra.length) content = `${content.replace(/\s+$/, '')}\n\n> [!note] Phần được sửa ở nơi khác (đã ghép)\n${extra.map((l) => `> ${l}`).join('\n')}\n`;
+    } else if (!choice) { dirty = true; status('Chưa lưu: đang có bản khác ở nơi khác'); showConflictBar(current); return; }
+    if (ed && cur === mine.id) { ed.value = content; drawPreview(); }
+    try {
+      const saved = await savePage({ ...mine, content }, { force: true });
+      baseAt = saved.updatedAt;
+      dirty = false;
+      status('Đã lưu');
+      toast(choice === 'merge' ? 'Đã ghép hai bản (phần của nơi khác ở cuối trang).' : 'Đã giữ bản của bạn. Bản kia vẫn xem được trong Lịch sử phiên bản.', 4500, 'ok');
+    } catch (e) { status(`Chưa lưu được: ${e.message}`); }
   }
   const persistSoon = debounce(persist, 700);
   const markDirty = () => { dirty = true; status('Đang sửa…'); persistSoon(); };
@@ -76,6 +145,8 @@ export async function render(root, { params, query }) {
   async function openPage(id, { push = true, focus = false } = {}) {
     await persist();
     cur = id && pageById(id) && !pageById(id).deleted ? id : null;
+    baseAt = cur ? pageById(cur).updatedAt : null;
+    hideConflictBar();
     if (push) history.pushState(null, '', cur ? `#/notebook/${cur}` : '#/notebook');
     drawTree();
     drawMain();
@@ -329,7 +400,7 @@ export async function render(root, { params, query }) {
           <tr><td><code>$x^2$</code> · <code>$$…$$</code></td><td>Công thức LaTeX cùng dòng / đứng riêng. Macro tự định nghĩa ở 📐 Thư viện LaTeX.</td></tr>
           <tr><td>✨ AI nhanh</td><td>Bôi đen một đoạn (hoặc đặt con trỏ trong đoạn) rồi Ctrl+J, hoặc bấm ✨ cạnh đoạn ở phần xem: cải thiện, rút gọn, giải thích, dịch, chuyển thành bảng… Trên dòng trống: viết tiếp, dàn ý, brainstorm.</td></tr>
           <tr><td>📚 Hỏi AI với nguồn</td><td>Nút ✨ AI trên đầu trang: hỏi dựa trên paper và trang ghi chú bạn chọn (tự tìm đoạn liên quan trong toàn văn), chèn câu trả lời kèm liên kết nguồn.</td></tr>
-          <tr><td>Phím tắt</td><td>Ctrl+K tìm trang · Ctrl+S lưu · Ctrl+B / Ctrl+I đậm / nghiêng · Tab / Shift+Tab thụt lề danh sách · Ctrl+/ hướng dẫn.</td></tr>
+          <tr><td>Phím tắt</td><td>Ctrl+O mở nhanh trang · Ctrl+K tìm khắp app · Ctrl+S lưu · Ctrl+B / Ctrl+I đậm / nghiêng · Tab / Shift+Tab thụt lề danh sách · Ctrl+/ hướng dẫn.</td></tr>
         </tbody></table></details></div>`;
   }
 
@@ -349,7 +420,8 @@ export async function render(root, { params, query }) {
           <span class="sel-pick"><button type="button" class="ghost sm" id="nb-more" aria-haspopup="menu">⋯</button>
             <div class="menu right" id="nb-menu" role="menu" hidden>
               <button data-act="child">Thêm trang con</button><button data-act="move">Di chuyển tới…</button><button data-act="dup">Nhân bản</button>
-              <hr><button data-act="copy">Copy Markdown</button><button data-act="md">Tải file .md</button>
+              <hr><button data-act="versions">Lịch sử phiên bản…</button>
+              <hr><button data-act="pdf">Xuất PDF</button><button data-act="docx">Xuất Word (.docx)</button><button data-act="md">Tải file .md</button><button data-act="copy">Copy Markdown</button><button data-act="tree">Xuất cả nhánh / cả sổ tay…</button>
               <hr><button data-act="del" class="danger">Đưa vào thùng rác</button></div></span>
         </div>
         <div class="nb-meta hint"><span id="nb-status">Đã lưu</span> · sửa ${escapeHtml(fmtRelative(p.updatedAt))} · <span id="nb-count"></span></div>
@@ -717,6 +789,12 @@ export async function render(root, { params, query }) {
     if (act === 'child') { collapsed.delete(p.id); return createFromTemplate({ parentId: p.id }); }
     if (act === 'dup') return createPage({ ...p, id: undefined, title: `${p.title || 'Không tên'} (bản sao)`, fav: false, createdAt: undefined });
     if (act === 'copy') { await copyText(p.content || ''); return toast('Đã copy Markdown.'); }
+    if (act === 'pdf') return exportPagePdf(p);
+    if (act === 'docx') return exportPageDocx(p);
+    if (act === 'tree') return exportTree(p);
+    if (act === 'versions') {
+      return openVersions(p, { onRestored: async () => { await loadPages(true); drawTree(); drawMain(); } });
+    }
     if (act === 'md') return download(`${(p.title || 'trang').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'trang'}.md`, `# ${p.title || ''}\n\n${p.content || ''}`, 'text/markdown;charset=utf-8');
     if (act === 'move') {
       const opts = allPages().filter((x) => x.id !== p.id && !isInside(x, p)).sort(byTitle);
@@ -970,29 +1048,12 @@ export async function render(root, { params, query }) {
     const s = ed ? ed.selectionStart : 0;
     const e = ed ? ed.selectionEnd : 0;
     const selection = ed && e > s ? ed.value.slice(s, e) : '';
-    aiDialog({
-      page: { ...p, content: ed ? ed.value : p.content },
-      selection,
-      onInsert: (md) => {
-        if (mode === 'read') setMode('split');
-        const box = $('nb-ed');
-        if (!box) return;
-        const at = selection ? e : (box.selectionStart ?? box.value.length);
-        // chèn thành khối riêng, cách đoạn trước / sau một dòng trống
-        const v = box.value;
-        const pre = at > 0 && !v.slice(0, at).endsWith('\n\n') ? (v[at - 1] === '\n' ? '\n' : '\n\n') : '';
-        insertAt(at, `${pre}${md}\n`, { block: true });
-      },
-      onReplace: (md) => {
-        const box = $('nb-ed');
-        if (!box) return;
-        box.value = box.value.slice(0, s) + md + box.value.slice(e);
-        box.focus();
-        box.setSelectionRange(s, s + md.length);
-        markDirty();
-        drawPreview();
-      },
-    });
+    // Kết quả chèn qua trình soạn đang mở (setLiveEditor bên dưới), tìm lại chỗ theo nội dung nên vẫn đúng khi
+    // hộp thoại được thu nhỏ rồi mở lại sau.
+    // Chưa đặt con trỏ trong trang (vừa mở trang: vị trí 0) thì chèn câu trả lời ở cuối trang, không phải đầu trang.
+    const content = ed ? ed.value : p.content || '';
+    const range = !selection && s === 0 && content.trim() ? [content.length, content.length] : [s, e];
+    aiDialog({ page: { ...p, content }, selection, range });
   }
 
   /**
@@ -1034,30 +1095,38 @@ export async function render(root, { params, query }) {
       const xy = caretXY(ed, kind === 'write' ? s : e);
       pt = { x: r.left + Math.max(0, xy.x - ed.offsetLeft) * z, y: r.top + Math.min(ed.clientHeight, Math.max(0, xy.y - ed.offsetTop)) * z };
     }
-    const spaced = (at, md) => {
-      const val = $('nb-ed').value;
-      const pre = at > 0 && !val.slice(0, at).endsWith('\n\n') ? (val[at - 1] === '\n' ? '\n' : '\n\n') : '';
-      return `${pre}${md}\n`;
-    };
     openInlineAI({
-      x: pt.x, y: pt.y, kind, text,
+      x: pt.x, y: pt.y, kind, text, pageId: cur, range: [s, e],
       page: { title: $('nb-title')?.value || p.title, content: v, cursor: s },
       openFull: openAI,
-      apply: {
-        replace: (md) => {
-          const box = $('nb-ed');
-          box.value = box.value.slice(0, s) + md + box.value.slice(e);
-          box.focus();
-          box.setSelectionRange(s, s + md.length);
-          markDirty();
-          drawPreview();
-          toast('Đã thay đoạn bằng kết quả của AI. Ctrl+Z để hoàn tác.');
-        },
-        below: (md) => { if (mode === 'read') setMode('split'); insertAt(e, spaced(e, md), { block: true }); },
-        insert: (md) => { if (mode === 'read') setMode('split'); insertAt(s, md, { block: true }); },
-      },
     });
   }
+  // AI nhanh chèn kết quả vào trình soạn đang mở; vị trí tìm lại theo nội dung đoạn gốc (trang có thể đã sửa thêm
+  // trong lúc AI viết ở nền). Trả về false để AI nhanh tự ghi vào trang đã lưu.
+  setLiveEditor({
+    get pageId() { return $('nb-ed') ? cur : null; },
+    apply(op, md, { text, s, e, before }) {
+      const box = $('nb-ed');
+      if (!box) return false;
+      const val = box.value;
+      const at = locate(val, text, s);
+      const spaced = (pos) => `${pos > 0 && !val.slice(0, pos).endsWith('\n\n') ? (val[pos - 1] === '\n' ? '\n' : '\n\n') : ''}${md}\n`;
+      if (op === 'replace' && at >= 0) {
+        box.value = val.slice(0, at) + md + val.slice(at + text.length);
+        box.focus();
+        box.setSelectionRange(at, at + md.length);
+        markDirty();
+        drawPreview();
+        toast('Đã thay đoạn bằng kết quả của AI. Ctrl+Z để hoàn tác.');
+        return true;
+      }
+      if (mode === 'read') setMode('split');
+      const pos = op === 'insert' ? locateAfter(val, before, s) : at >= 0 ? at + text.length : Math.min(e, val.length);
+      insertAt(pos, spaced(pos), { block: false });
+      if (op === 'replace') toast('Đoạn gốc đã đổi nên kết quả được chèn bên dưới thay vì thay thế.', 5000);
+      return true;
+    },
+  });
 
   /* Nút ✨ nổi cạnh vùng chữ đang bôi đen trong khung viết */
   let selBtn = null;
@@ -1223,7 +1292,7 @@ export async function render(root, { params, query }) {
     }
   }
 
-  /* ---------------- tìm nhanh (Ctrl+K) ---------------- */
+  /* ---------------- mở nhanh trang (Ctrl+O) ---------------- */
 
   async function quickSwitch() {
     const id = await dialog({
@@ -1393,7 +1462,7 @@ export async function render(root, { params, query }) {
   /* ---------------- phím tắt của trang + dọn dẹp ---------------- */
 
   const onKey = (e) => {
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); quickSwitch(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); quickSwitch(); }
     if ((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); openGuide('md', { insert: $('nb-ed') ? insertSnippet : null }); }
   };
   document.addEventListener('keydown', onKey);
@@ -1401,13 +1470,16 @@ export async function render(root, { params, query }) {
   // Trang thay đổi (tạo, xoá, khôi phục, đổi tên…): vẽ lại cây, trang chủ (Sửa gần đây) và rời trang đang mở nếu nó vừa bị xoá.
   const unsub = onPagesChange((info) => {
     if (!$('nb-tree')) return;
+    // Lưu từ chính cửa sổ này (gắn sao, đổi biểu tượng, di chuyển…): mốc phiên bản gốc theo bản vừa lưu, tránh báo nhầm xung đột.
+    if (!info?.external && cur && pageById(cur)) baseAt = pageById(cur).updatedAt;
     drawTree();
     // Trang đang mở vừa được sửa ở khung chia đôi / tab khác: chưa sửa gì ở đây thì nạp bản mới, đang sửa dở thì báo.
     const open = info?.external && cur ? pageById(cur) : null;
     const ed = $('nb-ed');
     if (open && ed && (open.content || '') !== ed.value) {
-      if (dirty) toast('Trang này vừa được sửa ở khung khác. Bạn đang sửa dở ở đây: lưu ở đây sẽ ghi đè bản kia.', 6000, 'err');
+      if (dirty) showConflictBar(open);
       else {
+        baseAt = open.updatedAt;
         const [a, b, y] = [ed.selectionStart, ed.selectionEnd, ed.scrollTop];
         ed.value = open.content || '';
         ed.setSelectionRange(Math.min(a, ed.value.length), Math.min(b, ed.value.length));
@@ -1437,6 +1509,7 @@ export async function render(root, { params, query }) {
     window.removeEventListener('beforeunload', onUnload);
     unsub();
     closeInlineAI();
+    setLiveEditor(null);
     selBtn?.remove();
     nbMq.removeEventListener('change', onNbMq);
     if (dirty) persist();

@@ -76,7 +76,7 @@ ${steps([
     `<b>Thư viện</b>: ${ui('Tổng quan')} (số liệu, paper gần đây, hàng đợi đọc), ${ui('Thư viện')}, ${ui('Thêm paper')}, ${ui('Chủ đề')}.`,
     `<b>Khám phá &amp; phân tích</b>: ${ui('Paper mới')} (theo dõi arXiv), ${ui('Chat với paper')}, ${ui('So sánh')}.`,
     `<b>Cá nhân</b>: ${ui('Sổ tay')} nghiên cứu, ${ui('Lịch')} kế hoạch, ${ui('Thẻ ghi nhớ')}.`,
-    `<b>Tìm kiếm</b> trong cả thư viện, kể cả toàn văn đã lưu. Phím ${k('/')} để nhảy vào ô này.`,
+    `<b>Tìm nhanh</b> (${k('Ctrl')}+${k('K')} hoặc ${k('/')}): một ô tìm mọi thứ, gồm paper, nội dung PDF, trang Sổ tay, cuộc trò chuyện, việc trong Lịch và các lệnh (gõ ${k('>')} để chỉ tìm lệnh). ${k('↑')} ${k('↓')} chọn, ${k('Enter')} mở; khi chia đôi màn hình, ${k('Alt')}+${k('Enter')} mở ở khung bên kia. Cuối danh sách có ${ui('Lọc Thư viện theo …')} và ${ui('Tạo trang sổ tay …')}.`,
     `<b>Chia đôi màn hình</b>: mở hai chức năng cạnh nhau (xem mục <a href="#/help?s=split">Chia đôi màn hình</a>).`,
     `<b>Dịch khi bôi đen</b>: cài đặt nhanh ngôn ngữ đích, cách bật, và mở trang Thẻ ghi nhớ.`,
     `<b>Hướng dẫn</b> cho đúng trang đang xem (phím ${k('?')}).`,
@@ -94,7 +94,7 @@ ${steps([
   <li>${ui('Link / arXiv / DOI')} nhận arXiv ID, link arXiv, DOI, link OpenReview, ACL Anthology hoặc trang paper bất kỳ. Máy chủ của app tự tải abstract, toàn văn HTML của arXiv và file PDF nếu có.</li>
   <li>${ui('File PDF')} nhận một file PDF từ máy: bấm vào ô chọn file hoặc kéo PDF thả đúng vào ô đó. Chọn nhiều file cùng lúc thì app chuyển sang chế độ hàng loạt. PDF thả ở trang khác không được nhập, để tránh thêm nhầm.</li>
   <li>${ui('Dán text')} dùng khi chỉ có abstract hoặc một đoạn văn. Nút ${ui('Tạo note trống')} tạo paper để tự điền tay, không gọi mô hình.</li>
-  <li>${ui('Zotero / .bib / .ris')} đọc tệp xuất từ Zotero, Mendeley hoặc Google Scholar.</li>
+  <li>${ui('Zotero / .bib / .ris')}: ${ui('Đọc thư viện Zotero')} đọc thẳng thư viện Zotero trên máy (tên, tác giả, năm, DOI, abstract, tag, collection, ghi chú, highlight và file PDF), không cần xuất file và không gọi mô hình. Chọn mục, chọn ${ui('Theo collection')} để mỗi collection thành một chủ đề, rồi ${ui('Nhập mục đã chọn')}. Thư viện ở chỗ khác thì dán đường dẫn thư mục dữ liệu (Zotero: Edit → Settings → Advanced → Files and Folders). Zotero đang mở vẫn đọc được. Mendeley: <i>File → Export</i> ra BibTeX, RIS hoặc CSL JSON rồi chọn file ở ô bên dưới.</li>
 </ul>
 <p>Sau khi trích xuất, app hiện bản ghi chú để kiểm tra trước khi lưu, gợi ý thư mục chủ đề và báo nếu paper đã có trong thư viện. Khi trùng, chọn cập nhật bản cũ (giữ ghi chú, trạng thái, đánh giá) hoặc lưu thành bản mới.</p>
 <p>Với Claude và Gemini, file PDF được gửi thẳng cho mô hình nên bảng kết quả và hình cũng được đọc. OpenAI không nhận PDF qua API này, nên app trích text từ PDF trước. PDF bản scan không có lớp chữ chỉ dùng được với Claude hoặc Gemini.</p>`,
@@ -141,7 +141,7 @@ ${steps([
   <li>${ui('Ghi chú')}: venue và hạng, ghi chú theo template, ghi chú cá nhân (${k('Ctrl')}+${k('Enter')} lưu nhanh), trích dẫn theo đoạn, câu đáng nhớ, và thẻ ${ui('📓 Trong sổ tay nghiên cứu')} liệt kê các trang nhắc tới bài này.</li>
   <li>${ui('PDF')}: đọc file ngay trong app, bôi đen để dịch, tô sáng, gạch chân, AI tô câu đáng nhớ. Paper chưa có PDF thì app tự tìm bản công khai. Xem các mục <a href="#/help?s=translate">Dịch khi đọc PDF</a>, <a href="#/help?s=marks">Tô sáng và tìm PDF</a>, <a href="#/help?s=autohl">Tô câu đáng nhớ</a>.</li>
   <li>${ui('Bài giảng')}: bản giải thích dài tám phần (xem mục <a href="#/help?s=lecture">Bài giảng</a>).</li>
-  <li>${ui('Hỏi đáp')}: hỏi mô hình về riêng paper này, dùng ghi chú và toàn văn đã lưu. Ô ${ui('Ngôn ngữ trả lời')} dùng chung với Chat.</li>
+  <li>${ui('Hỏi đáp')}: hỏi mô hình về riêng paper này, dùng ghi chú và toàn văn đã lưu. Đính kèm được ảnh (hình, bảng, ảnh chụp màn hình) và file như ở Chat: nút ${ui('📎 Đính kèm')}, dán ${k('Ctrl')}+${k('V')} hoặc kéo thả. Dưới mỗi câu trả lời có ${ui('📓 Lưu vào Sổ tay')} và ${ui('Copy')}. Ô ${ui('Ngôn ngữ trả lời')} dùng chung với Chat.</li>
   <li>${ui('Liên quan')}: Semantic Scholar, bản đồ tài liệu, đồ thị 3D, Có gì mới, Theo dõi (xem mục <a href="#/help?s=related">Liên quan, bản đồ, đồ thị</a>).</li>
   <li>${ui('Hướng nghiên cứu')}: đặt bài giữa các bài nó dẫn và các bài dẫn nó, chỉ ra phần còn bỏ ngỏ (xem mục <a href="#/help?s=research">Hướng nghiên cứu</a>).</li>
   <li>${ui('Trích dẫn')}: BibTeX và APA bản thứ 7; ${ui('Copy có định dạng')} giữ in nghiêng khi dán vào Word hay Google Docs. App chưa lưu số tập, số kỳ, số trang nên phần đó cần bổ sung tay.</li>
@@ -297,6 +297,7 @@ ${steps([
   <li>Có thể chỉ gửi tệp mà không gõ câu hỏi: app hỏi model tóm tắt và giải thích tệp, liên hệ với các paper đang chọn. Hỏi về ảnh / file thì không bắt buộc phải chọn paper.</li>
   <li>Các câu hỏi tiếp theo vẫn gửi kèm ảnh và file của các lượt trước (tối đa 12 ảnh / PDF gần nhất), nên có thể hỏi tiếp về chúng. Ảnh và file được lưu cùng hội thoại; bấm ảnh trong tin nhắn để phóng to.</li>
 </ul>
+<p><b>Lưu vào Sổ tay</b>: nút ${ui('📓 Lưu vào Sổ tay')} dưới mỗi câu trả lời chép câu trả lời vào <b>nhật ký hôm nay</b>, <b>cuối một trang có sẵn</b> hoặc <b>một trang mới</b>, dạng khối ✨ AI (thu gọn được) hoặc đoạn văn thường, có thể kèm câu hỏi. Nhãn nguồn [P1], [P2] thành liên kết <code>[[@paper]]</code>, nên trang đó hiện ở thẻ ${ui('📓 Trong sổ tay nghiên cứu')} của paper.</p>
 <p>Hội thoại mới chưa có paper hiện ba cách bắt đầu: dùng các paper đang tick ở Thư viện / So sánh, tìm và chọn từng paper, hoặc chọn cả một chủ đề. Thẻ paper trong Nguồn ghi ${ui('● toàn văn')} hoặc ${ui('○ chỉ ghi chú')}, quyết định chatbot đọc được gì.</p>
 <p>Cuối bảng Nguồn có ước tính số token. Với Claude, phần ngữ cảnh cố định được cache nên từ câu thứ hai chỉ tính giá đọc cache (khoảng một phần mười). ${ui('Dừng')} cắt ngang và giữ phần đã nhận, ${ui('Ẩn nguồn')} thu bảng bên phải, ${ui('Xuất .md')} lưu cả hội thoại. Khung hẹp (ví dụ khi chia đôi màn hình) thì bảng Nguồn là ngăn trượt, mở bằng nút ${ui('📚 Nguồn')}.</p>`,
   },
@@ -352,6 +353,19 @@ ${steps([
   <li><b>Ảnh</b>: dán (${k('Ctrl')}+${k('V')}), kéo thả file, hoặc <code>/anh</code>. <code>![mô tả|400](link)</code> đặt độ rộng; bấm ảnh ở phần xem để phóng to.</li>
   <li><b>Việc có hạn</b>: <code>- [ ] việc 📅 2026-10-30</code> hiện trên Lịch (xem mục <a href="#/help?s=calendar">Lịch</a>).</li>
   <li><b>🕸 Đồ thị</b>: mọi trang và paper nối theo liên kết (nét đứt là quan hệ trang cha / con).</li>
+</ul>
+<p><b>Xuất trang</b> (nút ${ui('⋯')} cạnh tên trang):</p>
+<ul>
+  <li>${ui('Xuất PDF')}: giữ nguyên công thức, code tô màu, ảnh, callout, bảng như ở phần xem, khổ A4. App in bằng Edge (Windows luôn có sẵn) chạy ẩn; máy không có Edge / Chrome thì mở hộp thoại In, chọn "Lưu thành PDF".</li>
+  <li>${ui('Xuất Word (.docx)')}: tiêu đề, danh sách, bảng, trích dẫn, ảnh; mở được bằng Word, Google Docs, LibreOffice. Công thức giữ dạng mã LaTeX (<code>$E = mc^2$</code>).</li>
+  <li>${ui('Tải file .md')} và ${ui('Copy Markdown')} lấy nguyên văn bản gốc.</li>
+  <li>${ui('Xuất cả nhánh / cả sổ tay…')}: xuất trang này cùng mọi trang con, cháu (hoặc cả sổ tay) một lần. <b>PDF</b> và <b>Word</b> có mục lục đánh số 1, 1.1…, mỗi trang bắt đầu ở trang giấy mới, liên kết <code>[[…]]</code> giữa các trang bấm được trong PDF. <b>Markdown (.zip)</b> cho Obsidian / Logseq: thư mục theo cây trang, giữ <code>[[liên kết]]</code> và <code>#tag</code>, ảnh trong <code>attachments/</code>, liên kết paper thành link arXiv / DOI. Giải nén vào vault là dùng được.</li>
+</ul>
+<p><b>Sửa cùng một trang ở hai nơi</b> (hai khung chia đôi, hai tab): nếu trang đã được lưu ở nơi khác trong lúc bạn đang sửa, app không ghi đè mà hiện thanh cảnh báo và hộp thoại so sánh từng dòng, với ba cách: ${ui('Dùng bản kia')}, ${ui('Ghép hai bản')} (thêm các dòng chỉ có ở bản kia vào cuối, trong một callout) hoặc ${ui('Giữ bản của tôi')}. Bản bị thay luôn còn trong Lịch sử phiên bản.</p>
+<p><b>Lịch sử phiên bản</b> (${ui('⋯')} → ${ui('Lịch sử phiên bản…')}): app tự lưu một bản mỗi khi bạn sửa trang (các lần sửa liên tục trong 10 phút gộp làm một), giữ 80 bản gần nhất mỗi trang.</p>
+<ul>
+  <li>Bên trái là danh sách bản theo thời gian. ${ui('So với hiện tại')} tô đỏ dòng chỉ có ở bản cũ, tô xanh dòng chỉ có ở bản hiện tại; ${ui('Xem bản này')} hiện như phần xem; ${ui('Markdown')} hiện văn bản gốc.</li>
+  <li>${ui('Khôi phục bản này')} đưa trang về bản đó. Bản hiện tại được lưu lại trước khi khôi phục, nên luôn quay lại được.</li>
 </ul>`,
   },
   {
@@ -374,6 +388,7 @@ ${steps([
     `${ui('↻ Thử lại')} viết lại; ${ui('Copy')} lấy Markdown.`,
     `<b>Bảo AI sửa tiếp</b>: ví dụ "ngắn hơn", "thêm ví dụ", rồi ${k('Enter')}.`,
   ])}
+<p><b>Lỡ bấm ra ngoài cũng không mất</b>: khi AI đang viết hoặc đã có kết quả, bấm ra ngoài khung, nhấn ${k('Esc')} hay chuyển sang trang khác chỉ <b>thu nhỏ</b> khung. AI viết tiếp ở nền, góc dưới bên phải có thẻ tiến độ; viết xong thẻ vẫn ở đó, bấm ${ui('Mở')} để quay về đúng trang và mở lại kết quả. Chèn / thay thế tìm lại đoạn gốc theo nội dung, nên vẫn đúng chỗ dù bạn đã sửa trang trong lúc chờ. Muốn bỏ hẳn: nút ✕ trong khung, hoặc ✕ trên thẻ khi đã viết xong. Hộp thoại Hỏi AI với nguồn (bên dưới) cũng vậy; nút ${ui('Đóng')} mới bỏ hẳn.</p>
 <p>Trên <b>dòng trống</b>, ${k('Ctrl')}+${k('J')} hoặc <code>/ai</code> mở menu viết mới: viết tiếp, lập dàn ý, tóm tắt cả trang, brainstorm, bảng so sánh paper trong trang, danh sách việc cần làm.</p>
 <p><b>Hỏi AI với nguồn</b> (kiểu RAG): nút ${ui('✨ AI')} trên đầu trang hoặc <code>/hoi</code>.</p>
 ${fig('nb-ask', 'Hộp thoại Hỏi AI dựa trên paper và ghi chú')}
@@ -385,6 +400,7 @@ ${steps([
     `<b>Tự tìm thêm paper liên quan</b> trong thư viện (tối đa 5). Phía dưới chọn thêm trang ghi chú làm nguồn (mặc định là trang đang viết).`,
     `<b>Mức ngữ cảnh</b>: ${ui('Chỉ ghi chú')}, ${ui('Ghi chú + đoạn liên quan')} (khuyên dùng: tìm đoạn khớp nhất trong toàn văn), ${ui('Toàn văn')}.`,
   ])}
+<p><b>Đính kèm</b>: dưới ô yêu cầu có ${ui('📎 Đính kèm')}; dán (${k('Ctrl')}+${k('V')}) hoặc kéo thả ảnh (hình, bảng kết quả, ảnh chụp màn hình), PDF, file chữ vào khung. AI đọc tệp cùng các nguồn đã chọn, ví dụ "đối chiếu bảng kết quả này với các paper trong trang". Chỉ đính kèm mà không chọn nguồn nào cũng được. ${ui('↻ Tạo lại')} dùng lại tệp của lần hỏi trước.</p>
 <p class="hint">Model dùng cho AI trong Sổ tay chỉnh riêng được ở ${ui('Cài đặt')} → ${ui('Model riêng cho từng việc')} (ví dụ model rẻ, nhanh cho viết lại đoạn).</p>`,
   },
   {
@@ -403,6 +419,20 @@ ${steps([
   <li><b>Nhật ký</b>: ngày có nhật ký hiện 📓; bảng ngày có ${ui('Mở')} / ${ui('+ Tạo nhật ký')}. Trang nhật ký trong Sổ tay có thẻ Lịch của ngày đó, đánh dấu xong và thêm kế hoạch ngay trong trang.</li>
   <li><b>Việc có hạn trong Sổ tay</b>: viết <code>- [ ] việc 📅 2026-10-25</code> ở bất kỳ trang nào, việc đó hiện trên Lịch; đánh dấu xong ở Lịch thì trang nguồn cũng được đánh dấu.</li>
   <li><b>Lọc</b>: bấm các nhãn loại để ẩn / hiện, nhãn ${ui('Việc trong Sổ tay')} để ẩn / hiện việc có hạn.</li>
+  <li><b>Âm lịch và ngày lễ Việt Nam</b> (tính sẵn trong app, không cần mạng): cạnh tên tháng là năm âm lịch theo can chi và con giáp (ví dụ 🐴 năm Bính Ngọ), tháng âm của khoảng đang xem; khoảng vắt qua Tết thì ghi cả hai năm. Mỗi ô ngày có ngày âm nhỏ ở góc (mùng 1 ghi cả tháng, có đánh dấu tháng nhuận). Ngày lễ, Tết dương và âm lịch (Tết Nguyên đán, Giỗ Tổ, Trung thu, Vu Lan…) hiện thành dòng đỏ, ngày nghỉ lễ tô đỏ số ngày. Bảng ngày bên phải ghi đủ ngày âm, can chi của ngày và tháng. Hai nhãn ${ui('Ngày lễ Việt Nam')} và ${ui('Âm lịch')} trong hàng lọc để bật / tắt.</li>
+  <li><b>Thẻ ghi nhớ</b>: ngày hôm nay có thẻ ${ui('🗂 N thẻ ghi nhớ cần ôn hôm nay')}, bấm để vào lượt ôn (xem mục <a href="#/help?s=notes">Ghi chú &amp; thẻ ghi nhớ</a>).</li>
+</ul>
+<p><b>Nhắc việc</b>: ô ${ui('Nhắc việc')} trong hộp thoại kế hoạch chọn nhắc đúng giờ, trước 5 / 10 / 15 / 30 phút, 1 / 2 giờ hoặc 1 ngày. Kế hoạch cả ngày (không có giờ) tính mốc 8:00 sáng. Kế hoạch có nhắc hiện 🔔 trên lịch.</p>
+<ul>
+  <li>Tới giờ, góc dưới bên phải hiện thẻ nhắc kèm tiếng chuông: ${ui('Mở Lịch')} hoặc ${ui('Báo lại sau 10 phút')}. Bản desktop còn nháy nút PaperVault trên thanh tác vụ và hiện <b>thông báo của Windows</b> khi cửa sổ đang ở sau hoặc đã thu xuống khay; bấm thông báo để mở đúng ngày.</li>
+  <li>Bản desktop: bấm ✕ thì app hỏi ${ui('Thu xuống khay')} (app vẫn chạy ở biểu tượng cạnh đồng hồ và vẫn nhắc việc) hay ${ui('Thoát')}. Tick ${ui('Ghi nhớ lựa chọn')} để không hỏi lại; đổi lại ở Cài đặt → Ứng dụng → <i>Khi bấm ✕ đóng cửa sổ</i>. Đang ở khay thì bấm biểu tượng để mở lại, chuột phải → ${ui('Thoát PaperVault')} để tắt hẳn.</li>
+  <li>Mở app muộn hơn giờ nhắc thì vẫn nhắc nếu việc chưa kết thúc; việc đã đánh dấu xong thì không nhắc.</li>
+</ul>
+<p><b>Đăng ký lịch qua link</b> (${ui('⋯')} → ${ui('Đăng ký lịch qua link (Google Calendar…)…')}): dán link .ics (Google Calendar: ⚙ Cài đặt → chọn lịch → Tích hợp lịch → <i>Địa chỉ bí mật ở định dạng iCal</i>; Outlook: Phát hành lịch → link ICS). Sự kiện hiện cùng kế hoạch với màu riêng và nhãn 🔗 để lọc, chỉ đọc (bấm để xem hoặc ${ui('Chép thành kế hoạch của tôi')}), được tính khi tìm khoảng trống trong ngày và tự tải lại mỗi 30 phút. Mỗi lịch đổi được tên, màu, ẩn / hiện, tải lại ngay hoặc bỏ đăng ký.</p>
+<p><b>Xuất / nhập .ics</b> (nút ${ui('⋯')} cạnh ${ui('+ Kế hoạch')}):</p>
+<ul>
+  <li>${ui('Xuất lịch ra file .ics')}: mọi kế hoạch, kèm lặp lại, ngày bỏ qua, nhắc việc. Nhập file vào Google Calendar (Cài đặt → Nhập và xuất), Outlook hoặc Apple Calendar.</li>
+  <li>${ui('Nhập file .ics…')}: lấy lịch từ Google Calendar, Outlook… (xuất ra .ics trước). App báo số sự kiện mới và số sự kiện đã có; nhập lại cùng file thì cập nhật thay vì tạo trùng. Lặp hằng ngày / tuần / tháng được giữ; lặp phức tạp hơn (ví dụ cách hai tuần) chỉ nhập lần đầu, kèm ghi chú.</li>
 </ul>`,
   },
   {
@@ -411,7 +441,11 @@ ${steps([
 <p>Trang ${ui('Thẻ ghi nhớ')} gom mọi đoạn bạn đã lưu bằng ${ui('+ Ghi chú')} trong bong bóng dịch, cùng các trích dẫn thêm tay ở trang paper, của tất cả paper.</p>
 <ul>
   <li>${ui('Danh sách')}: tìm trong đoạn gốc, bản dịch, nhận xét, tên paper; lọc theo paper; sắp xếp mới nhất, cũ nhất, theo paper. Mỗi đoạn có sao chép, sửa, xoá (hoàn tác được) và link về paper.</li>
-  <li>${ui('Thẻ ghi nhớ')}: mặt trước là đoạn gốc, lật ra bản dịch và nhận xét. ${k('Space')} lật thẻ, ${k('←')} ${k('→')} chuyển thẻ, ${k('1')} đánh dấu ${ui('Nhớ rồi')}. Có ${ui('Chỉ thẻ chưa nhớ')} và ${ui('Trộn thẻ')}.</li>
+  <li>${ui('Ôn thẻ')} (số bên cạnh là số thẻ cần ôn hôm nay): mặt trước là đoạn gốc, lật ra bản dịch và nhận xét. Nhớ lại nghĩa rồi mới lật (${k('Space')}), sau đó chấm mức nhớ: ${k('1')} ${ui('Quên')}, ${k('2')} ${ui('Khó')}, ${k('3')} ${ui('Nhớ')}, ${k('4')} ${ui('Dễ')}. Mỗi nút ghi sẵn bao lâu nữa thẻ quay lại.</li>
+  <li><b>Lặp lại ngắt quãng</b> (thuật toán SM-2, như Anki): thẻ nhớ tốt được giãn dần 1 ngày → 3 ngày → vài tuần → vài tháng; thẻ ${ui('Quên')} quay lại ngay trong lượt ôn và bắt đầu lại từ đầu; với thẻ mới, ${ui('Khó')} cũng cho thẻ quay lại cuối lượt (nhưng không tính là quên). Ở danh sách, mỗi đoạn ghi "thẻ mới", "cần ôn hôm nay" hoặc ngày ôn tới.</li>
+  <li>${ui('⚙ Nhịp ôn')} chỉnh số thẻ mới mỗi ngày, khoảng ôn lần đầu khi chấm Nhớ / Dễ, hệ số giãn và khoảng ôn tối đa (mặc định 1 năm), kèm ví dụ các mốc ôn. Sau mỗi lần chấm, app báo ngày ôn tới. Ở ${ui('Tất cả thẻ')}, chấm một thẻ chưa tới hạn chỉ là ôn thử, không đổi lịch (trừ ${ui('Quên')}).</li>
+  <li>${ui('Cần ôn hôm nay')} gồm thẻ tới hạn và số thẻ mới mỗi ngày (mặc định 20); ${ui('Tất cả thẻ')} để lướt mọi thẻ (có ${ui('Trộn thẻ')}, ${k('←')} ${k('→')}). Ô ${ui('thẻ cần ôn hôm nay')} ở Tổng quan và thẻ 🗂 trong Lịch mở thẳng lượt ôn.</li>
+  <li><b>Phát âm</b>: đoạn gốc tiếng Anh có hai dòng UK / US kèm phiên âm IPA (với từ, cụm ngắn) và nút ${ui('▶ Nghe')}, cùng bộ phát âm của bong bóng dịch; phím ${k('P')} nghe theo giọng bạn chọn lần trước. Ở danh sách, nút ▶ cạnh mỗi đoạn.</li>
   <li>${ui('Tải CSV (Anki)')} xuất hai cột mặt trước / mặt sau, nhập được vào Anki hoặc Quizlet. ${ui('Tải Markdown')} xuất cả danh sách.</li>
 </ul>`,
   },
@@ -445,6 +479,7 @@ ${steps([
   ])}
 <ul>
   <li><b>Alt + bấm</b> một link (paper, trang Sổ tay…) để mở nó ở khung bên kia.</li>
+  <li><b>Tìm nhanh</b> (${k('Ctrl')}+${k('K')}) trong một khung mở bảng tìm ở giữa cửa sổ; kết quả mở ở khung vừa bấm, ${k('Alt')}+${k('Enter')} mở ở khung kia. Mỗi khung luôn rộng ít nhất khoảng 300px để hộp thoại trong khung vẫn đọc được.</li>
   <li><b>Dữ liệu dùng chung</b>: lưu ở khung này thì khung kia tự cập nhật; cùng một trang Sổ tay mở ở hai khung cũng tự đồng bộ. Paper tick ở Thư viện khung này dùng được ngay ở So sánh khung kia.</li>
   <li>Mọi trang tự co giãn khi khung hẹp hoặc thấp: bảng Nguồn của Chat, bảng ngày của Lịch, danh sách trang của Sổ tay thành ngăn trượt; đầu trang paper tự thu gọn.</li>
   <li>Bố cục được nhớ, mở lại app vẫn giữ nguyên. Đóng khung khi còn việc chạy nền (trích xuất, bài giảng…) thì app hỏi lại trước.</li>
@@ -466,9 +501,13 @@ ${steps([
   <li><b>Trích xuất</b>: ngôn ngữ ghi chú, effort (Claude), số ký tự tối đa gửi đi, max output tokens, cách xử lý PDF, Semantic Scholar API key (tuỳ chọn, giúp tránh lỗi 429).</li>
   <li><b>Dịch khi bôi đen</b>, <b>Phông chữ &amp; cỡ chữ</b>.</li>
   <li><b>Bảng xếp hạng venue</b> và <b>Số trích dẫn</b>: cập nhật trực tuyến, phân loại lại.</li>
-  <li><b>Sử dụng API</b>: token theo model trong tháng; nhập đơn giá để app ước tính chi phí.</li>
+  <li><b>Sử dụng API &amp; chi phí</b>: token theo model trong tháng; nhập đơn giá để app ước tính chi phí. <b>Ngân sách AI / tháng</b>: app báo khi chạm mức cảnh báo (mặc định 80%); khi vượt thì tuỳ chọn ${ui('Chỉ cảnh báo')}, ${ui('Đổi sang model rẻ')} (Haiku, GPT-4o mini, Gemini Flash của cùng nhà cung cấp) hoặc ${ui('Chặn gọi AI')} tới hết tháng. Thanh màu cho biết đã dùng bao nhiêu.</li>
+  <li><b>Ứng dụng</b> (bản desktop): khi bấm ✕ thì hỏi mỗi lần, thu xuống khay hệ thống hay thoát hẳn; khởi động lại, thoát.</li>
   <li><b>Xuất thư viện ra thư mục Markdown</b>: mỗi chủ đề một thư mục con, kèm bảng so sánh và <code>references.bib</code>; có thể tự ghi sau mỗi lần lưu.</li>
-  <li><b>Sao lưu &amp; nhập dữ liệu</b>: tải JSON (paper, ghi chú, sổ tay, lịch), nhập gộp hoặc nhập thay thế. File PDF và ảnh trong sổ tay không nằm trong file sao lưu: chép thêm thư mục <code>data/pdfs</code> và <code>data/images</code>.</li>
+  <li><b>Sao lưu &amp; khôi phục</b>: ${ui('Sao lưu đầy đủ ngay')} tạo một file <b>.zip</b> chứa paper, toàn văn, Sổ tay, Lịch, Chat, cài đặt (trừ API key), mọi <b>file PDF</b> và <b>ảnh</b> của Sổ tay. ${ui('Khôi phục từ file .zip…')} hoặc nút ${ui('Khôi phục')} ở từng bản: chọn <b>Gộp</b> (thêm phần chưa có, giữ dữ liệu hiện tại) hoặc <b>Thay thế toàn bộ</b> (nạp lại cả cài đặt, giữ API key đang có trên máy).</li>
+  <li><b>Tự sao lưu</b> mỗi ngày hoặc mỗi tuần khi app đang mở, giữ N bản tự động gần nhất (bản bạn tự tạo không bị xoá). Nên đặt <b>Thư mục sao lưu</b> ở ổ khác hoặc trong OneDrive / Google Drive để phòng hỏng ổ.</li>
+  <li>Sao lưu dạng JSON (cách cũ, không kèm PDF, ảnh) vẫn còn trong mục thu gọn bên dưới; nhận cả file sao lưu của extension.</li>
+  <li><b>Phiên bản &amp; cập nhật</b>: ${ui('Kiểm tra bản mới')} hỏi trang GitHub Releases. Khi bật tự kiểm tra (mặc định), mỗi ngày app hỏi một lần; có bản mới thì góc dưới bên phải hiện thẻ kèm điểm mới, ${ui('Tải bản mới')} (bản desktop tải thẳng file .zip), ${ui('Bỏ qua bản này')} hoặc ${ui('Tắt tự kiểm tra')}. Cập nhật bản desktop: tải file .zip, đóng app, giải nén đè lên thư mục cũ; thư mục <code>data</code> và <code>config.json</code> không có trong file tải về nên được giữ nguyên. Nên sao lưu đầy đủ trước khi cập nhật.</li>
 </ul>
 <p>Toàn bộ dữ liệu nằm trong một thư mục. Muốn dùng trên nhiều máy qua OneDrive hoặc Google Drive, bấm ${ui('Đổi thư mục dữ liệu')} và chọn thư mục trong ổ đồng bộ. Chỉ mở app trên một máy tại một thời điểm và chờ đồng bộ xong trước khi mở trên máy khác.</p>`,
   },
@@ -486,7 +525,7 @@ ${steps([
     id: 'keys', group: 'tools', title: 'Phím tắt', routes: [],
     html: `
 <table class="kv">
-  <tr><th>${k('/')}</th><td>Đưa con trỏ vào ô tìm kiếm</td></tr>
+  <tr><th>${k('Ctrl')}+${k('K')} · ${k('/')}</th><td>Tìm nhanh khắp app: lệnh, paper, nội dung PDF, trang sổ tay, chat, lịch. Gõ ${k('>')} để chỉ tìm lệnh</td></tr>
   <tr><th>${k('N')}</th><td>Mở trang Thêm paper</td></tr>
   <tr><th>${k('G')} rồi ${k('D')} ${k('L')} ${k('T')} ${k('F')} ${k('A')} ${k('C')} ${k('B')} ${k('K')} ${k('N')} ${k('S')} ${k('H')}</th><td>Tổng quan, Thư viện, Chủ đề, Paper mới, Chat, So sánh, Sổ tay, Lịch, Thẻ ghi nhớ, Cài đặt, Hướng dẫn (phím hiện mờ cạnh mục ở thanh bên)</td></tr>
   <tr><th>${k('?')}</th><td>Mở Hướng dẫn</td></tr>
@@ -495,11 +534,11 @@ ${steps([
   <tr><th>${k('Ctrl')}+${k('Shift')}+${k('D')}</th><td>Dịch ngay đoạn đang bôi đen</td></tr>
   <tr><th>${k('j')} ${k('k')} · ${k('Enter')} · ${k('x')}</th><td>Thư viện: di chuyển giữa các paper · mở · tick</td></tr>
   <tr><th>${k('Enter')} trong ô chat</th><td>Gửi câu hỏi; ${k('Shift')}+${k('Enter')} xuống dòng</td></tr>
-  <tr><th>${k('Ctrl')}+${k('K')}</th><td>Sổ tay: mở nhanh một trang</td></tr>
+  <tr><th>${k('Ctrl')}+${k('O')}</th><td>Sổ tay: mở nhanh một trang (Enter khi không có thì tạo trang mới)</td></tr>
   <tr><th>${k('Ctrl')}+${k('J')}</th><td>Sổ tay: AI nhanh cho đoạn đang chọn / đoạn có con trỏ; dòng trống: AI viết mới</td></tr>
   <tr><th>${k('Ctrl')}+${k('/')}</th><td>Sổ tay: hướng dẫn cú pháp</td></tr>
   <tr><th>${k('Ctrl')}+${k('S')} · ${k('Ctrl')}+${k('B')} · ${k('Ctrl')}+${k('I')}</th><td>Sổ tay: lưu · in đậm · in nghiêng</td></tr>
-  <tr><th>${k('Space')} ${k('←')} ${k('→')} ${k('1')}</th><td>Thẻ ghi nhớ: lật thẻ, thẻ trước, thẻ sau, đã nhớ</td></tr>
+  <tr><th>${k('Space')} ${k('←')} ${k('→')} ${k('1')}–${k('4')} ${k('P')}</th><td>Thẻ ghi nhớ: lật thẻ, thẻ trước, thẻ sau, chấm mức nhớ, nghe đoạn gốc</td></tr>
   <tr><th>${k('Esc')} · ${k('Shift')}+${k('Esc')}</th><td>Đóng hộp thoại, bỏ chọn · đóng bản đồ / đồ thị</td></tr>
 </table>`,
   },
