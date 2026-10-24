@@ -8,9 +8,12 @@ import { $, toast, confirmDialog, mdToHtml, topicBadge, selectAllHtml, syncSelec
 import { unverifiedNumbers } from '../quality.js';
 import { streamChat, hasCredentials } from '../llm.js';
 import { tokenize, chunksOf, bm25Pick, searchTerms } from '../rag.js';
+import { CTX_KINDS, CTX_GUIDE, ctxOf, ensureContext, extraBlock, retrievalDocs, librarySuggestions, relatedByCode } from '../chatctx.js';
 import { buildChatSystem, paperNotesText, CHAT_LANGS, CHAT_LENGTHS } from '../prompts.js';
 import { makeJob, trackJob } from '../bgjobs.js';
 import { readableChatMd } from '../readable.js';
+import { pagesForPaper } from '../notebook.js';
+import { plainTitle } from '../richtext.js';
 import { venueBadge, RANK_FILTERS, matchesRankFilter, rankSortKey } from '../venue.js';
 
 const MODES = {
@@ -25,6 +28,7 @@ const SUGGESTIONS = [
   ['Hạn chế và khoảng trống', 'Những hạn chế chung và khoảng trống nghiên cứu mà các paper để lại là gì?'],
   ['Đề xuất thí nghiệm', 'Đề xuất một thí nghiệm kết hợp ý tưởng từ các paper này.'],
   ['Tóm tắt cho Related Work', 'Tóm tắt mỗi paper trong 2 câu để đưa vào phần Related Work.'],
+  ['Nên đọc gì tiếp?', 'Dựa trên mạng trích dẫn và hướng nghiên cứu của các paper này, nên đọc tiếp những bài nào, theo thứ tự nào? Bài nào đã có trong thư viện?'],
 ];
 const FULL_BUDGET = 600000;       // ký tự toàn văn tối đa cho chế độ Toàn văn
 const RETRIEVAL_BUDGET = 24000;   // ký tự đoạn trích mỗi câu hỏi
@@ -92,39 +96,63 @@ async function ensureTexts(ids) {
 function corpusText(c) {
   const items = papersOf(c);
   const perPaper = items.length ? Math.floor(FULL_BUDGET / items.length) : 0;
+  const ctx = ctxOf(c);
+  // Hội thoại nhiều paper: rút gọn phần kèm theo của mỗi paper để tổng ngữ cảnh không phình quá.
+  const scale = Math.min(1, 4 / Math.max(1, items.length));
   const parts = [`Tài liệu về ${items.length} paper người dùng đã chọn:`];
+  let extras = 0;
   for (const { p, label, id } of items) {
     let block = paperNotesText(p, label);
+    const extra = extraBlock(p, label, ctx, scale);
+    if (extra) { block += `\n${extra}`; extras += 1; }
     if (c.mode === 'full') {
       const t = state.texts.get(id) || '';
       block += t ? `\nToàn văn:\n${clampText(t, perPaper)}` : '\n(Paper này chưa có toàn văn được lưu, chỉ có ghi chú.)';
     }
     parts.push(`${block}\n</paper>`);
   }
+  if (extras) parts.splice(1, 0, CTX_GUIDE);
   return parts.join('\n\n');
 }
 const systemBlocks = (c) => [{ text: buildChatSystem(store.settings, { length: store.settings.chatLength || '' }) }, { text: corpusText(c), cache: true }];
 
 /** BM25 trên các đoạn của toàn văn. Trả về [{ label, id, n, text }]. */
-function retrieve(c, queryTerms) {
+function retrieve(c, queryTerms, { full = true } = {}) {
   const docs = [];
-  for (const { label, id } of papersOf(c)) chunksOf(state.texts.get(id)).forEach((text, n) => docs.push({ key: id, label, id, n, text }));
-  return bm25Pick(docs, queryTerms, { budget: RETRIEVAL_BUDGET, perKey: 4 })
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }) || a.n - b.n);
+  const ctx = ctxOf(c);
+  for (const { p, label, id } of papersOf(c)) {
+    if (full) chunksOf(state.texts.get(id)).forEach((text, n) => docs.push({ key: id, label, id, n, text, src: '' }));
+    // Bài giảng và các lượt Hỏi đáp trước: mỗi nguồn tối đa 2 đoạn mỗi paper.
+    const byKey = new Map();
+    for (const d of retrievalDocs(p, ctx)) {
+      const n = byKey.get(d.src) || 0;
+      byKey.set(d.src, n + 1);
+      docs.push({ key: `${id}:${d.src}`, label, id, n, text: d.text, src: d.src });
+    }
+  }
+  const extra = docs.some((d) => d.src);
+  return bm25Pick(docs, queryTerms, { budget: RETRIEVAL_BUDGET + (extra ? 8000 : 0), perKey: 4 })
+    .filter((h) => !h.src || h.score > 0)
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }) || (a.src || '').localeCompare(b.src || '') || a.n - b.n);
 }
 
 async function composeUserTurn(c, question) {
-  if (c.mode !== 'retrieval') return { sent: question, refs: [] };
-  await ensureTexts(c.paperIds);
-  let terms = await searchTerms(question, store.settings);
+  const full = c.mode === 'retrieval';
+  const ctx = ctxOf(c);
+  const hasExtra = (ctx.lecture || ctx.qa) && papersOf(c).some(({ p }) => (ctx.lecture && p.lecture?.sections) || (ctx.qa && (p.qa || []).length));
+  if (!full && !hasExtra) return { sent: question, refs: [] };
+  if (full) await ensureTexts(c.paperIds);
+  // Chỉ tìm trong bài giảng / hỏi đáp (thường cùng ngôn ngữ với câu hỏi): không cần nhờ model dịch từ khoá.
+  let terms = full ? await searchTerms(question, store.settings) : tokenize(question);
   const prevQ = [...c.messages].reverse().find((m) => m.role === 'user');
   if (prevQ && terms.length < 4) terms = terms.concat(tokenize(prevQ.content));
-  const hits = retrieve(c, terms);
+  const hits = retrieve(c, terms, { full });
   if (!hits.length) return { sent: question, refs: [] };
-  const excerpt = hits.map((h) => `<excerpt paper="${h.label}" part="${h.n + 1}">\n${h.text}\n</excerpt>`).join('\n');
+  const excerpt = hits.map((h) => `<excerpt paper="${h.label}"${h.src ? ` source="${h.src}"` : ''} part="${h.n + 1}">\n${h.text}\n</excerpt>`).join('\n');
+  const what = [full ? 'toàn văn' : '', hits.some((h) => h.src === 'bài giảng') ? 'bài giảng' : '', hits.some((h) => h.src === 'hỏi đáp trước') ? 'các lượt hỏi đáp trước' : ''].filter(Boolean).join(', ');
   return {
-    sent: `Các đoạn trích từ toàn văn có thể liên quan đến câu hỏi (tìm tự động, có thể thiếu):\n${excerpt}\n\nCâu hỏi: ${question}`,
-    refs: hits.map((h) => ({ label: h.label, n: h.n + 1, preview: h.text.slice(0, 220) })),
+    sent: `Các đoạn trích từ ${what} có thể liên quan đến câu hỏi (tìm tự động, có thể thiếu):\n${excerpt}\n\nCâu hỏi: ${question}`,
+    refs: hits.map((h) => ({ label: h.label, n: h.n + 1, src: h.src || '', preview: h.text.slice(0, 220) })),
   };
 }
 
@@ -133,7 +161,16 @@ const estTokens = (chars) => Math.round(chars / 3.6);
 /* ================================================================ render tin nhắn */
 
 function citeLinks(html, c) {
-  const byLabel = new Map(papersOf(c).map((x) => [x.label, x]));
+  const items = papersOf(c);
+  const byLabel = new Map(items.map((x) => [x.label, x]));
+  // Bài liên quan trong mạng trích dẫn / Hướng nghiên cứu: [P1.R3]. Có trong thư viện thì mở trang paper, không thì mở link ngoài.
+  html = html.replace(/\[(P\d+)\.([RCSN]\d{1,3})\]/g, (m, lab, code) => {
+    const x = relatedByCode(items, `${lab}.${code}`);
+    if (!x) return `<span class="cite missing">${lab}.${code}</span>`;
+    const tip = escapeHtml(`${x.title}${x.meta?.length ? ` (${x.meta.slice(0, 3).join(' · ')})` : ''}${x.rel ? ` · ${x.rel}` : ''}${x.lib ? ' · có trong thư viện' : ''}`);
+    if (x.lib) return `<a class="cite rel lib" href="#/paper/${x.lib.id}" title="${tip}">${lab}.${code}</a>`;
+    return x.link ? `<a class="cite rel" href="${escapeHtml(x.link)}" target="_blank" rel="noopener" title="${tip}">${lab}.${code}</a>` : `<span class="cite rel" title="${tip}">${lab}.${code}</span>`;
+  });
   return html.replace(/\[((?:P\d+)(?:\s*[,;]\s*P\d+)*)\]/g, (m, inner) => inner.split(/\s*[,;]\s*/).map((lab) => {
     const x = byLabel.get(lab);
     return x ? `<a class="cite" href="#/paper/${x.id}" title="${escapeHtml(x.p.title)}">${lab}</a>` : `<span class="cite missing">${lab}</span>`;
@@ -145,7 +182,7 @@ const imgsHtml = msgImgsHtml;
 
 function messageHtml(m, i, c) {
   if (m.role === 'user') {
-    return `<div class="msg q" data-i="${i}">${imgsHtml(m.images)}${filesHtml(m.files)}${m.imageOnly ? '' : escapeHtml(m.content).replace(/\n/g, '<br>')}${m.refs?.length ? `<details class="refs"><summary>Đã gửi kèm ${m.refs.length} đoạn trích từ toàn văn</summary>${m.refs.map((r) => `<div><b>${r.label} · đoạn ${r.n}</b> <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}</div>`;
+    return `<div class="msg q" data-i="${i}">${imgsHtml(m.images)}${filesHtml(m.files)}${m.imageOnly ? '' : escapeHtml(m.content).replace(/\n/g, '<br>')}${m.refs?.length ? `<details class="refs"><summary>Đã gửi kèm ${m.refs.length} đoạn trích liên quan</summary>${m.refs.map((r) => `<div><b>${r.label} · ${escapeHtml(r.src || 'toàn văn')} đoạn ${r.n}</b> <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}</div>`;
   }
   const u = m.usage || {};
   const inT = (u.input_tokens ?? u.prompt_tokens ?? u.promptTokenCount ?? 0);
@@ -234,7 +271,28 @@ function panelHtml() {
       ${c.mode !== 'notes' && noText ? `<div class="src-alert">${noText} paper chưa có toàn văn nên chỉ dùng ghi chú.</div>` : ''}
     </div>
     <div class="src-list">${items.map(sourceCardHtml).join('') || '<div class="hint" style="padding:12px">Chưa có paper nào. Bấm “＋ Thêm”.</div>'}</div>
+    ${items.length ? ctxPanelHtml(c, items) : ''}
     ${items.length ? `<div class="src-foot hint">Ngữ cảnh cố định khoảng <b>${estTokens(corpusText(c).length).toLocaleString('vi-VN')}</b> token${c.mode === 'retrieval' ? ', thêm tối đa khoảng 6.700 token đoạn trích mỗi câu hỏi' : ''}.</div>` : ''}`;
+}
+
+/** Dữ liệu kèm theo từ các công cụ khác (bật / tắt từng loại) và bài liên quan có trong thư viện. */
+function ctxPanelHtml(c, items) {
+  const ctx = ctxOf(c);
+  const has = {
+    network: items.filter(({ p }) => p.researchMap?.papers?.length || p.s2Id || p.arxivId || p.doi).length,
+    research: items.filter(({ p }) => p.researchMap?.data).length,
+    whatsnew: items.filter(({ p }) => p.whatsNew?.data).length,
+    marks: items.filter(({ p }) => (p.pdfMarks || []).some((m) => (m.text || '').trim())).length,
+    notebook: items.filter(({ p }) => pagesForPaper(p.id).length).length,
+    lecture: items.filter(({ p }) => p.lecture?.sections).length,
+    qa: items.filter(({ p }) => (p.qa || []).length).length,
+  };
+  const sug = ctx.network ? librarySuggestions(c, items) : [];
+  return `<details class="src-ctx" ${state.ctxOpen ? 'open' : ''}><summary>Dữ liệu kèm theo <span class="hint">(${CTX_KINDS.filter(([k]) => ctx[k] && has[k]).length} loại đang dùng)</span></summary>
+    <div class="src-ctx-list">${CTX_KINDS.map(([k, label, tip]) => `<label class="check ${has[k] ? '' : 'none'}" title="${escapeHtml(tip)}"><input type="checkbox" data-ctx="${k}" ${ctx[k] ? 'checked' : ''}> ${escapeHtml(label)} <span class="hint">${has[k] ? `${has[k]}/${items.length} paper` : 'chưa có'}</span></label>`).join('')}</div>
+    <div class="hint">Chỉ dùng kết quả đã có (Hướng nghiên cứu, Có gì mới, Bài giảng… đã tạo ở trang paper), không gọi thêm model. Bài giảng và Hỏi đáp chỉ gửi đoạn khớp câu hỏi.</div>
+    ${sug.length ? `<div class="src-sug"><b>Bài liên quan có trong thư viện</b>${sug.map((s) => `<div class="src-sug-i"><span title="${escapeHtml(plainTitle(s.p.title))}">${escapeHtml(plainTitle(s.p.title).slice(0, 70))}</span><span class="hint">${escapeHtml(s.via)}${s.rel ? ` · ${escapeHtml(s.rel)}` : ''}</span><button class="sm ghost" data-add-rel="${s.p.id}" title="Đưa paper này vào hội thoại">＋</button></div>`).join('')}</div>` : ''}
+  </details>`;
 }
 
 /* ================================================================ màn hình bắt đầu */
@@ -366,6 +424,7 @@ export async function render(root, { params, query }) {
     $('ch-title').value = state.chat.title || '';
     page.classList.toggle('no-panel', !state.panelOpen);
     if (state.chat.mode !== 'notes') ensureTexts(state.chat.paperIds).then(() => { drawPanel(); });
+    ensureContext(state.chat, papersOf(state.chat).map((x) => x.p)).then(() => { drawPanel(); }).catch(() => {});
     drawPanel();
     drawMsgs();
     drawList();
@@ -380,6 +439,7 @@ export async function render(root, { params, query }) {
     drawMsgs(true);
     persistSoon();
     if (c.mode !== 'notes') ensureTexts(c.paperIds).then(drawPanel);
+    ensureContext(c, papersOf(c).map((x) => x.p)).then(drawPanel).catch(() => {});
   };
 
   /* ---- gửi câu hỏi ---- */
@@ -435,6 +495,7 @@ export async function render(root, { params, query }) {
     };
     try {
       if (c.mode !== 'notes') await ensureTexts(c.paperIds);
+      await ensureContext(c, papersOf(c).map((x) => x.p)).catch(() => {});
       const { sent, refs } = await composeUserTurn(c, question);
       // Nội dung file chữ đính kèm đi trước câu hỏi (lưu trong lượt hỏi để các câu hỏi tiếp theo vẫn có).
       const textFiles = files.filter((f) => f.text);
@@ -645,7 +706,23 @@ export async function render(root, { params, query }) {
       else for (const id of ids) addPaper(c, id);
     });
   });
+  panel.addEventListener('toggle', (e) => { if (e.target.classList?.contains('src-ctx')) state.ctxOpen = e.target.open; }, true);
+  panel.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-add-rel]');
+    if (!b) return;
+    setPapers((c) => { addPaper(c, b.dataset.addRel); });
+    toast('Đã thêm paper vào hội thoại.', 2000, 'ok');
+  });
   panel.addEventListener('change', (e) => {
+    const cx = e.target.closest('[data-ctx]');
+    if (cx) {
+      const c = state.chat;
+      c.ctx = { ...(c.ctx || {}), [cx.dataset.ctx]: cx.checked };
+      ensureContext(c, papersOf(c).map((x) => x.p)).then(drawPanel);
+      drawPanel();
+      persistSoon();
+      return;
+    }
     const cb = e.target.closest('[data-pick]');
     if (cb) {
       setPapers((c) => { if (cb.checked) addPaper(c, cb.dataset.pick); else c.paperIds = c.paperIds.filter((x) => x !== cb.dataset.pick); });

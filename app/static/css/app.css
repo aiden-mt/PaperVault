@@ -2574,3 +2574,17 @@ body:has(.modal) .pv-notices, body:has(.modal) .bg-tray { z-index: 79; }
 /* Chat: chọn độ dài câu trả lời */
 .ch-len { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .ch-len select { height: 28px; padding: 2px 26px 2px 8px; font-size: 12.5px; width: auto; }
+
+/* Chat: dữ liệu kèm theo từ các công cụ khác */
+.src-ctx { margin: 8px 10px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+.src-ctx > summary { cursor: pointer; font-weight: 600; }
+.src-ctx-list { display: grid; gap: 4px; margin: 8px 0 6px; }
+.src-ctx-list .check.none { opacity: .6; }
+.src-ctx-list .hint { margin-left: auto; }
+.src-ctx-list .check { display: flex; gap: 6px; align-items: center; }
+.src-sug { margin-top: 8px; display: grid; gap: 4px; }
+.src-sug-i { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.src-sug-i > span:first-child { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.src-sug-i .hint { flex: none; font-size: 11.5px; }
+.cite.rel { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.cite.rel.lib { background: color-mix(in srgb, var(--ok) 16%, transparent); }

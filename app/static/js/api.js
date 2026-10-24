@@ -76,7 +76,7 @@ export const api = {
   fetchUrl: (url, binary = false) => req('POST', 'fetch', { url, binary }),
   s2Recommend: (ident, refresh = false, maxAgeDays = 0) => req('GET', `s2/recommend/${encodeURIComponent(ident)}${s2q(refresh, maxAgeDays)}`),
   s2Citations: (ident, refresh = false, maxAgeDays = 0, limit = 0) => req('GET', `s2/citations/${encodeURIComponent(ident)}${s2q(refresh, maxAgeDays, limit)}`),
-  s2Graph: (ident, { refresh = false, cits = 100, hop2 = false, minShared = 3 } = {}) => req('GET', `s2/graph/${encodeURIComponent(ident)}?cits=${cits}&hop2=${hop2 ? 1 : 0}&minShared=${minShared}${refresh ? '&refresh=1' : ''}`),
+  s2Graph: (ident, { refresh = false, cits = 100, hop2 = false, minShared = 3, cacheOnly = false } = {}) => req('GET', `s2/graph/${encodeURIComponent(ident)}?cits=${cits}&hop2=${hop2 ? 1 : 0}&minShared=${minShared}${refresh ? '&refresh=1' : ''}${cacheOnly ? '&cacheOnly=1' : ''}`),
   s2Check: (key = '') => req('GET', `s2/check${key ? `?key=${encodeURIComponent(key)}` : ''}`),
   s2Authors: (ident) => req('GET', `s2/authors/${encodeURIComponent(ident)}`),
   s2AuthorPapers: (authorId) => req('GET', `s2/author-papers/${encodeURIComponent(authorId)}`),

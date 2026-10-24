@@ -127,6 +127,48 @@ try {
     ok(!buildAskSystem({}).includes('Trả lời ngắn gọn, có cấu trúc'), 'bỏ quy tắc ép ngắn cũ');
   });
 
+  await test('Chat: ngữ cảnh kèm theo từ Hướng nghiên cứu, mạng trích dẫn, câu tô, bài giảng, hỏi đáp', async () => {
+    const cx = await import('/js/chatctx.js');
+    const { store } = await import('/js/store.js');
+    const lib = { id: 'p_lib', title: 'Visual Instruction Tuning', arxivId: '2304.08485' };
+    store.papers = [lib];
+    const p = {
+      id: 'p_main', title: 'Main paper',
+      researchMap: {
+        at: '2026-10-01T00:00:00Z',
+        papers: [
+          { id: 'R1', relation: 'ref', title: 'Old tool', citations: 50, roleText: 'dùng làm công cụ' },
+          { id: 'C1', relation: 'cit', title: 'Visual Instruction Tuning', arxiv: '2304.08485', citations: 900, influential: true },
+          { id: 'S1', relation: 'pin', title: 'Pinned one', pinned: true },
+        ],
+        data: {
+          overview: 'P kế thừa [R1] và được [C1] mở rộng.',
+          comparison: [{ paper: 'R1', relation: 'tool', method: 'Adam' }, { paper: 'C1', relation: 'extends', method: 'instruction tuning', difference: 'dữ liệu GPT-4' }, { paper: 'S1', relation: 'related' }],
+          gaps: [{ gap: 'Thiếu đánh giá đa ngôn ngữ', status: 'open', papers: ['C1'] }],
+          directions: [{ title: 'VQA tiếng Việt', idea: 'Tạo dữ liệu', gap_ids: ['G1'], builds_on: ['C1'] }],
+        },
+      },
+      pdfMarks: [{ auto: true, kind: 'evidence', page: 3, text: 'accuracy improves by 4.2', why: 'kết quả chính' }, { text: 'câu tôi tô', page: 5 }],
+      lecture: { sections: { intro: { lead: 'Giới thiệu' } } },
+      qa: [{ q: 'Dataset nào?', a: 'VQAv2 và GQA.' }],
+    };
+    const net = cx.networkOf(p);
+    eq(net.map((x) => x.code), ['S1', 'C1', 'R1'], 'bài ghim trước, rồi mở rộng, công cụ cuối');
+    eq(net.find((x) => x.code === 'C1').lib?.id, 'p_lib', 'nhận ra bài có trong thư viện theo arXiv');
+    const ctx = cx.ctxOf({});
+    const block = cx.extraBlock(p, 'P2', ctx);
+    ok(block.includes('[P2.R1]') && block.includes('[P2.C1]'), 'đổi mã bài sang mã theo paper trong hội thoại');
+    ok(block.includes('Khoảng trống G1') && !block.includes('P2.G1'), 'G1 là khoảng trống, không đổi mã');
+    ok(block.includes('<citation_network paper="P2">') && block.includes('có trong thư viện'), 'mạng trích dẫn ghi bài có trong thư viện');
+    ok(block.includes('<pdf_highlights') && block.includes('vì: kết quả chính'), 'câu AI tô kèm lý do');
+    const off = cx.extraBlock(p, 'P2', { ...ctx, network: false, research: false, marks: false });
+    eq(off.includes('citation_network') || off.includes('research_directions') || off.includes('pdf_highlights'), false, 'tắt thì không gửi');
+    eq(cx.retrievalDocs(p, ctx).map((d) => d.src).includes('hỏi đáp trước'), true);
+    eq(cx.librarySuggestions({ paperIds: ['p_main'] }, [{ p, label: 'P2' }]).map((s) => [s.p.id, s.via]), [['p_lib', 'P2.C1']]);
+    eq(cx.relatedByCode([{ p, label: 'P2' }], 'P2.C1')?.title, 'Visual Instruction Tuning');
+    store.papers = [];
+  });
+
   await test('lineDiff: so sánh theo dòng', () => {
     eq(lineDiff('a\nb\nc', 'a\nc\nd').map((x) => x.t + x.s), ['=a', '-b', '=c', '+d']);
     eq(lineDiff('', 'x').map((x) => x.t + x.s), ['-', '+x']);

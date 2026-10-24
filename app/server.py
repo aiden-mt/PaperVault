@@ -2080,7 +2080,7 @@ def _graph_similarity(node_refs, cid, center_refs, top_k=8):
     return sim, {k: round(v, 4) for k, v in to_seed.items()}, dict(cited_in), cites_in
 
 
-def s2_graph(ident, s2_key="", refresh=False, cits=100, hop2=False, min_shared=3):
+def s2_graph(ident, s2_key="", refresh=False, cits=100, hop2=False, min_shared=3, cache_only=False):
     """Đồ thị trích dẫn quanh một paper: bài gốc, các bài nó dẫn, các bài dẫn nó, và cạnh GIỮA các bài đó với nhau
     (bài A trong đồ thị dẫn bài B trong đồ thị). Cạnh nội bộ lấy bằng MỘT request batch đọc danh sách tham khảo của mọi
     bài, thay vì gọi riêng từng bài. Lưu đệm 7 ngày."""
@@ -2090,6 +2090,8 @@ def s2_graph(ident, s2_key="", refresh=False, cits=100, hop2=False, min_shared=3
     cached = kv_get(cache_key)
     if cached and not refresh and time.time() - cached.get("at", 0) < S2_GRAPH_TTL:
         return _graph_ranks({**cached["data"], "cachedAt": cached["at"]})
+    if cache_only:  # Chat chỉ dùng đồ thị đã dựng (mở đồ thị 3D / bản đồ tài liệu), không tự gọi Semantic Scholar
+        return _graph_ranks({**cached["data"], "cachedAt": cached["at"]}) if cached else None
     refs = s2_edges(ident, "references", s2_key, refresh)["items"]
     cit_items = s2_edges(ident, "citations", s2_key, refresh, limit=cits)["items"]
     center = (_s2_batch([ident], "paperId,title,year,publicationDate,citationCount,venue,authors,externalIds,url,references.paperId", s2_key) or [None])[0] or {}
@@ -3149,7 +3151,8 @@ class Handler(BaseHTTPRequestHandler):
             if len(seg) == 3 and seg[1] == "graph":
                 q1 = lambda k, d="": (qs.get(k) or [d])[0]
                 return self.ok(s2_graph(urllib.parse.unquote(seg[2]), key, refresh=q1("refresh") == "1",
-                                        cits=q1("cits", "100"), hop2=q1("hop2") == "1", min_shared=q1("minShared", "3")))
+                                        cits=q1("cits", "100"), hop2=q1("hop2") == "1", min_shared=q1("minShared", "3"),
+                                        cache_only=q1("cacheOnly") == "1"))
             if len(seg) == 3 and seg[1] == "authors":
                 # Tác giả của một paper kèm mã tác giả Semantic Scholar (để theo dõi bài mới của họ).
                 ident = urllib.parse.unquote(seg[2])
