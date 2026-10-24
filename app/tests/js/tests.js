@@ -186,6 +186,27 @@ try {
     ok(!/katex-error/.test(renderMath('\u007f\\{I, Q, A\\} \\cup \u007f\\{I, Q\', A\\}')), 'công thức có DEL vẫn dựng được');
   });
 
+  await test('Chat: thư viện là nguồn ưu tiên, tra Semantic Scholar khi hỏi tìm paper', async () => {
+    const cx = await import('/js/chatctx.js');
+    const { buildChatSystem } = await import('/js/prompts.js');
+    const q = 'Tìm các paper kế thừa/cải tiến trực tiếp SelTDA mới nhất (2025-2026), ưu tiên VIGC, Triangular Consistency';
+    eq(cx.wantsSearch(q, 'auto'), true);
+    eq(cx.wantsSearch('Paper này dùng loss gì?', 'auto'), true, '"paper" cũng là câu hỏi về tài liệu');
+    eq(cx.wantsSearch('Giải thích công thức (3)', 'auto'), false);
+    eq(cx.wantsSearch('Giải thích công thức (3)', 'web'), true);
+    eq(cx.wantsSearch('liệt kê các hướng', 'auto'), true, 'từ có dấu tiếng Việt');
+    eq(cx.wantsSearch(q, 'open'), false);
+    eq(cx.namedTerms(q).sort(), ['SelTDA', 'Triangular Consistency', 'VIGC'].sort());
+    eq(cx.yearRange(q), '2025-2026');
+    eq(cx.yearRange('bài mới nhất về VQA', new Date(2026, 9, 24)), '2025-');
+    eq(cx.yearRange('so sánh hai bài'), '');
+    const open = buildChatSystem({}, { scope: 'auto' });
+    ok(open.includes('KHÔNG giới hạn phạm vi') && open.includes('(ngoài thư viện)') && open.includes('[T1]'), 'mở rộng ra ngoài thư viện');
+    ok(buildChatSystem({}, { scope: 'strict' }).includes('Chỉ dựa trên tài liệu'), 'chế độ chỉ thư viện');
+    eq(cx.webBlock({ items: [], queries: [] }), '');
+    ok(cx.webBlock({ items: [{ code: 'T1', title: 'VIGC', date: '2023', tldr: 'x', inLib: '' }], queries: ['VIGC'] }).includes('[T1] VIGC'));
+  });
+
   await test('lineDiff: so sánh theo dòng', () => {
     eq(lineDiff('a\nb\nc', 'a\nc\nd').map((x) => x.t + x.s), ['=a', '-b', '=c', '+d']);
     eq(lineDiff('', 'x').map((x) => x.t + x.s), ['-', '+x']);

@@ -300,6 +300,13 @@ ${steps([
 <p><b>Lưu vào Sổ tay</b>: nút ${ui('📓 Lưu vào Sổ tay')} dưới mỗi câu trả lời chép câu trả lời vào <b>nhật ký hôm nay</b>, <b>cuối một trang có sẵn</b> hoặc <b>một trang mới</b>, dạng khối ✨ AI (thu gọn được) hoặc đoạn văn thường, có thể kèm câu hỏi. Nhãn nguồn [P1], [P2] thành liên kết <code>[[@paper]]</code>, nên trang đó hiện ở thẻ ${ui('📓 Trong sổ tay nghiên cứu')} của paper.</p>
 <p>Hội thoại mới chưa có paper hiện ba cách bắt đầu: dùng các paper đang tick ở Thư viện / So sánh, tìm và chọn từng paper, hoặc chọn cả một chủ đề. Thẻ paper trong Nguồn ghi ${ui('● toàn văn')} hoặc ${ui('○ chỉ ghi chú')}, quyết định chatbot đọc được gì.</p>
 <p>Cuối bảng Nguồn có ước tính số token. Với Claude, phần ngữ cảnh cố định được cache nên từ câu thứ hai chỉ tính giá đọc cache (khoảng một phần mười). ${ui('Dừng')} cắt ngang và giữ phần đã nhận, ${ui('Ẩn nguồn')} thu bảng bên phải, ${ui('Xuất .md')} lưu cả hội thoại. Khung hẹp (ví dụ khi chia đôi màn hình) thì bảng Nguồn là ngăn trượt, mở bằng nút ${ui('📚 Nguồn')}.</p>
+<p><b>Kiến thức để trả lời</b> (bảng Nguồn): thư viện luôn là nguồn ưu tiên, giống một kho tra cứu (RAG). Ở chế độ ${ui('Tự động')} (mặc định), AI dùng thêm hiểu biết của nó cho phần thư viện không có (ghi "(ngoài thư viện)"). Khi bạn hỏi tìm paper, bài mới (2025, 2026…) hay bài kế thừa / cải tiến một paper, app tự tra trên mạng trước khi hỏi:</p>
+<ul>
+  <li>tên riêng bạn nêu (ví dụ VIGC, Triangular Consistency);</li>
+  <li>bài trích dẫn các paper trong hội thoại, mới nhất trước;</li>
+  <li>từ khoá của câu hỏi, lọc theo năm nếu có.</li>
+</ul>
+<p>Nguồn là Semantic Scholar, bị giới hạn tốc độ (không có S2 API key) thì chuyển sang OpenAlex. Bài tra được có mã ${ui('T1')}, ${ui('T2')}… (màu xanh lơ), bấm để xem thẻ chi tiết và thêm vào thư viện; danh sách đầy đủ ở dòng ${ui('Đã tra …')} dưới câu hỏi. Các chế độ khác: luôn tra, không tra mạng, hoặc ${ui('Chỉ trong thư viện')} như trước. Không chọn paper nào vẫn hỏi được (trừ chế độ chỉ thư viện).</p>
 <p><b>Dữ liệu kèm theo</b> (cuối bảng Nguồn): ngoài ghi chú và toàn văn, Chat dùng luôn kết quả các công cụ bạn đã chạy cho từng paper, không gọi thêm model:</p>
 <ul>
   <li><b>Mạng trích dẫn</b>: bài nền và bài phát triển tiếp. Ưu tiên các bài đã được phân tích ở ${ui('Hướng nghiên cứu')} (quan hệ, phương pháp, điểm khác), cộng thêm độ tương đồng và hạng venue từ đồ thị trích dẫn (đồ thị 3D, bản đồ tài liệu) và các bài gần nhất theo đồ thị chưa được phân tích. Chưa có hai phần đó thì lấy thẳng bài dẫn / được dẫn từ Semantic Scholar.</li>

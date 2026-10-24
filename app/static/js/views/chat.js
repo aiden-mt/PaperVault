@@ -6,13 +6,13 @@ import { store, paperById, topicOf, inTopic, saveSettings } from '../store.js';
 import { escapeHtml, fmtRelative, download, norm, copyText, clampText, debounce, fixMixedScript } from '../util.js';
 import { $, toast, confirmDialog, mdToHtml, topicBadge, selectAllHtml, syncSelectAll, showProgress } from '../ui.js';
 import { unverifiedNumbers } from '../quality.js';
-import { streamChat, hasCredentials } from '../llm.js';
+import { streamChat, hasCredentials, englishKeywords } from '../llm.js';
 import { tokenize, chunksOf, bm25Pick, searchTerms } from '../rag.js';
-import { CTX_KINDS, CTX_GUIDE, ctxOf, ensureContext, extraBlock, retrievalDocs, librarySuggestions, relatedByCode, relatedEntries } from '../chatctx.js';
+import { CTX_KINDS, CTX_GUIDE, ctxOf, ensureContext, extraBlock, retrievalDocs, librarySuggestions, relatedByCode, relatedEntries, wantsSearch, webSearch, webBlock } from '../chatctx.js';
 import { bindWhatsNewChips } from '../whatsnew.js';
 import { compareState, togglePin } from '../research.js';
 import { openPaperPop } from '../paperpop.js';
-import { buildChatSystem, paperNotesText, CHAT_LANGS, CHAT_LENGTHS } from '../prompts.js';
+import { buildChatSystem, paperNotesText, CHAT_LANGS, CHAT_LENGTHS, CHAT_SCOPES } from '../prompts.js';
 import { makeJob, trackJob } from '../bgjobs.js';
 import { readableChatMd } from '../readable.js';
 import { pagesForPaper } from '../notebook.js';
@@ -117,7 +117,8 @@ function corpusText(c) {
   if (extras) parts.splice(1, 0, CTX_GUIDE);
   return parts.join('\n\n');
 }
-const systemBlocks = (c) => [{ text: buildChatSystem(store.settings, { length: store.settings.chatLength || '' }) }, { text: corpusText(c), cache: true }];
+const scopeOf = (c) => (CHAT_SCOPES.some(([k]) => k === c?.scope) ? c.scope : 'auto');
+const systemBlocks = (c) => [{ text: buildChatSystem(store.settings, { length: store.settings.chatLength || '', scope: scopeOf(c) }) }, { text: corpusText(c), cache: true }];
 
 /** BM25 trên các đoạn của toàn văn. Trả về [{ label, id, n, text }]. */
 function retrieve(c, queryTerms, { full = true } = {}) {
@@ -163,8 +164,16 @@ const estTokens = (chars) => Math.round(chars / 3.6);
 
 /* ================================================================ render tin nhắn */
 
-function citeLinks(html, c) {
+function citeLinks(html, c, i = -1) {
   const items = papersOf(c);
+  // Bài tra Semantic Scholar của lượt hỏi ngay trước câu trả lời này: [T3] -> thẻ chi tiết (mã thẻ m<lượt hỏi>.T3).
+  const q = i > 0 ? c.messages[i - 1] : null;
+  if (q?.web?.length) {
+    html = html.replace(/\[(T\d{1,2})\]/g, (m, code) => {
+      const x = q.web.find((w) => w.code === code);
+      return x ? `<button type="button" class="wn-chip cite-rel cite-web ${x.inLib ? 'lib' : ''}" data-wn="m${i - 1}.${code}" title="${escapeHtml(`${x.title}${x.date ? ` · ${x.date}` : ''} · Semantic Scholar · bấm để xem chi tiết`)}">${code}</button>` : m;
+    });
+  }
   const byLabel = new Map(items.map((x) => [x.label, x]));
   // Bài liên quan trong mạng trích dẫn / Hướng nghiên cứu: [P1.R3]. Có trong thư viện thì mở trang paper, không thì mở link ngoài.
   html = html.replace(/\[(P\d+)\.([RCSNW]\d{1,3})\]/g, (m, lab, code) => {
@@ -186,7 +195,7 @@ const imgsHtml = msgImgsHtml;
 
 function messageHtml(m, i, c) {
   if (m.role === 'user') {
-    return `<div class="msg q" data-i="${i}">${imgsHtml(m.images)}${filesHtml(m.files)}${m.imageOnly ? '' : escapeHtml(m.content).replace(/\n/g, '<br>')}${m.refs?.length ? `<details class="refs"><summary>Đã gửi kèm ${m.refs.length} đoạn trích liên quan</summary>${m.refs.map((r) => `<div><b>${r.label} · ${escapeHtml(r.src || 'toàn văn')} đoạn ${r.n}</b> <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}</div>`;
+    return `<div class="msg q" data-i="${i}">${imgsHtml(m.images)}${filesHtml(m.files)}${m.imageOnly ? '' : escapeHtml(m.content).replace(/\n/g, '<br>')}${m.web?.length ? `<details class="refs"><summary>Đã tra ${escapeHtml(m.webSource || 'Semantic Scholar')}: ${m.web.length} bài</summary>${m.web.map((x) => `<div><b>${x.code}</b> ${escapeHtml(x.title)} <span class="hint">${escapeHtml([x.date, x.venue].filter(Boolean).join(' · '))}${x.inLib ? ' · có trong thư viện' : ''}</span></div>`).join('')}</details>` : ''}${m.refs?.length ? `<details class="refs"><summary>Đã gửi kèm ${m.refs.length} đoạn trích liên quan</summary>${m.refs.map((r) => `<div><b>${r.label} · ${escapeHtml(r.src || 'toàn văn')} đoạn ${r.n}</b> <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}</div>`;
   }
   const u = m.usage || {};
   const inT = (u.input_tokens ?? u.prompt_tokens ?? u.promptTokenCount ?? 0);
@@ -195,7 +204,7 @@ function messageHtml(m, i, c) {
   const outT = (u.output_tokens ?? u.completion_tokens ?? u.candidatesTokenCount ?? 0);
   const f = (n) => n.toLocaleString('vi-VN');
   return `<div class="msg a ${m.error ? 'err' : ''}" data-i="${i}">
-    <div class="md">${m.content ? citeLinks(mdToHtml(readableChatMd(m.content)), c) : (m.error ? '' : '<span class="spin"></span> Đang soạn câu trả lời…')}</div>
+    <div class="md">${m.content ? citeLinks(mdToHtml(readableChatMd(m.content)), c, i) : (m.error ? '' : '<span class="spin"></span> Đang soạn câu trả lời…')}</div>
     ${m.error ? `<div class="status err">${escapeHtml(m.error)}</div><button class="sm" data-retry="${i}">Hỏi lại</button>` : ''}
     ${m.unverified?.length && !m.pending ? `<div class="msg-warn" title="Kiểm tra cơ học: các con số này không xuất hiện trong ghi chú, toàn văn hay đoạn trích đã gửi cho model">⚠ ${m.unverified.length} con số không thấy trong tài liệu đã gửi, nên đối chiếu lại: ${m.unverified.map((n) => `<b>${escapeHtml(n)}</b>`).join(', ')}</div>` : ''}
     ${m.content && !m.pending ? `<div class="msg-foot"><span class="hint">${escapeHtml(m.model || '')}${inT || outT ? ` · vào ${f(inT)}${cacheR ? ` · đọc cache ${f(cacheR)}` : ''}${cacheW ? ` · ghi cache ${f(cacheW)}` : ''} · ra ${f(outT)} token` : ''}${m.stopped ? ' · đã dừng' : ''}${m.truncated ? ' · bị cắt vì đạt giới hạn độ dài' : ''}</span><span class="spacer"></span><button class="ghost sm" data-save-nb="${i}" title="Chép câu trả lời này vào nhật ký hôm nay, một trang có sẵn hoặc trang mới">📓 Lưu vào Sổ tay</button><button class="ghost sm" data-copy="${i}">Copy</button></div>` : ''}
@@ -272,6 +281,9 @@ function panelHtml() {
       <div class="hint" id="ch-info">${escapeHtml(MODES[c.mode].hint)}</div>
       <label class="label-text" for="ch-lang" style="margin-top:10px">Ngôn ngữ trả lời</label>
       <select id="ch-lang" title="Áp dụng cho mọi cuộc trò chuyện và tab Hỏi đáp của từng paper">${CHAT_LANGS.map(([k, l]) => `<option value="${k}" ${(store.settings.chatLang || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="label-text" for="ch-scope" style="margin-top:10px">Kiến thức để trả lời</label>
+      <select id="ch-scope" title="Thư viện luôn là nguồn ưu tiên. Tự động: AI dùng thêm hiểu biết của nó, và khi bạn hỏi tìm paper / bài mới / bài kế thừa thì tra Semantic Scholar (bị giới hạn thì OpenAlex)">${CHAT_SCOPES.map(([k, l]) => `<option value="${k}" ${scopeOf(c) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <div class="hint">${escapeHtml((CHAT_SCOPES.find(([k]) => k === scopeOf(c)) || [])[2] || '')}</div>
       ${c.mode !== 'notes' && noText ? `<div class="src-alert">${noText} paper chưa có toàn văn nên chỉ dùng ghi chú.</div>` : ''}
     </div>
     <div class="src-list">${items.map(sourceCardHtml).join('') || '<div class="hint" style="padding:12px">Chưa có paper nào. Bấm “＋ Thêm”.</div>'}</div>
@@ -306,7 +318,7 @@ function startHtml() {
   const topics = store.topics.map((t) => ({ t, n: store.papers.filter((p) => inTopic(p, t.id)).length })).filter((x) => x.n).sort((a, b) => b.n - a.n).slice(0, 12);
   return `<div class="chat-start">
     <h2>Chọn paper để bắt đầu</h2>
-    <p class="hint">Chatbot chỉ trả lời dựa trên các paper bạn chọn và gắn nguồn [P1], [P2] cho từng ý, bấm vào để mở paper.</p>
+    <p class="hint">AI dùng các paper bạn chọn làm nguồn chính và gắn nguồn [P1], [P2] cho từng ý, thêm hiểu biết của nó và tra Semantic Scholar khi bạn hỏi tìm paper. Cũng có thể hỏi thẳng ở khung dưới mà chưa chọn paper nào.</p>
     <div class="start-grid">
       ${libSel.length ? `<button class="start-card primary-card" data-start="lib"><b>Dùng ${libSel.length} paper đang chọn</b><span>Các paper bạn đã tick trong Thư viện hoặc trang So sánh.</span></button>` : ''}
       <button class="start-card" data-start="pick"><b>Tìm và chọn từng paper</b><span>Lọc theo tên, chủ đề, hạng venue, paper có toàn văn.</span></button>
@@ -461,7 +473,7 @@ export async function render(root, { params, query }) {
       question = `Tóm tắt và giải thích ${what} đính kèm${c.paperIds.length ? ', liên hệ với các paper đã chọn' : ''}.`;
     }
     if (state.abort) return toast(state.streaming === c ? 'Đang trả lời câu trước, chờ xong hoặc bấm Dừng.' : 'Đang trả lời ở một hội thoại khác, chờ xong rồi hỏi tiếp.', 3500);
-    if (!c.paperIds.length && !images.length && !files.length) { toast('Chọn ít nhất một paper trước (hoặc đính kèm ảnh / file để hỏi về chúng).', 3000, 'err'); state.picking = true; state.panelOpen = true; drawAll(); return; }
+    if (!c.paperIds.length && !images.length && !files.length && scopeOf(c) === 'strict') { toast('Chế độ "Chỉ trong thư viện": chọn ít nhất một paper trước (hoặc đổi phạm vi kiến thức ở bảng Nguồn).', 3500, 'err'); state.picking = true; state.panelOpen = true; drawAll(); return; }
     if (!hasCredentials(store.settings, 'chat')) return toast('Chưa có API key. Mở Cài đặt.', 3000, 'err');
     if (retryIndex != null) c.messages.splice(retryIndex - 1, 2);
     if (!c.messages.length && (!c.title || c.title === 'Cuộc trò chuyện mới')) { c.title = question.slice(0, 70); $('ch-title').value = c.title; }
@@ -493,14 +505,22 @@ export async function render(root, { params, query }) {
       raf = 0;
       if (state.chat !== c) return;
       const node = $('ch-msgs')?.querySelector(`.msg[data-i="${idx}"] .md`);
-      if (node) node.innerHTML = citeLinks(mdToHtml(readableChatMd(ans.content)), c);
+      if (node) node.innerHTML = citeLinks(mdToHtml(readableChatMd(ans.content)), c, idx);
       const box = $('ch-msgs');
       if (box && box.scrollHeight - box.scrollTop - box.clientHeight < 160) box.scrollTop = box.scrollHeight;
     };
     try {
       if (c.mode !== 'notes') await ensureTexts(c.paperIds);
       await ensureContext(c, papersOf(c).map((x) => x.p)).catch(() => {});
-      const { sent, refs } = await composeUserTurn(c, question);
+      let { sent, refs } = await composeUserTurn(c, question);
+      if (wantsSearch(question, scopeOf(c))) {
+        pendingBar('Đang tra paper liên quan (Semantic Scholar / OpenAlex)…', 8000);
+        const vi = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(question);
+        const keywords = vi ? await englishKeywords({ settings: store.settings, question }).catch(() => []) : [];
+        const web = await webSearch(question, { keywords, papers: papersOf(c).map(({ p, label }) => ({ p, label })) }).catch(() => null);
+        if (web?.items?.length) { userMsg.web = web.items; userMsg.webSource = (web.sources || []).join(', '); sent = `${webBlock(web)}\n\n${sent}`; }
+        pendingBar('Đang chuẩn bị ngữ cảnh…', 4000);
+      }
       // Nội dung file chữ đính kèm đi trước câu hỏi (lưu trong lượt hỏi để các câu hỏi tiếp theo vẫn có).
       const textFiles = files.filter((f) => f.text);
       userMsg.sent = textFiles.length
@@ -654,7 +674,8 @@ export async function render(root, { params, query }) {
 
   /* ---- bấm mã bài liên quan (P1.C3) trong câu trả lời: thẻ chi tiết như ở Hướng nghiên cứu ---- */
   const mainOf = (x) => paperById(x.mainId);
-  bindWhatsNewChips($('ch-msgs'), { get papers() { return relatedEntries(papersOf(state.chat)); } }, {
+  const webEntries = (c) => c.messages.flatMap((m, k) => (m.web || []).map((x) => ({ ...x, id: `m${k}.${x.code}`, noCompare: true })));
+  bindWhatsNewChips($('ch-msgs'), { get papers() { return [...relatedEntries(papersOf(state.chat)), ...webEntries(state.chat)]; } }, {
     compareOf: (x) => (mainOf(x) ? compareState(mainOf(x), x) : {}),
     onCompare: async (x, go) => {
       const p = mainOf(x);
@@ -760,6 +781,12 @@ export async function render(root, { params, query }) {
     else if (e.target.id === 'pk-text') { state.pick.textOnly = e.target.checked; drawPanel(); }
     else if (e.target.id === 'ch-lang') {
       saveSettings({ chatLang: e.target.value }).then(() => toast(`Từ câu hỏi tới, AI trả lời ${({ '': 'theo ngôn ngữ trích xuất', auto: 'theo ngôn ngữ câu hỏi', vi: 'bằng tiếng Việt', en: 'bằng tiếng Anh' })[e.target.value]}.`));
+    }
+    else if (e.target.id === 'ch-scope') {
+      state.chat.scope = e.target.value;
+      persistSoon();
+      drawPanel();
+      toast({ auto: 'AI dùng thư viện làm nguồn chính, thêm hiểu biết của nó, tự tra paper trên mạng khi bạn hỏi tìm paper.', web: 'Mỗi câu hỏi sẽ tra thêm paper trên mạng.', open: 'AI dùng thư viện và hiểu biết của nó, không tra mạng.', strict: 'AI chỉ trả lời trong phạm vi thư viện.' }[e.target.value], 3500);
     }
     else if (e.target.id === 'ch-mode') {
       state.chat.mode = e.target.value;

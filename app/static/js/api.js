@@ -81,7 +81,7 @@ export const api = {
   s2Authors: (ident) => req('GET', `s2/authors/${encodeURIComponent(ident)}`),
   s2AuthorPapers: (authorId) => req('GET', `s2/author-papers/${encodeURIComponent(authorId)}`),
   s2References: (ident, refresh = false, maxAgeDays = 0, limit = 0) => req('GET', `s2/references/${encodeURIComponent(ident)}${s2q(refresh, maxAgeDays, limit)}`),
-  s2Search: (q) => req('GET', `s2/search?q=${encodeURIComponent(q)}`),
+  s2Search: (q, { year = '', limit = 20, tldr = false } = {}) => req('GET', `s2/search?q=${encodeURIComponent(q)}${year ? `&year=${encodeURIComponent(year)}` : ''}&limit=${limit}${tldr ? '&tldr=1' : ''}`),
   s2Refresh: (ids = []) => req('POST', 's2/refresh', { ids }),
   s2Details: (ids = []) => req('POST', 's2/details', { ids }),
   arxivSearch: (keywords, cats, max = 50) => req('GET', `arxiv/search?q=${encodeURIComponent(keywords.join(','))}&cats=${encodeURIComponent(cats.join(','))}&max=${max}`),
@@ -93,6 +93,8 @@ export const api = {
 
   zoteroScan: (dir = '') => req('GET', `zotero/scan?dir=${encodeURIComponent(dir)}`),
   zoteroPdf: (path) => req('POST', 'zotero/pdf', { path }),
+  litCiting: ({ doi = '', arxiv = '', title = '', year = '', limit = 8 } = {}) => req('GET', `lit-citing?doi=${encodeURIComponent(doi)}&arxiv=${encodeURIComponent(arxiv)}&title=${encodeURIComponent(title)}${year ? `&year=${encodeURIComponent(year)}` : ''}&limit=${limit}`),
+  litSearch: (q, { year = '', limit = 10 } = {}) => req('GET', `lit-search?q=${encodeURIComponent(q)}${year ? `&year=${encodeURIComponent(year)}` : ''}&limit=${limit}`),
   icsFetch: (url) => req('GET', `ics-fetch?url=${encodeURIComponent(url)}`),
   chats: () => req('GET', 'chats'),
   chat: (id) => req('GET', `chats/${id}`),

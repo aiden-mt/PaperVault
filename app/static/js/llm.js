@@ -553,7 +553,16 @@ export async function streamChat({ settings, system, messages, onText, signal, t
 }
 
 /** Rút từ khoá tiếng Anh từ câu hỏi (để tìm đoạn liên quan trong paper tiếng Anh). */
+const kwMemo = new Map();
 export async function englishKeywords({ settings, question }) {
+  const key = String(question || '').trim();
+  if (kwMemo.has(key)) return kwMemo.get(key);
+  const p = englishKeywordsRaw({ settings, question }).catch((e) => { kwMemo.delete(key); throw e; });
+  kwMemo.set(key, p);
+  if (kwMemo.size > 30) kwMemo.delete(kwMemo.keys().next().value);
+  return p;
+}
+async function englishKeywordsRaw({ settings, question }) {
   const out = await complete({
     settings, maxTokens: 300, effort: 'low', task: 'chat-keywords',
     system: 'You convert a research question into English search keywords. Reply with 5-12 comma-separated keywords or short phrases only, no explanation.',

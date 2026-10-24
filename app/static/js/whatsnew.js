@@ -252,15 +252,15 @@ export function bindWhatsNewChips(root, wn, { loadExtra = null, onCompare = null
     return `<button class="ghost sm wn-pop-x" title="Đóng">✕</button>
       <h3>${titleHtml(x.title)}</h3>
       <div class="hint">${escapeHtml([authors, x.date, venue].filter(Boolean).join(' · '))}</div>
-      ${compareOf ? `<div class="wn-pop-cmp">${compareBadgeHtml(compareOf(x))}</div>` : ''}
-      <div class="wn-pop-badges"><span class="badge">${x.id}</span>${x.relation ? `<span class="badge">${x.relation === 'ref' ? 'Bài gốc dẫn' : 'Dẫn bài gốc'}</span>` : ''}<span class="badge role-${x.role || 'unknown'}">${x.roleText || ROLE_TEXT[x.role] || ROLE_TEXT.unknown}</span>${x.influential ? '<span class="badge accent">ảnh hưởng lớn</span>' : ''}${cites != null ? `<span class="badge">↗ ${cites} trích dẫn</span>` : ''}${lib ? '<span class="badge ok">đã có trong thư viện</span>' : ''}</div>
+      ${compareOf && !x.noCompare ? `<div class="wn-pop-cmp">${compareBadgeHtml(compareOf(x))}</div>` : ''}
+      <div class="wn-pop-badges"><span class="badge">${String(x.id).replace(/^m\d+\./, '')}</span>${x.relation ? `<span class="badge">${x.relation === 'ref' ? 'Bài gốc dẫn' : 'Dẫn bài gốc'}</span>` : ''}<span class="badge role-${x.role || 'unknown'}">${x.roleText || ROLE_TEXT[x.role] || ROLE_TEXT.unknown}</span>${x.influential ? '<span class="badge accent">ảnh hưởng lớn</span>' : ''}${cites != null ? `<span class="badge">↗ ${cites} trích dẫn</span>` : ''}${lib ? '<span class="badge ok">đã có trong thư viện</span>' : ''}</div>
       ${ctxQuotes(contexts, x.relation === 'ref' ? 'main' : 'other', { max: 3 })}
       ${tldr || abs ? `<p class="wn-pop-abs">${tldr ? '<span class="badge">TLDR</span> ' : ''}${rich(tldr || abs)}</p>` : ''}
       ${!more && !x.authors && loadExtra ? '<div class="hint" data-wn-loading>Đang lấy thêm thông tin…</div>' : ''}
       <div class="row wrap" style="gap:6px;margin-top:8px">
         ${link ? `<a class="btn sm" href="${escapeHtml(link)}" target="_blank" rel="noopener">Mở link</a>` : ''}
         ${lib ? `<a class="btn sm" href="#/paper/${lib.id}">Mở trong thư viện</a>` : `<button class="sm primary" data-wn-add-pop>+ Thêm vào thư viện</button>`}
-        ${onCompare && compareOf ? compareButtonHtml(compareOf(x), 'data-wn-cmp', { long: true }) : ''}
+        ${onCompare && compareOf && !x.noCompare ? compareButtonHtml(compareOf(x), 'data-wn-cmp', { long: true }) : ''}
       </div>`;
   };
 

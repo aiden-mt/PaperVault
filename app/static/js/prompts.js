@@ -285,15 +285,35 @@ export function buildSynthesisUser({ papers, settings, focus }) {
 const one = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
 
 /** Phần ổn định của system prompt (không đổi giữa các lượt -> cache được). */
-export function buildChatSystem(settings, { length = '' } = {}) {
+// Phạm vi kiến thức của Chat: thư viện là nguồn ưu tiên (như RAG) hay giới hạn chặt trong thư viện.
+export const CHAT_SCOPES = [
+  ['auto', 'Tự động', 'Khuyên dùng. Thư viện là nguồn chính, AI dùng thêm hiểu biết của nó; hỏi tìm paper, bài mới, bài kế thừa thì tự tra trên mạng.'],
+  ['web', 'Luôn tra trên mạng', 'Mọi câu hỏi đều tra thêm paper (Semantic Scholar / OpenAlex), chậm hơn vài giây.'],
+  ['open', 'Không tra mạng', 'Thư viện và hiểu biết của AI, không tra thêm.'],
+  ['strict', 'Chỉ trong thư viện', 'Chỉ trả lời từ các paper đã chọn, ngoài phạm vi thì nói rõ là tài liệu không nêu.'],
+];
+const SCOPE_RULES = {
+  open: [
+    '- Tài liệu về các paper được cung cấp (thư viện của người dùng) là nguồn ưu tiên và là bằng chứng chính: dùng trước, mỗi ý lấy từ một paper gắn nhãn nguồn ngay sau câu, ví dụ: "... tăng 2.1 mAP [P2]". Nhiều nguồn thì ghi [P1][P3].',
+    '- Tài liệu KHÔNG giới hạn phạm vi câu trả lời. Câu hỏi cần kiến thức ngoài tài liệu (paper, phương pháp, dataset, khái niệm người dùng nhắc tới mà thư viện không có) thì trả lời đầy đủ bằng hiểu biết chuyên môn của bạn, đánh dấu phần đó "(ngoài thư viện)". Đừng từ chối hay chỉ nói "tài liệu không có".',
+    '- Khi nói về paper ngoài thư viện: nêu tên đầy đủ, tác giả / năm / venue nếu nhớ chắc. Không bịa arXiv ID, DOI, con số kết quả hay tên paper; chỗ nào không chắc thì nói rõ mức độ chắc chắn. Bài mới hơn hiểu biết của bạn thì nói vậy và gợi ý từ khoá để tra.',
+    '- Nếu có khối web_search (kết quả tra Semantic Scholar cho câu hỏi này): đó là dữ liệu thật, mới, có thể lẫn bài không liên quan. Chỉ dùng bài phù hợp, trích bằng đúng mã [T1], [T2]…; ưu tiên chúng hơn trí nhớ của bạn khi nói về bài mới.',
+    '- Gợi ý paper đáng thêm vào thư viện khi thấy hữu ích.',
+  ],
+  strict: [
+    '- Chỉ dựa trên tài liệu về các paper được cung cấp. Mỗi ý lấy từ một paper phải gắn nhãn nguồn ngay sau câu, ví dụ: "... tăng 2.1 mAP [P2]". Nhiều nguồn thì ghi [P1][P3].',
+    '- Nếu tài liệu không có thông tin để trả lời, nói rõ là các paper không nêu. Có thể bổ sung kiến thức chung nhưng phải ghi "(ngoài tài liệu)".',
+  ],
+};
+
+export function buildChatSystem(settings, { length = '', scope = 'auto' } = {}) {
   return [
-    'Bạn là trợ lý nghiên cứu. Người dùng đang trò chuyện về một tập paper do họ chọn; mỗi paper có nhãn như [P1], [P2].',
+    `Bạn là trợ lý nghiên cứu. Người dùng đang trò chuyện về nghiên cứu, kèm một tập paper từ thư viện của họ (có thể rỗng); mỗi paper có nhãn như [P1], [P2].`,
     answerLangRule(settings),
     termRules(settings),
     '',
     'Cách trả lời:',
-    '- Dựa trên tài liệu về các paper được cung cấp. Mỗi ý lấy từ một paper phải gắn nhãn nguồn ngay sau câu, ví dụ: "... tăng 2.1 mAP [P2]". Nhiều nguồn thì ghi [P1][P3].',
-    '- Nếu tài liệu không có thông tin để trả lời, nói rõ là các paper không nêu. Có thể bổ sung kiến thức chung nhưng phải ghi "(ngoài tài liệu)".',
+    ...(scope === 'strict' ? SCOPE_RULES.strict : SCOPE_RULES.open),
     '- Khi so sánh nhiều paper, dùng bảng Markdown ngắn nếu giúp đọc nhanh hơn.',
     '- Trích số liệu đúng như trong tài liệu, kèm dataset và metric.',
     '- Công thức viết bằng LaTeX trong $...$ (cùng dòng) hoặc $$...$$ (đứng riêng).',

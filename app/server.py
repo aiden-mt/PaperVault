@@ -1874,6 +1874,105 @@ def s2_get(url, headers=None, timeout=25):
             time.sleep(delays[attempt])
 
 
+def _openalex_abstract(inv):
+    """OpenAlex lưu abstract dạng chỉ mục ngược {từ: [vị trí]}: dựng lại thành câu."""
+    if not isinstance(inv, dict):
+        return ""
+    pos = {}
+    for w, idx in inv.items():
+        for i in idx or []:
+            pos[i] = w
+    return " ".join(pos[i] for i in sorted(pos))
+
+
+def lit_search(q, year="", limit=10, s2_key=""):
+    """Tra paper theo từ khoá cho Chat (bài ngoài thư viện, kể cả bài rất mới). Semantic Scholar một lần, không chờ thử lại
+    (không có key thì hạn mức dùng chung rất chặt); bị giới hạn tốc độ hay lỗi thì dùng OpenAlex (không cần key).
+    year: "2025-2026", "2025-" hoặc "-2020". Trả về {items: [dạng bài Semantic Scholar], source}."""
+    q = re.sub(r"\s+", " ", (q or "")).strip()[:300]
+    if not q:
+        return {"items": [], "source": ""}
+    limit = max(1, min(20, int(limit or 10)))
+    yr = year if re.fullmatch(r"\d{4}(-\d{4})?|\d{4}-|-\d{4}", year or "") else ""
+    fields = "title,abstract,authors,year,publicationDate,venue,citationCount,externalIds,url"
+    try:
+        _s2_pace()
+        url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={urllib.parse.quote(q)}&fields={fields}&limit={limit}" + (f"&year={yr}" if yr else "")
+        _, _, raw, _ = http_get(url, timeout=12, headers={"x-api-key": s2_key} if s2_key else {})
+        return {"items": json.loads(raw.decode("utf-8")).get("data") or [], "source": "Semantic Scholar"}
+    except Exception:
+        pass
+    flt = []
+    if yr:
+        a, b = (yr.split("-") + [""])[:2]
+        if a:
+            flt.append(f"from_publication_date:{a}-01-01")
+        if b:
+            flt.append(f"to_publication_date:{b}-12-31")
+    url = ("https://api.openalex.org/works?search=" + urllib.parse.quote(re.sub(r"[?*:,]", " ", q)) + f"&per-page={limit}&select={OPENALEX_SEL}"
+           + (f"&filter={','.join(flt)}" if flt else ""))
+    _, _, raw, _ = http_get(url, timeout=15)
+    items = [_openalex_item(w) for w in json.loads(raw.decode("utf-8")).get("results") or []]
+    return {"items": items, "source": "OpenAlex"}
+
+
+def _openalex_item(w):
+    """Một work của OpenAlex -> dạng bài Semantic Scholar (cùng dạng lit_search)."""
+    loc = w.get("primary_location") or {}
+    page = loc.get("landing_page_url") or ""
+    m = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})", page)
+    doi = (w.get("doi") or "").replace("https://doi.org/", "")
+    am = re.search(r"10\.48550/arxiv\.(\d{4}\.\d{4,5})", doi, re.I)
+    return {
+        "paperId": (w.get("id") or "").rsplit("/", 1)[-1], "title": w.get("title") or "", "year": w.get("publication_year"),
+        "publicationDate": w.get("publication_date") or "", "venue": ((loc.get("source") or {}).get("display_name") or ""),
+        "citationCount": w.get("cited_by_count"), "authors": [{"name": (a.get("author") or {}).get("display_name", "")} for a in (w.get("authorships") or [])[:6]],
+        "externalIds": {"ArXiv": (m.group(1) if m else (am.group(1) if am else "")), "DOI": "" if am else doi},
+        "url": page or (f"https://doi.org/{doi}" if doi else w.get("id") or ""), "abstract": _openalex_abstract(w.get("abstract_inverted_index"))[:1200],
+    }
+
+
+OPENALEX_SEL = "id,title,publication_year,publication_date,primary_location,cited_by_count,authorships,doi,abstract_inverted_index"
+
+
+def lit_citing(doi="", arxiv="", title="", year="", limit=8):
+    """Bài trích dẫn một paper, mới nhất trước (OpenAlex: filter cites:W…). Tìm paper gốc theo DOI, arXiv rồi tên.
+    Dùng khi Chat được hỏi "bài kế thừa / cải tiến … mới nhất". Trả về {items, source, of}."""
+    limit = max(1, min(20, int(limit or 8)))
+    wid = ""
+    cands = []
+    if doi:
+        cands.append(f"https://api.openalex.org/works/doi:{urllib.parse.quote(doi)}?select=id,title")
+    if arxiv:
+        cands.append(f"https://api.openalex.org/works/doi:10.48550/arXiv.{urllib.parse.quote(re.sub(r'v\d+$', '', arxiv))}?select=id,title")
+    for url in cands:
+        try:
+            _, _, raw, _ = http_get(url, timeout=12)
+            wid = (json.loads(raw.decode("utf-8")).get("id") or "").rsplit("/", 1)[-1]
+            if wid:
+                break
+        except Exception:
+            continue
+    if not wid and title:
+        _, _, raw, _ = http_get("https://api.openalex.org/works?search=" + urllib.parse.quote(re.sub(r"[?*:,]", " ", title)[:250]) + "&per-page=3&select=id,title", timeout=12)
+        best = max(json.loads(raw.decode("utf-8")).get("results") or [{}], key=lambda d: _title_sim(d.get("title"), title))
+        if _title_sim(best.get("title"), title) >= 0.6:
+            wid = (best.get("id") or "").rsplit("/", 1)[-1]
+    if not wid:
+        return {"items": [], "source": "OpenAlex", "of": ""}
+    flt = [f"cites:{wid}"]
+    yr = year if re.fullmatch(r"\d{4}(-\d{4})?|\d{4}-|-\d{4}", year or "") else ""
+    if yr:
+        a, b = (yr.split("-") + [""])[:2]
+        if a:
+            flt.append(f"from_publication_date:{a}-01-01")
+        if b:
+            flt.append(f"to_publication_date:{b}-12-31")
+    url = f"https://api.openalex.org/works?filter={','.join(flt)}&sort=publication_date:desc&per-page={limit}&select={OPENALEX_SEL}"
+    _, _, raw, _ = http_get(url, timeout=15)
+    return {"items": [_openalex_item(w) for w in json.loads(raw.decode("utf-8")).get("results") or []], "source": "OpenAlex", "of": wid}
+
+
 def _title_sim(a, b):
     ta = {w for w in re.findall(r"[a-z0-9]+", (a or "").lower()) if len(w) > 2}
     tb = {w for w in re.findall(r"[a-z0-9]+", (b or "").lower()) if len(w) > 2}
@@ -2851,6 +2950,20 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError) as e:
                 return self.send_json({"ok": False, "error": str(e)}, 400)
 
+        if head == "lit-citing" and method == "GET":
+            q1 = lambda k, d="": (qs.get(k) or [d])[0]
+            try:
+                return self.ok(lit_citing(q1("doi"), q1("arxiv"), q1("title"), q1("year"), q1("limit", "8")))
+            except (ValueError, urllib.error.URLError, OSError) as e:
+                return self.send_json({"ok": False, "error": f"Không lấy được bài trích dẫn: {e}"}, 502)
+
+        if head == "lit-search" and method == "GET":
+            q1 = lambda k, d="": (qs.get(k) or [d])[0]
+            try:
+                return self.ok(lit_search(q1("q"), q1("year"), q1("limit", "10"), get_settings().get("s2ApiKey", "")))
+            except (ValueError, urllib.error.URLError, OSError) as e:
+                return self.send_json({"ok": False, "error": f"Không tra được paper: {e}"}, 502)
+
         if head == "ics-fetch" and method == "GET":
             try:
                 return self.ok({"text": fetch_ics((qs.get("url") or [""])[0])})
@@ -3167,10 +3280,20 @@ class Handler(BaseHTTPRequestHandler):
                 items.sort(key=lambda p: (p.get("publicationDate") or str(p.get("year") or "")), reverse=True)
                 return self.ok(s2_add_tldr(items[:50], key))
             if len(seg) == 2 and seg[1] == "search":
+                # ?q=…[&year=2025-2026|2025-][&limit=10][&tldr=1]: Chat dùng để tra paper ngoài thư viện (kể cả bài mới).
                 q = (qs.get("q") or [""])[0]
-                url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={urllib.parse.quote(q)}&fields={fields}&limit=20"
+                yr = (qs.get("year") or [""])[0]
+                extra = f"&year={yr}" if re.fullmatch(r"\d{4}(-\d{4})?|\d{4}-|-\d{4}", yr or "") else ""
+                try:
+                    lim = max(1, min(30, int((qs.get("limit") or ["20"])[0] or 20)))
+                except ValueError:
+                    lim = 20
+                url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={urllib.parse.quote(q)}&fields={fields}&limit={lim}{extra}"
                 _, _, raw, _ = s2_get(url, headers=headers)
-                return self.ok(json.loads(raw.decode("utf-8")).get("data", []))
+                items = json.loads(raw.decode("utf-8")).get("data", []) or []
+                if (qs.get("tldr") or [""])[0] == "1" and items:
+                    items = s2_add_tldr(items, key)
+                return self.ok(items)
 
         if head == "sync" and method == "POST":
             body = self.read_json()

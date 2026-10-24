@@ -2595,3 +2595,6 @@ body:has(.modal) .pv-notices, body:has(.modal) .bg-tray { z-index: 79; }
 
 /* Mã P1, P2 trong câu trả lời của Chat là nút mở thẻ tóm tắt */
 button.cite { border: 0; font-family: inherit; cursor: pointer; }
+
+.wn-chip.cite-web { background: color-mix(in srgb, #0891b2 14%, transparent); color: #0e7490; }
+:root[data-theme="dark"] .wn-chip.cite-web { color: #67e8f9; }

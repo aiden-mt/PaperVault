@@ -260,3 +260,92 @@ export function relatedByCode(papers, code) {
   const hit = papers.find((x) => x.label === label);
   return hit ? relatedOf(hit.p, 200).find((x) => x.code === k) || null : null;
 }
+
+/* ---------- tra Semantic Scholar cho câu hỏi (paper ngoài thư viện, kể cả bài mới hơn hiểu biết của model) ---------- */
+
+// Câu hỏi kiểu tìm paper / hỏi bài mới: phạm vi "auto" chỉ tra khi khớp mẫu này.
+// Ranh giới từ theo Unicode (\b của JS không hiểu chữ có dấu như "liệt kê", "gợi ý").
+const LIT_Q = /(?<![\p{L}\p{N}])(tìm|kiếm|liệt kê|gợi ý|paper|papers|bài báo|công trình|work|works|nghiên cứu (?:mới|gần)|mới nhất|gần đây|hiện nay|state[- ]of[- ]the[- ]art|sota|survey|related work|kế thừa|cải tiến|follow[- ]?up|latest|recent|find|search|20(?:2[3-9]))(?![\p{L}\p{N}])/iu;
+// Từ viết tắt quá chung, không đáng tra riêng.
+const COMMON = new Set(['VQA', 'VLM', 'VLMS', 'LLM', 'LLMS', 'QA', 'GPT', 'CNN', 'RNN', 'NLP', 'CV', 'AI', 'ML', 'SOTA', 'API', 'PDF', 'RAG', 'LVLM', 'MLLM', 'OCR', 'BERT', 'VIT']);
+
+// Hỏi bài kế thừa / cải tiến / phát triển tiếp: lấy bài trích dẫn paper trong hội thoại.
+const CITE_Q = /(?<![\p{L}\p{N}])(kế thừa|cải tiến|phát triển (?:tiếp|từ)|mở rộng|dẫn (?:tới|đến)|trích dẫn|follow[- ]?up|build(?:s)? (?:on|upon)|extend|improve|citing|cite)(?![\p{L}\p{N}])/iu;
+
+export const wantsSearch = (question, scope) => scope === 'web' || (scope === 'auto' && LIT_Q.test(question));
+
+/** Tên riêng trong câu hỏi đáng tra riêng: từ viết tắt / CamelCase (VIGC, SelTDA), cụm Viết Hoa (Triangular Consistency), "trong ngoặc kép". */
+export function namedTerms(question) {
+  const out = new Set();
+  for (const m of question.matchAll(/["“]([^"”]{3,80})["”]/g)) out.add(m[1].trim());
+  for (const m of question.matchAll(/\b([A-Z][a-z]+(?:[\s-]+[A-Z][a-z]+){1,4})\b/g)) out.add(m[1]);
+  for (const m of question.matchAll(/\b([A-Za-z]*[A-Z][A-Za-z0-9]*[A-Z][A-Za-z0-9-]*)\b/g)) if (!COMMON.has(m[1].toUpperCase()) && m[1].length >= 3) out.add(m[1]);
+  return [...out].slice(0, 4);
+}
+
+/** Khoảng năm muốn tra: năm nêu trong câu hỏi, hoặc "mới nhất / gần đây" = từ năm ngoái. */
+export function yearRange(question, now = new Date()) {
+  const ys = [...question.matchAll(/\b(20[0-3]\d)\b/g)].map((m) => Number(m[1]));
+  if (ys.length) return ys.length > 1 ? `${Math.min(...ys)}-${Math.max(...ys)}` : `${ys[0]}-`;
+  return /mới nhất|gần đây|hiện nay|latest|recent/i.test(question) ? `${now.getFullYear() - 1}-` : '';
+}
+
+/**
+ * Tra paper (Semantic Scholar, bị giới hạn tốc độ thì OpenAlex): một lượt theo từ khoá tiếng Anh của cả câu hỏi (lọc năm
+ * nếu có), thêm một lượt cho mỗi tên riêng. Có giới hạn thời gian để câu trả lời không phải chờ lâu.
+ * Trả về { items: [{ code: 'T1', …dạng thẻ chi tiết }] (tối đa 12 bài), queries, sources }, không lỗi ra ngoài.
+ */
+export async function webSearch(question, { keywords = [], papers = [], max = 16, budgetMs = 22000 } = {}) {
+  const year = yearRange(question);
+  const kw = (keywords.length ? keywords : question.split(/\s+/)).slice(0, 7).join(' ').slice(0, 200);
+  const names = namedTerms(question).slice(0, 3);
+  const runs = [];
+  // 1) Tên riêng người dùng nêu (ưu tiên cao nhất), kèm MỘT từ khoá chủ đề để khỏi lẫn bài trùng tên ở lĩnh vực khác.
+  const topic = (keywords[0] || '').slice(0, 40);
+  for (const n of names) runs.push({ q: topic && !topic.toLowerCase().includes(n.toLowerCase()) ? `${n} ${topic}` : n, year: '', take: 3 });
+  // 2) Hỏi bài kế thừa / cải tiến / mới nhất: bài trích dẫn paper trong hội thoại, mới nhất trước.
+  if (CITE_Q.test(question)) for (const { p, label } of papers.slice(0, 2)) runs.push({ citing: p, label, year, take: 6 });
+  // 3) Từ khoá chung của câu hỏi.
+  if (kw.trim()) runs.push({ q: kw, year, take: 5 });
+  const seen = new Set();
+  const out = [];
+  const queries = [];
+  const sources = new Set();
+  const until = Date.now() + budgetMs;
+  const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms));
+  for (const r of runs) {
+    const left = until - Date.now();
+    if (left < 1500 || out.length >= max) break;
+    let res;
+    const call = r.citing
+      ? api.litCiting({ doi: r.citing.doi || '', arxiv: r.citing.arxivId || '', title: plainTitle(r.citing.title || ''), year: r.year, limit: r.take + 2 })
+      : api.litSearch(r.q, { year: r.year, limit: r.take + 4 });
+    try { res = await Promise.race([call, timeout(left)]); } catch (_) { continue; }
+    queries.push(r.citing ? `bài trích dẫn ${r.label}${r.year ? ` (${r.year})` : ''}` : (r.year ? `${r.q} (${r.year})` : r.q));
+    if (res?.source) sources.add(res.source);
+    let took = 0;
+    for (const it of res?.items || []) {
+      if (took >= r.take || out.length >= max) break;
+      const k = plainTitle(it.title || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      took += 1;
+      const ext = it.externalIds || {};
+      out.push({
+        code: `T${out.length + 1}`, paperId: it.paperId || '', title: it.title, authors: (it.authors || []).slice(0, 4).map((a) => a.name).filter(Boolean).join(', '),
+        date: fmtPub(it), venue: it.venue || '', citations: it.citationCount ?? null, tldr: (typeof it.tldr === 'object' ? it.tldr?.text : it.tldr) || '',
+        abstract: (it.abstract || '').slice(0, 500), arxiv: ext.ArXiv || '', doi: ext.DOI || '', url: it.url || '',
+        relation: r.citing ? 'cit' : '', roleText: r.citing ? `Dẫn ${r.label} (${res.source})` : `Tra ${res.source || 'Semantic Scholar'}`, citing: r.citing ? r.label : '',
+        inLib: libFind({ title: it.title, arxiv: ext.ArXiv, doi: ext.DOI, paperId: it.paperId })?.id || '',
+      });
+    }
+  }
+  return { items: out, queries, sources: [...sources] };
+}
+
+/** Khối kết quả tra cứu gửi kèm câu hỏi. */
+export function webBlock(res) {
+  if (!res?.items?.length) return '';
+  const lines = res.items.map((x) => `[${x.code}] ${one(x.title)} (${[x.date, x.venue, x.citations != null ? `${fmtK(x.citations)} trích dẫn` : '', x.authors].filter(Boolean).join(' · ')})${x.citing ? ` · trích dẫn [${x.citing}]` : ''}${x.inLib ? ' · có trong thư viện' : ''}${x.arxiv ? ` · arXiv:${x.arxiv}` : ''}\n  ${one(x.tldr || x.abstract || '(không có tóm tắt)').slice(0, 420)}`);
+  return `<web_search source="${(res.sources || ['Semantic Scholar']).join(', ')}" queries="${res.queries.join(' | ').replace(/"/g, "'")}">\n${lines.join('\n')}\n</web_search>`;
+}
