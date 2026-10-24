@@ -1,7 +1,7 @@
 // So sánh nhiều paper: bảng chuẩn, biểu đồ metric cùng dataset, tổng hợp related work bằng LLM, xuất Markdown/CSV/BibTeX/LaTeX/Word.
 import { api } from '../api.js';
 import { store, onChange, topicOf, paperById, saveSettings } from '../store.js';
-import { escapeHtml, download, copyText, norm, STATUS_LABEL } from '../util.js';
+import { escapeHtml, download, copyText, norm } from '../util.js';
 import { $, toast, setStatus, spinner, topicBadge, mdToHtml, selectAllHtml, syncSelectAll } from '../ui.js';
 import { runJob, getJob, jobRunning, followJob } from '../bgjobs.js';
 import { readableChatMd, stripMarker } from '../readable.js';
@@ -13,7 +13,8 @@ import { synthesize, hasCredentials } from '../llm.js';
 import { venueBadge } from '../venue.js';
 import { htmlToDocx, DOCX_MIME } from '../docx.js';
 import { analyzeMetrics } from '../compare-metrics.js';
-import { rich, titleHtml } from '../richtext.js';
+import { titleHtml } from '../richtext.js';
+import { openPaperPop } from '../paperpop.js';
 
 let lastSynthesis = null;
 
@@ -105,72 +106,6 @@ function setupPickPane() {
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', up);
   });
-}
-
-/* ---------- Thẻ nổi tóm tắt paper (bấm P1, P2… trong bảng dataset dùng chung) ---------- */
-let pop = null;
-const closePop = () => {
-  pop?.remove();
-  pop = null;
-  document.removeEventListener('mousedown', popOutside, true);
-  document.removeEventListener('keydown', popKey, true);
-  window.removeEventListener('hashchange', closePop);
-};
-const popOutside = (e) => { if (pop && !pop.contains(e.target) && !e.target.closest('[data-ppop]')) closePop(); };
-const popKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePop(); } };
-
-function paperPopHtml(p, tag) {
-  const e = p.extraction || {};
-  const authors = Array.isArray(e.authors) ? e.authors : String(e.authors || '').split(',').map((s) => s.trim()).filter(Boolean);
-  const meta = [authors.slice(0, 4).join(', ') + (authors.length > 4 ? ' và cộng sự' : ''), e.year, e.venue].filter(Boolean).join(' · ');
-  const summary = e.one_liner || e.novelty || e.problem || '';
-  const v = e.validation || {};
-  const ds = [...new Set([...(v.benchmarks || []), ...(v.datasets || [])].map((x) => String(x).replace(/\([^)]*\)/g, '').trim()).filter(Boolean))].slice(0, 8);
-  const status = STATUS_LABEL[p.status || 'to-read'];
-  return `<button class="ghost sm wn-pop-x" title="Đóng (Esc)">✕</button>
-    <h3>${titleHtml(p.title)}</h3>
-    ${meta ? `<div class="hint">${escapeHtml(meta)}</div>` : ''}
-    <div class="wn-pop-badges"><span class="badge accent">${tag}</span>${venueBadge(p.venueInfo)}${topicBadge(topicOf(p))}${p.citationCount != null ? `<span class="badge">↗ ${Number(p.citationCount).toLocaleString('vi-VN')} trích dẫn</span>` : ''}${status ? `<span class="badge">${escapeHtml(status)}</span>` : ''}</div>
-    ${summary ? `<p class="wn-pop-abs">${rich(String(summary).slice(0, 420))}${String(summary).length > 420 ? '…' : ''}</p>` : ''}
-    ${ds.length ? `<div class="pp-ds"><span class="hint">Dataset / benchmark:</span> ${ds.map((d) => `<span class="badge">${escapeHtml(d)}</span>`).join(' ')}</div>` : ''}
-    <div class="row wrap" style="gap:6px;margin-top:10px">
-      <a class="btn sm primary-link" href="#/paper/${p.id}">Mở paper</a>
-      ${p.url ? `<a class="btn sm" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">Mở link</a>` : ''}
-      <button class="sm" data-pp-rm>Bỏ khỏi so sánh</button>
-    </div>`;
-}
-
-function openPaperPop(anchor, id, { onRemove } = {}) {
-  const p = paperById(id);
-  if (!p) return;
-  const same = pop && pop.dataset.id === id;
-  closePop();
-  if (same) return; // bấm lại cùng mã thì đóng
-  const tag = (anchor.querySelector('b')?.textContent || anchor.textContent || '').trim();
-  pop = document.createElement('div');
-  pop.className = 'wn-pop pp-pop';
-  pop.dataset.id = id;
-  pop.innerHTML = paperPopHtml(p, escapeHtml(tag));
-  document.body.appendChild(pop);
-  // Đặt cạnh mã vừa bấm, không tràn khỏi cửa sổ (body có thể bị zoom theo cỡ chữ giao diện).
-  const z = parseFloat(getComputedStyle(document.body).zoom) || 1;
-  const r = anchor.getBoundingClientRect();
-  const w = pop.offsetWidth;
-  const h = pop.offsetHeight;
-  const vw = window.innerWidth / z;
-  const vh = window.innerHeight / z;
-  let left = r.right / z + 8;
-  if (left + w > vw - 8) left = Math.max(8, r.left / z - w - 8);
-  let top = r.top / z - 10;
-  if (top + h > vh - 8) top = Math.max(8, vh - h - 8);
-  pop.style.left = `${left}px`;
-  pop.style.top = `${top}px`;
-  pop.querySelector('.wn-pop-x').addEventListener('click', closePop);
-  pop.querySelectorAll('a[href^="#/"]').forEach((a) => a.addEventListener('click', closePop));
-  pop.querySelector('[data-pp-rm]').addEventListener('click', () => { closePop(); onRemove?.(id); });
-  document.addEventListener('mousedown', popOutside, true);
-  document.addEventListener('keydown', popKey, true);
-  window.addEventListener('hashchange', closePop);
 }
 
 export async function render(root, { query }) {
@@ -347,7 +282,7 @@ export async function render(root, { query }) {
   });
   $('cmp-charts').addEventListener('click', (e) => {
     const pp = e.target.closest('[data-ppop]');
-    if (pp) { e.preventDefault(); openPaperPop(pp, pp.dataset.ppop, { onRemove: (id) => { store.selected.delete(id); drawAll(); } }); return; }
+    if (pp) { e.preventDefault(); openPaperPop(pp, pp.dataset.ppop, { actions: [{ label: 'Bỏ khỏi so sánh', onClick: (id) => { store.selected.delete(id); drawAll(); } }] }); return; }
     const go = e.target.closest('[data-go]'); if (go) location.hash = go.dataset.go;
   });
   $('cmp-cols-btn').addEventListener('click', (e) => { e.stopPropagation(); const m = $('cmp-cols'); m.hidden = !m.hidden; if (!m.hidden) drawColMenu(); });

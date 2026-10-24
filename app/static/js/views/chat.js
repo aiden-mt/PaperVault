@@ -11,6 +11,7 @@ import { tokenize, chunksOf, bm25Pick, searchTerms } from '../rag.js';
 import { CTX_KINDS, CTX_GUIDE, ctxOf, ensureContext, extraBlock, retrievalDocs, librarySuggestions, relatedByCode, relatedEntries } from '../chatctx.js';
 import { bindWhatsNewChips } from '../whatsnew.js';
 import { compareState, togglePin } from '../research.js';
+import { openPaperPop } from '../paperpop.js';
 import { buildChatSystem, paperNotesText, CHAT_LANGS, CHAT_LENGTHS } from '../prompts.js';
 import { makeJob, trackJob } from '../bgjobs.js';
 import { readableChatMd } from '../readable.js';
@@ -176,7 +177,7 @@ function citeLinks(html, c) {
   });
   return html.replace(/\[((?:P\d+)(?:\s*[,;]\s*P\d+)*)\]/g, (m, inner) => inner.split(/\s*[,;]\s*/).map((lab) => {
     const x = byLabel.get(lab);
-    return x ? `<a class="cite" href="#/paper/${x.id}" title="${escapeHtml(x.p.title)}">${lab}</a>` : `<span class="cite missing">${lab}</span>`;
+    return x ? `<button type="button" class="cite" data-ppop="${x.id}" data-ppop-key="${lab}" title="${escapeHtml(plainTitle(x.p.title))} · bấm để xem tóm tắt">${lab}</button>` : `<span class="cite missing">${lab}</span>`;
   }).join(''));
 }
 
@@ -638,6 +639,17 @@ export async function render(root, { params, query }) {
     ov.addEventListener('click', close);
     document.addEventListener('keydown', onEsc, true);
     document.body.appendChild(ov);
+  });
+
+  /* ---- bấm mã P1, P2 trong câu trả lời: thẻ tóm tắt paper, có nút Mở paper (không tự chuyển trang) ---- */
+  $('ch-msgs').addEventListener('click', (e) => {
+    const b = e.target.closest('button.cite[data-ppop]');
+    if (!b) return;
+    e.preventDefault();
+    openPaperPop(b, b.dataset.ppop, {
+      tag: b.dataset.ppopKey,
+      actions: state.chat.paperIds.length > 1 ? [{ label: 'Bỏ khỏi hội thoại', onClick: (id) => setPapers((c) => { c.paperIds = c.paperIds.filter((x) => x !== id); }) }] : [],
+    });
   });
 
   /* ---- bấm mã bài liên quan (P1.C3) trong câu trả lời: thẻ chi tiết như ở Hướng nghiên cứu ---- */
