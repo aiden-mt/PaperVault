@@ -36,7 +36,20 @@ export function clampText(text, maxChars) {
 const BACKSLASH = String.fromCharCode(92);
 
 /** Parse JSON từ output của LLM, chịu được code fence hoặc chữ thừa xung quanh. */
+// Ký tự điều khiển vô hình model đôi khi trả trong chuỗi (ví dụ \u007f trước \{ trong công thức): bỏ đi khi đọc JSON.
+const JSON_CTRL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
+function stripCtrl(v) {
+  if (typeof v === 'string') return v.replace(JSON_CTRL, '');
+  if (Array.isArray(v)) return v.map(stripCtrl);
+  if (v && typeof v === 'object') { for (const k of Object.keys(v)) v[k] = stripCtrl(v[k]); }
+  return v;
+}
+
 export function parseLooseJson(raw) {
+  return stripCtrl(parseJsonRaw(raw));
+}
+
+function parseJsonRaw(raw) {
   if (raw == null) throw new Error('Model không trả về nội dung.');
   if (typeof raw === 'object') return raw;
   let s = String(raw).trim();

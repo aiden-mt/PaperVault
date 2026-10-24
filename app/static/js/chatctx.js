@@ -186,7 +186,9 @@ export function extraBlock(p, label, ctx, scale = 1) {
   }
   if (ctx.whatsnew && p.whatsNew?.data) {
     const md = whatsNewMarkdown(p, p.whatsNew).split('\n## Danh sách bài')[0];
-    parts.push(`<whats_new paper="${label}">\n${clamp(recode(md, label), lim(3500))}\n</whats_new>`);
+    // "Có gì mới" đánh số C1, C2… riêng, trùng với C của Hướng nghiên cứu nhưng là bài khác: đổi sang W1, W2…
+    const wmd = md.replace(/\[?\b(?:C(\d{1,3}))\b\]?/g, `[${label}.W$1]`).replace(/\[(?:P|bài gốc)\]/g, `[${label}]`);
+    parts.push(`<whats_new paper="${label}">\n${clamp(wmd, lim(3500))}\n</whats_new>`);
   }
   if (ctx.marks && (p.pdfMarks || []).length) {
     const marks = (p.pdfMarks || []).filter((m) => (m.text || '').trim()).sort((a, b) => (b.auto ? 0 : 1) - (a.auto ? 0 : 1) || (a.page || 0) - (b.page || 0));
@@ -201,7 +203,7 @@ export function extraBlock(p, label, ctx, scale = 1) {
 }
 
 /** Ghi chú cho mô hình về các mã bài liên quan (đặt một lần ở đầu ngữ cảnh). */
-export const CTX_GUIDE = 'Ngoài ghi chú, mỗi paper có thể kèm kết quả các công cụ người dùng đã chạy: hướng nghiên cứu (research_directions), mạng trích dẫn (citation_network), "có gì mới" từ các bài dẫn (whats_new), câu tô trong PDF (pdf_highlights), trang Sổ tay (notebook). Bài liên quan có mã dạng [P1.R3], [P1.C2], [P1.N1]: khi nhắc tới bài đó, ghi đúng mã này. G1, G2… trong research_directions là mã khoảng trống, không phải bài. Khi gợi ý bài nên đọc thêm, ưu tiên bài ghi "có trong thư viện".';
+export const CTX_GUIDE = 'Ngoài ghi chú, mỗi paper có thể kèm kết quả các công cụ người dùng đã chạy: hướng nghiên cứu (research_directions), mạng trích dẫn (citation_network), "có gì mới" từ các bài dẫn (whats_new), câu tô trong PDF (pdf_highlights), trang Sổ tay (notebook). Bài liên quan có mã dạng [P1.R3], [P1.C2], [P1.N1], [P1.W4] (W: bài dẫn paper trong whats_new, đánh số riêng, khác C): khi nhắc tới bài đó, ghi đúng mã này. G1, G2… trong research_directions là mã khoảng trống, không phải bài. Khi gợi ý bài nên đọc thêm, ưu tiên bài ghi "có trong thư viện".';
 
 /* ---------- phần theo câu hỏi ---------- */
 
@@ -219,11 +221,24 @@ export function retrievalDocs(p, ctx) {
 }
 
 /** Bài liên quan có trong thư viện nhưng chưa ở trong hội thoại: [{ p, via, rel }] (gợi ý thêm ở bảng Nguồn). */
+/** Bài dẫn paper trong "Có gì mới" (mã W1, W2…), cùng dạng với networkOf. */
+function whatsNewOf(p) {
+  return (p.whatsNew?.papers || []).map((x) => ({
+    code: `W${String(x.id || '').replace(/^\D+/, '')}`, title: x.title, rel: 'dẫn paper này (Có gì mới)',
+    meta: [x.date, x.venue, x.citations ? `${fmtK(x.citations)} trích dẫn` : '', x.influential ? 'ảnh hưởng lớn' : ''].filter(Boolean),
+    detail: one(x.tldr || x.abstract || '').slice(0, 260), lib: libFind(x),
+    link: x.arxiv ? `https://arxiv.org/abs/${x.arxiv}` : (x.doi ? `https://doi.org/${x.doi}` : x.url || ''),
+    raw: { ...x, relation: 'cit' },
+  }));
+}
+/** Mọi bài liên quan của paper: mạng trích dẫn và bài của "Có gì mới". */
+const relatedOf = (p, max) => [...networkOf(p, { max }), ...whatsNewOf(p)];
+
 export function librarySuggestions(c, papers) {
   const inChat = new Set(c.paperIds);
   const seen = new Map();
   papers.forEach(({ p, label }) => {
-    for (const x of networkOf(p, { max: 40 })) {
+    for (const x of relatedOf(p, 40)) {
       if (!x.lib || inChat.has(x.lib.id) || seen.has(x.lib.id)) continue;
       seen.set(x.lib.id, { p: x.lib, via: `${label}.${x.code}`, rel: x.rel });
     }
@@ -236,12 +251,12 @@ export function librarySuggestions(c, papers) {
  * (bindWhatsNewChips), mã là P1.C3… để bấm vào mã trong câu trả lời mở thẻ.
  */
 export function relatedEntries(papers) {
-  return papers.flatMap(({ p, label }) => networkOf(p, { max: 200 }).filter((x) => x.raw).map((x) => ({ ...x.raw, id: `${label}.${x.code}`, mainId: p.id })));
+  return papers.flatMap(({ p, label }) => relatedOf(p, 200).filter((x) => x.raw).map((x) => ({ ...x.raw, id: `${label}.${x.code}`, mainId: p.id })));
 }
 
 /** Thông tin một mã bài liên quan (P1.R3) để hiện thẻ trong câu trả lời. */
 export function relatedByCode(papers, code) {
   const [label, k] = String(code).split('.');
   const hit = papers.find((x) => x.label === label);
-  return hit ? networkOf(hit.p, { max: 200 }).find((x) => x.code === k) || null : null;
+  return hit ? relatedOf(hit.p, 200).find((x) => x.code === k) || null : null;
 }

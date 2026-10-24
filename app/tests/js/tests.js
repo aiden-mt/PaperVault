@@ -166,9 +166,24 @@ try {
     eq(cx.retrievalDocs(p, ctx).map((d) => d.src).includes('hỏi đáp trước'), true);
     eq(cx.librarySuggestions({ paperIds: ['p_main'] }, [{ p, label: 'P2' }]).map((s) => [s.p.id, s.via]), [['p_lib', 'P2.C1']]);
     eq(cx.relatedByCode([{ p, label: 'P2' }], 'P2.C1')?.title, 'Visual Instruction Tuning');
+    // "Có gì mới" đánh số C riêng: đổi sang W để không trùng C của Hướng nghiên cứu
+    p.whatsNew = { at: '2026-10-01T00:00:00Z', total: 2, papers: [{ id: 'C1', title: 'WN paper one' }, { id: 'C2', title: 'Semi-Supervised Implicit Augmentation' }], data: { overview: 'Bài [C2] cải tiến P.', extensions: [{ direction: 'Tăng cường', detail: 'x', papers: ['C2'] }] } };
+    const wb = cx.extraBlock(p, 'P2', ctx);
+    ok(wb.includes('[P2.W2]') && !/<whats_new[^]*\[P2\.C2\][^]*<\/whats_new>/.test(wb), 'mã của Có gì mới thành W');
+    eq(cx.relatedByCode([{ p, label: 'P2' }], 'P2.W2')?.title, 'Semi-Supervised Implicit Augmentation');
+    eq(cx.relatedByCode([{ p, label: 'P2' }], 'P2.C1')?.title, 'Visual Instruction Tuning', 'C1 vẫn là bài của Hướng nghiên cứu');
+    delete p.whatsNew;
     const ents = cx.relatedEntries([{ p, label: 'P2' }]);
     eq(ents.map((x) => [x.id, x.relation, x.mainId]), [['P2.S1', '', 'p_main'], ['P2.C1', 'cit', 'p_main'], ['P2.R1', 'ref', 'p_main']], 'thẻ chi tiết: mã theo hội thoại, bài ghim không ghi chiều dẫn');
     store.papers = [];
+  });
+
+  await test('Công thức: bỏ ký tự điều khiển vô hình model trả về', async () => {
+    const { parseLooseJson } = await import('/js/util.js');
+    const { renderMath } = await import('/js/richtext.js');
+    const j = parseLooseJson('{"a": "tập $\\u007f\\\\{I, Q\\\\}$", "b": ["x\\u0007y", "z\\u007fw"]}');
+    eq([j.a, j.b], ['tập $\\{I, Q\\}$', ['xy', 'zw']]);
+    ok(!/katex-error/.test(renderMath('\u007f\\{I, Q, A\\} \\cup \u007f\\{I, Q\', A\\}')), 'công thức có DEL vẫn dựng được');
   });
 
   await test('lineDiff: so sánh theo dòng', () => {

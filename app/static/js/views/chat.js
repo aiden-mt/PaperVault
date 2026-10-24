@@ -167,7 +167,7 @@ function citeLinks(html, c) {
   const items = papersOf(c);
   const byLabel = new Map(items.map((x) => [x.label, x]));
   // Bài liên quan trong mạng trích dẫn / Hướng nghiên cứu: [P1.R3]. Có trong thư viện thì mở trang paper, không thì mở link ngoài.
-  html = html.replace(/\[(P\d+)\.([RCSN]\d{1,3})\]/g, (m, lab, code) => {
+  html = html.replace(/\[(P\d+)\.([RCSNW]\d{1,3})\]/g, (m, lab, code) => {
     const x = relatedByCode(items, `${lab}.${code}`);
     if (!x) return `<span class="cite missing">${lab}.${code}</span>`;
     const tip = escapeHtml(`${plainTitle(x.title)}${x.meta?.length ? ` (${x.meta.slice(0, 3).join(' · ')})` : ''}${x.rel ? ` · ${x.rel}` : ''}${x.lib ? ' · có trong thư viện' : ''} · bấm để xem chi tiết`);

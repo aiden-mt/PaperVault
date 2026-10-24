@@ -18,7 +18,11 @@ export const mathMacros = () => ({ ...MACROS });
 let plainMath = false;
 export function withPlainMath(fn) { plainMath = true; try { return fn(); } finally { plainMath = false; } }
 
+// Ký tự điều khiển vô hình (DEL, \u0000–\u001f trừ xuống dòng / tab) lẫn trong công thức do model trả về làm KaTeX báo lỗi.
+const CTRL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
+
 export function renderMath(tex, display = false) {
+  tex = String(tex ?? '').replace(CTRL, '');
   if (plainMath) return `<em class="tex">${escapeHtml(display ? `$$${tex.trim()}$$` : `$${tex.trim()}$`)}</em>`;
   const k = window.katex;
   if (!k) return escapeHtml(display ? `$$${tex}$$` : `$${tex}$`);
