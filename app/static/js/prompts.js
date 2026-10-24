@@ -148,13 +148,39 @@ export function buildUserPrompt({ source, settings, topicNames }) {
 
 /* ------------------------- Hỏi đáp về một paper ------------------------- */
 
+// Độ dài câu trả lời của Chat: "" tự co giãn theo câu hỏi, "short" luôn ngắn gọn, "long" luôn chi tiết.
+export const CHAT_LENGTHS = [['', 'Tự động'], ['short', 'Ngắn gọn'], ['long', 'Chi tiết']];
+const LENGTH_RULES = {
+  '': [
+    'Độ dài: vừa đủ cho đúng câu hỏi, không viết dài cho có.',
+    '- Câu hỏi ngắn, hỏi một sự kiện / con số / định nghĩa / có hay không: trả lời ngay trong 1–3 câu (có hay không thì nói trước, rồi một câu lý do). Không thêm tiêu đề, không tóm tắt lại.',
+    '- Yêu cầu tóm tắt, điểm chính, so sánh nhanh: 3–7 gạch đầu dòng ngắn hoặc một bảng gọn.',
+    '- Chỉ viết dài (có tiêu đề mục, nhiều đoạn, bảng) khi người dùng xin rõ: giải thích chi tiết, phân tích sâu, viết related work, hướng dẫn từng bước, so sánh toàn diện nhiều paper.',
+    '- Không lặp ý, không thêm phần "Kết luận" hay "Tóm lại" nhắc lại điều vừa nói, không liệt kê những gì tài liệu không nêu trừ khi được hỏi.',
+    '- Người dùng hỏi tiếp "nói rõ hơn", "chi tiết hơn" thì mở rộng; "ngắn thôi", "tóm lại" thì rút gọn.',
+  ],
+  short: [
+    'Độ dài: người dùng chọn chế độ NGẮN GỌN.',
+    '- Mặc định 1–4 câu hoặc tối đa 5 gạch đầu dòng ngắn, không tiêu đề mục. Chỉ giữ ý chính và số liệu quan trọng nhất (vẫn gắn nhãn nguồn).',
+    '- Bảng chỉ dùng khi so sánh từ 3 paper trở lên, tối đa 4 cột.',
+    '- Người dùng xin rõ "chi tiết" trong câu hỏi thì mới viết dài hơn.',
+  ],
+  long: [
+    'Độ dài: người dùng chọn chế độ CHI TIẾT.',
+    '- Trả lời đầy đủ: chia mục có tiêu đề khi có nhiều khía cạnh, giải thích cơ chế, nêu số liệu kèm dataset và metric, so sánh bằng bảng, chỉ ra giới hạn và điểm còn tranh cãi.',
+    '- Vẫn không lặp ý, không mở đầu xã giao, không thêm phần kết luận nhắc lại.',
+  ],
+};
+
 export function buildAskSystem(settings) {
   return [
-    'Bạn là trợ lý nghiên cứu. Người dùng hỏi về MỘT paper cụ thể. Trả lời ngắn gọn, có cấu trúc.',
+    'Bạn là trợ lý nghiên cứu. Người dùng hỏi về MỘT paper cụ thể.',
     answerLangRule(settings),
     termRules(settings),
     'Chỉ dựa vào ghi chú đã trích xuất và nội dung paper được cung cấp. Nếu không đủ thông tin, nói rõ "paper không nêu" thay vì suy đoán; nếu suy luận thì đánh dấu "(suy luận)".',
     'Khi trích số liệu, kèm dataset/metric tương ứng. Có thể dùng Markdown (danh sách, bảng ngắn). Công thức viết bằng LaTeX trong $...$ (cùng dòng) hoặc $$...$$ (đứng riêng).',
+    '',
+    ...(LENGTH_RULES[settings.chatLength || ''] || LENGTH_RULES['']),
   ].join('\n');
 }
 
@@ -259,7 +285,7 @@ export function buildSynthesisUser({ papers, settings, focus }) {
 const one = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
 
 /** Phần ổn định của system prompt (không đổi giữa các lượt -> cache được). */
-export function buildChatSystem(settings) {
+export function buildChatSystem(settings, { length = '' } = {}) {
   return [
     'Bạn là trợ lý nghiên cứu. Người dùng đang trò chuyện về một tập paper do họ chọn; mỗi paper có nhãn như [P1], [P2].',
     answerLangRule(settings),
@@ -272,6 +298,8 @@ export function buildChatSystem(settings) {
     '- Trích số liệu đúng như trong tài liệu, kèm dataset và metric.',
     '- Công thức viết bằng LaTeX trong $...$ (cùng dòng) hoặc $$...$$ (đứng riêng).',
     '- Đi thẳng vào câu trả lời, không nhắc lại câu hỏi, không mở đầu xã giao.',
+    '',
+    ...(LENGTH_RULES[length] || LENGTH_RULES['']),
     settings.myResearch?.trim() ? `\nĐề tài của người dùng (dùng khi họ hỏi về khả năng áp dụng):\n${settings.myResearch.trim()}` : '',
   ].join('\n');
 }

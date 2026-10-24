@@ -366,6 +366,7 @@ DEFAULT_SETTINGS = {
     # notesLang: ngôn ngữ hiển thị ghi chú ("" = giữ ngôn ngữ lúc trích xuất, "vi" / "en" = dịch khi cần).
     # chatLang: ngôn ngữ trả lời của Chat và Hỏi đáp ("" = theo ngôn ngữ trích xuất, "auto" = theo câu hỏi, "vi" / "en").
     "chatLang": "",
+    "chatLength": "",  # độ dài câu trả lời của Chat: "" tự co giãn theo câu hỏi, "short" ngắn gọn, "long" chi tiết
     "myResearch": "",
     "translate": {"targetLang": "vi", "mode": "button", "openOn": "hover", "useContext": True, "showOriginal": True},
     "pdfMode": "auto",

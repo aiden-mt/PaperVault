@@ -117,6 +117,16 @@ try {
     eq(holidaysOf('2023-04-05').filter((h) => h.lunar).length, 0, 'không lấy ngày lễ âm trong tháng nhuận');
   });
 
+  await test('Chat: độ dài câu trả lời co giãn theo câu hỏi hoặc theo lựa chọn', async () => {
+    const { buildChatSystem, buildAskSystem, CHAT_LENGTHS } = await import('/js/prompts.js');
+    eq(CHAT_LENGTHS.map((x) => x[0]), ['', 'short', 'long']);
+    ok(buildChatSystem({}).includes('vừa đủ cho đúng câu hỏi'), 'mặc định tự co giãn');
+    ok(buildChatSystem({}, { length: 'short' }).includes('NGẮN GỌN'));
+    ok(buildChatSystem({}, { length: 'long' }).includes('CHI TIẾT'));
+    ok(buildAskSystem({ chatLength: 'short' }).includes('NGẮN GỌN'), 'tab Hỏi đáp theo cùng lựa chọn');
+    ok(!buildAskSystem({}).includes('Trả lời ngắn gọn, có cấu trúc'), 'bỏ quy tắc ép ngắn cũ');
+  });
+
   await test('lineDiff: so sánh theo dòng', () => {
     eq(lineDiff('a\nb\nc', 'a\nc\nd').map((x) => x.t + x.s), ['=a', '-b', '=c', '+d']);
     eq(lineDiff('', 'x').map((x) => x.t + x.s), ['-', '+x']);

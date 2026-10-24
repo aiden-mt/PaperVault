@@ -299,7 +299,10 @@ ${steps([
 </ul>
 <p><b>Lưu vào Sổ tay</b>: nút ${ui('📓 Lưu vào Sổ tay')} dưới mỗi câu trả lời chép câu trả lời vào <b>nhật ký hôm nay</b>, <b>cuối một trang có sẵn</b> hoặc <b>một trang mới</b>, dạng khối ✨ AI (thu gọn được) hoặc đoạn văn thường, có thể kèm câu hỏi. Nhãn nguồn [P1], [P2] thành liên kết <code>[[@paper]]</code>, nên trang đó hiện ở thẻ ${ui('📓 Trong sổ tay nghiên cứu')} của paper.</p>
 <p>Hội thoại mới chưa có paper hiện ba cách bắt đầu: dùng các paper đang tick ở Thư viện / So sánh, tìm và chọn từng paper, hoặc chọn cả một chủ đề. Thẻ paper trong Nguồn ghi ${ui('● toàn văn')} hoặc ${ui('○ chỉ ghi chú')}, quyết định chatbot đọc được gì.</p>
-<p>Cuối bảng Nguồn có ước tính số token. Với Claude, phần ngữ cảnh cố định được cache nên từ câu thứ hai chỉ tính giá đọc cache (khoảng một phần mười). ${ui('Dừng')} cắt ngang và giữ phần đã nhận, ${ui('Ẩn nguồn')} thu bảng bên phải, ${ui('Xuất .md')} lưu cả hội thoại. Khung hẹp (ví dụ khi chia đôi màn hình) thì bảng Nguồn là ngăn trượt, mở bằng nút ${ui('📚 Nguồn')}.</p>`,
+<p>Cuối bảng Nguồn có ước tính số token. Với Claude, phần ngữ cảnh cố định được cache nên từ câu thứ hai chỉ tính giá đọc cache (khoảng một phần mười). ${ui('Dừng')} cắt ngang và giữ phần đã nhận, ${ui('Ẩn nguồn')} thu bảng bên phải, ${ui('Xuất .md')} lưu cả hội thoại. Khung hẹp (ví dụ khi chia đôi màn hình) thì bảng Nguồn là ngăn trượt, mở bằng nút ${ui('📚 Nguồn')}.</p>
+<p><b>Độ dài câu trả lời</b> (ô ${ui('Độ dài')} dưới khung hỏi): ${ui('Tự động')} co giãn theo câu hỏi (hỏi ngắn thì trả lời 1–3 câu, xin tóm tắt thì gạch đầu dòng, xin giải thích chi tiết hay phân tích thì viết đầy đủ), ${ui('Ngắn gọn')} luôn ngắn, ${ui('Chi tiết')} luôn đầy đủ. Lựa chọn dùng chung cho tab Hỏi đáp của trang paper. Trong lúc hỏi vẫn có thể nói "ngắn thôi" hoặc "nói rõ hơn".</p>
+<p><b>Bản nháp</b>: chữ và tệp đính kèm chưa gửi được giữ riêng cho từng hội thoại; sang trang khác, đổi hội thoại hay tắt app rồi quay lại vẫn còn (nháp quá 30 ngày thì tự bỏ).</p>
+`,
   },
   {
     id: 'compare', group: 'explore', title: 'So sánh và tổng hợp related work', routes: ['compare'],

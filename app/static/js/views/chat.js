@@ -8,7 +8,7 @@ import { $, toast, confirmDialog, mdToHtml, topicBadge, selectAllHtml, syncSelec
 import { unverifiedNumbers } from '../quality.js';
 import { streamChat, hasCredentials } from '../llm.js';
 import { tokenize, chunksOf, bm25Pick, searchTerms } from '../rag.js';
-import { buildChatSystem, paperNotesText, CHAT_LANGS } from '../prompts.js';
+import { buildChatSystem, paperNotesText, CHAT_LANGS, CHAT_LENGTHS } from '../prompts.js';
 import { makeJob, trackJob } from '../bgjobs.js';
 import { readableChatMd } from '../readable.js';
 import { venueBadge, RANK_FILTERS, matchesRankFilter, rankSortKey } from '../venue.js';
@@ -35,6 +35,34 @@ const state = {
   picking: false, panelOpen: true,
   pick: { q: '', topic: '', rank: '', textOnly: false },
 };
+
+/* ================================================================ bản nháp khung hỏi */
+// Chữ và tệp đính kèm chưa gửi, theo từng hội thoại (hội thoại mới chưa lưu dùng khoá "new"): sang trang khác, đổi hội thoại
+// hoặc tắt app rồi quay lại vẫn còn. Ảnh và PDF đã nằm trong kho của app nên chỉ lưu tham chiếu; nháp quá 30 ngày thì bỏ.
+const DRAFT_KEY = 'pv.chatDrafts';
+const DRAFT_DAYS = 30;
+const draftKey = (c) => c?.id || 'new';
+function readDrafts() {
+  try {
+    const all = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}') || {};
+    const cut = Date.now() - DRAFT_DAYS * 864e5;
+    return Object.fromEntries(Object.entries(all).filter(([, d]) => d && (d.at || 0) > cut));
+  } catch (_) { return {}; }
+}
+function writeDrafts(all) {
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(all)); return; } catch (_) { /* đầy: thử bỏ nội dung file chữ */ }
+  try {
+    const slim = Object.fromEntries(Object.entries(all).map(([k, d]) => [k, { ...d, attach: (d.attach || []).filter((a) => a.kind === 'image' || a.kind === 'pdf-scan') }]));
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(slim));
+  } catch (_) { /* không lưu được: bỏ qua */ }
+}
+const getDraft = (c) => readDrafts()[draftKey(c)] || null;
+function putDraft(key, text, attach) {
+  const all = readDrafts();
+  if (!String(text || '').trim() && !(attach || []).length) delete all[key];
+  else all[key] = { text: String(text || ''), attach: (attach || []).map((a) => ({ ...a })), at: Date.now() };
+  writeDrafts(all);
+}
 
 /* ================================================================ dữ liệu hội thoại */
 
@@ -75,7 +103,7 @@ function corpusText(c) {
   }
   return parts.join('\n\n');
 }
-const systemBlocks = (c) => [{ text: buildChatSystem(store.settings) }, { text: corpusText(c), cache: true }];
+const systemBlocks = (c) => [{ text: buildChatSystem(store.settings, { length: store.settings.chatLength || '' }) }, { text: corpusText(c), cache: true }];
 
 /** BM25 trên các đoạn của toàn văn. Trả về [{ label, id, n, text }]. */
 function retrieve(c, queryTerms) {
@@ -259,7 +287,8 @@ export async function render(root, { params, query }) {
         <div id="ch-suggest" class="suggest-q"></div>
         <div class="chat-input"><textarea id="ch-q" rows="2" placeholder="Hỏi về các paper đã chọn… (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
           <button id="ch-send" class="primary">Gửi</button><button id="ch-stop" class="sm danger" hidden>Dừng</button></div>
-        <div class="ch-att-row"><button type="button" class="sm ghost" id="ch-attach" title="Đính kèm ảnh (hình, biểu đồ, ảnh chụp màn hình) hoặc file (PDF, .txt, .md, .csv, .json, .tex, .bib, code…). Cũng có thể dán Ctrl+V hoặc kéo thả vào đây.">📎 Đính kèm</button><input type="file" id="ch-file" accept="${ATTACH_ACCEPT}" multiple hidden><div id="ch-att" class="ch-att"></div><span class="hint ch-att-hint">Dán (Ctrl+V) hoặc kéo thả ảnh, PDF, file chữ vào khung hỏi</span></div>
+        <div class="ch-att-row"><button type="button" class="sm ghost" id="ch-attach" title="Đính kèm ảnh (hình, biểu đồ, ảnh chụp màn hình) hoặc file (PDF, .txt, .md, .csv, .json, .tex, .bib, code…). Cũng có thể dán Ctrl+V hoặc kéo thả vào đây.">📎 Đính kèm</button><input type="file" id="ch-file" accept="${ATTACH_ACCEPT}" multiple hidden><div id="ch-att" class="ch-att"></div><span class="hint ch-att-hint">Dán (Ctrl+V) hoặc kéo thả ảnh, PDF, file chữ vào khung hỏi</span>
+          <label class="ch-len" title="Độ dài câu trả lời. Tự động: câu hỏi ngắn thì trả lời ngắn, xin tóm tắt thì gạch đầu dòng, xin chi tiết thì viết đầy đủ."><span>Độ dài</span><select id="ch-len">${CHAT_LENGTHS.map(([v, l]) => `<option value="${v}" ${(store.settings.chatLength || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
       </div>
     </section>
     <aside class="src-panel" id="ch-panel" aria-label="Nguồn của hội thoại"></aside>
@@ -331,7 +360,9 @@ export async function render(root, { params, query }) {
   };
   const persistSoon = debounce(() => persist().catch(() => {}), 600);
 
+  let draftReady = false; // khung hỏi đã dựng xong (khôi phục nháp được)
   const drawAll = async () => {
+    if (draftReady) restoreDraft();
     $('ch-title').value = state.chat.title || '';
     page.classList.toggle('no-panel', !state.panelOpen);
     if (state.chat.mode !== 'notes') ensureTexts(state.chat.paperIds).then(() => { drawPanel(); });
@@ -462,12 +493,30 @@ export async function render(root, { params, query }) {
   // PDF không có lớp chữ (bản scan) { kind: 'pdf-scan', name, pdfId } gửi nguyên file cho model.
   const attach = [];
   let attachBusy = false;
+  let shownChat = null; // hội thoại có bản nháp đang hiện trong khung hỏi (id có sau lần gửi đầu, nên giữ chính đối tượng)
   function drawAttach() {
     const box = $('ch-att');
     if (!box) return;
     box.innerHTML = attachChipsHtml(attach, attachBusy);
     $('ch-compose')?.classList.toggle('has-att', attach.length > 0 || attachBusy);
+    saveDraft();
   }
+  function saveDraft() {
+    const q = $('ch-q');
+    if (!q || !shownChat) return;
+    putDraft(draftKey(shownChat), q.value, attach);
+  }
+  function restoreDraft() {
+    if (state.chat === shownChat) return;
+    saveDraft(); // giữ nháp của hội thoại vừa rời
+    shownChat = state.chat;
+    const d = getDraft(state.chat);
+    $('ch-q').value = d?.text || '';
+    attach.length = 0;
+    attach.push(...(d?.attach || []));
+    drawAttach();
+  }
+
   async function addImages(files) {
     const list = [...files];
     const bad = list.filter((f) => !kindOf(f));
@@ -476,6 +525,8 @@ export async function render(root, { params, query }) {
     if (!ok.length) return;
     const room = MAX_ATTACH - attach.length;
     if (room <= 0) return toast(`Mỗi câu hỏi đính kèm tối đa ${MAX_ATTACH} tệp.`, 3000);
+    const key0 = draftKey(shownChat);
+    const box0 = $('ch-att');
     if (ok.length > room) toast(`Chỉ thêm ${room} tệp đầu (tối đa ${MAX_ATTACH} tệp mỗi câu hỏi).`, 3000);
     try {
       for (const f of ok.slice(0, room)) {
@@ -484,6 +535,8 @@ export async function render(root, { params, query }) {
         drawAttach();
         const it = await readAttachment(f);
         if (it) attach.push(it);
+        // Đã rời trang Chat trong lúc đọc tệp: khung hỏi này không còn, ghi thẳng vào nháp của hội thoại đó.
+        if (!box0.isConnected) { if (it) { const d = readDrafts()[key0]; putDraft(key0, d?.text || '', [...(d?.attach || []), it]); } continue; }
         drawAttach();
       }
     } catch (e) {
@@ -525,6 +578,11 @@ export async function render(root, { params, query }) {
 
   /* ---- sự kiện: khung chat ---- */
   $('ch-send').addEventListener('click', () => ask($('ch-q').value));
+  $('ch-len').addEventListener('change', async (e) => {
+    await saveSettings({ chatLength: e.target.value });
+    toast({ '': 'Độ dài tự co giãn theo câu hỏi.', short: 'Câu trả lời sẽ ngắn gọn.', long: 'Câu trả lời sẽ chi tiết.' }[e.target.value], 2000, 'ok');
+  });
+  $('ch-q').addEventListener('input', debounce(saveDraft, 250));
   $('ch-stop').addEventListener('click', () => state.abort?.abort());
   $('ch-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask($('ch-q').value); } });
   $('ch-suggest').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (b) ask(b.dataset.q); });
@@ -652,6 +710,10 @@ export async function render(root, { params, query }) {
     download(`chat-${(c.title || 'papervault').slice(0, 40).replace(/[^\p{L}\p{N}]+/gu, '-')}.md`, md.join('\n'), 'text/markdown;charset=utf-8');
   });
 
+  draftReady = true;
+  restoreDraft();
+
   // Rời trang Chat không huỷ câu trả lời đang viết: nó chạy tiếp, xong thì lưu vào hội thoại (bảng nổi báo tiến độ).
-  return () => { chMq.removeEventListener('change', onChMq); };
+  // Chữ đang soạn được lưu thành nháp để quay lại vẫn còn.
+  return () => { saveDraft(); chMq.removeEventListener('change', onChMq); };
 }

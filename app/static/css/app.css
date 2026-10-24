@@ -2570,3 +2570,7 @@ body:has(.modal) .pv-notices, body:has(.modal) .bg-tray { z-index: 79; }
 .cal-hol-row.off .cal-row-t { color: var(--danger); font-weight: 600; }
 @media (max-width: 760px) { .cal-lyear .hint { display: none; } }
 .badge.danger { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); border-color: transparent; }
+
+/* Chat: chọn độ dài câu trả lời */
+.ch-len { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.ch-len select { height: 28px; padding: 2px 26px 2px 8px; font-size: 12.5px; width: auto; }
