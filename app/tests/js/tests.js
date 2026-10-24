@@ -166,6 +166,8 @@ try {
     eq(cx.retrievalDocs(p, ctx).map((d) => d.src).includes('hỏi đáp trước'), true);
     eq(cx.librarySuggestions({ paperIds: ['p_main'] }, [{ p, label: 'P2' }]).map((s) => [s.p.id, s.via]), [['p_lib', 'P2.C1']]);
     eq(cx.relatedByCode([{ p, label: 'P2' }], 'P2.C1')?.title, 'Visual Instruction Tuning');
+    const ents = cx.relatedEntries([{ p, label: 'P2' }]);
+    eq(ents.map((x) => [x.id, x.relation, x.mainId]), [['P2.S1', '', 'p_main'], ['P2.C1', 'cit', 'p_main'], ['P2.R1', 'ref', 'p_main']], 'thẻ chi tiết: mã theo hội thoại, bài ghim không ghi chiều dẫn');
     store.papers = [];
   });
 

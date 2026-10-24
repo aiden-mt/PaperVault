@@ -7,7 +7,7 @@
 import { api } from './api.js';
 import { store } from './store.js';
 import { plainTitle } from './richtext.js';
-import { s2Ident } from './s2util.js';
+import { s2Ident, citeRole, fmtPub } from './s2util.js';
 import { loadPages, pagesForPaper } from './notebook.js';
 import { researchMapMarkdown } from './research.js';
 import { whatsNewMarkdown } from './whatsnew.js';
@@ -108,6 +108,7 @@ export function networkOf(p, { max = 25 } = {}) {
         meta: [x.date, x.venue, x.citations ? `${fmtK(x.citations)} trích dẫn` : '', x.influential ? 'ảnh hưởng lớn' : '', x.pinned ? 'bạn chọn thêm' : '', ...graphMeta(n)].filter(Boolean),
         detail: [r.method && !/^chưa rõ$/i.test(r.method) ? `phương pháp: ${one(r.method)}` : '', r.difference ? `khác: ${one(r.difference)}` : '', !r.method && !r.difference && x.tldr ? one(x.tldr) : ''].filter(Boolean).join('; '),
         lib: libFind(x), link: x.arxiv ? `https://arxiv.org/abs/${x.arxiv}` : (x.doi ? `https://doi.org/${x.doi}` : x.url || ''), analyzed: true,
+        raw: { ...x, relation: x.relation === 'pin' ? '' : x.relation },
       });
     }
   }
@@ -120,6 +121,12 @@ export function networkOf(p, { max = 25 } = {}) {
       code: `N${i + 1}`, title: n.title, rel: n.kind === 'ref' ? 'paper này dẫn' : n.kind === 'cit' ? 'dẫn paper này' : 'dẫn qua lại',
       meta: [n.year, n.venue, n.citations ? `${fmtK(n.citations)} trích dẫn` : '', n.influential ? 'ảnh hưởng lớn' : '', ...graphMeta(n)].filter(Boolean),
       detail: one(n.tldr || n.abstract || '').slice(0, 260), lib: libFind(n), link: n.arxiv ? `https://arxiv.org/abs/${n.arxiv}` : (n.doi ? `https://doi.org/${n.doi}` : n.url || ''),
+      raw: {
+        paperId: n.id, title: n.title, authors: n.authors || '', date: n.date || (n.year ? String(n.year) : ''), venue: n.venue || '', citations: n.citations || 0,
+        contexts: n.contexts || [], tldr: n.tldr || '', abstract: n.abstract || '', arxiv: n.arxiv || '', doi: n.doi || '', url: n.url || '',
+        relation: n.kind === 'ref' || n.kind === 'cit' ? n.kind : '', role: citeRole({ _intents: n.intents, _contexts: n.contexts }).role,
+        roleText: n.simSeed ? `Gần theo đồ thị (tương đồng ${Number(n.simSeed).toFixed(2)})` : 'Gần theo đồ thị trích dẫn', influential: !!n.influential,
+      },
     }));
   } else if (!map?.papers?.length) {
     // Chưa dựng Hướng nghiên cứu lẫn đồ thị: lấy thẳng bài dẫn / được dẫn, ưu tiên bài ảnh hưởng lớn và nhiều trích dẫn.
@@ -129,6 +136,11 @@ export function networkOf(p, { max = 25 } = {}) {
       code, title: it.title, rel, meta: [it.year, it.venue, it.citationCount ? `${fmtK(it.citationCount)} trích dẫn` : '', it._influential ? 'ảnh hưởng lớn' : ''].filter(Boolean),
       detail: one(it.tldr || it.abstract || '').slice(0, 260), lib: libFind(it),
       link: it.externalIds?.ArXiv ? `https://arxiv.org/abs/${it.externalIds.ArXiv}` : (it.externalIds?.DOI ? `https://doi.org/${it.externalIds.DOI}` : it.url || ''),
+      raw: {
+        paperId: it.paperId || '', title: it.title, authors: (it.authors || []).slice(0, 4).map((a) => a.name).join(', '), date: fmtPub(it), venue: it.venue || '',
+        citations: it.citationCount ?? null, contexts: (it._contexts || []).slice(0, 2), tldr: it.tldr || '', abstract: (it.abstract || '').slice(0, 400),
+        arxiv: it.externalIds?.ArXiv || '', doi: it.externalIds?.DOI || '', url: it.url || '', relation: code[0] === 'R' ? 'ref' : 'cit', role: citeRole(it).role, influential: !!it._influential,
+      },
     });
     top(e.refs).forEach((it, i) => add(it, `R${i + 1}`, 'paper này dẫn'));
     top(e.cits).forEach((it, i) => add(it, `C${i + 1}`, 'dẫn paper này'));
@@ -217,6 +229,14 @@ export function librarySuggestions(c, papers) {
     }
   });
   return [...seen.values()].slice(0, 12);
+}
+
+/**
+ * Mọi bài liên quan của các paper trong hội thoại, theo đúng dạng thẻ chi tiết của Hướng nghiên cứu / Có gì mới
+ * (bindWhatsNewChips), mã là P1.C3… để bấm vào mã trong câu trả lời mở thẻ.
+ */
+export function relatedEntries(papers) {
+  return papers.flatMap(({ p, label }) => networkOf(p, { max: 200 }).filter((x) => x.raw).map((x) => ({ ...x.raw, id: `${label}.${x.code}`, mainId: p.id })));
 }
 
 /** Thông tin một mã bài liên quan (P1.R3) để hiện thẻ trong câu trả lời. */

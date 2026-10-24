@@ -2588,3 +2588,7 @@ body:has(.modal) .pv-notices, body:has(.modal) .bg-tray { z-index: 79; }
 .src-sug-i .hint { flex: none; font-size: 11.5px; }
 .cite.rel { background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .cite.rel.lib { background: color-mix(in srgb, var(--ok) 16%, transparent); }
+
+/* Chat: mã bài liên quan (P1.C3) mở thẻ chi tiết */
+.wn-chip.cite-rel { margin: 0 1px; }
+.wn-chip.cite-rel.lib { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 55%, transparent); }

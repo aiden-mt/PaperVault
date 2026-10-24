@@ -8,7 +8,9 @@ import { $, toast, confirmDialog, mdToHtml, topicBadge, selectAllHtml, syncSelec
 import { unverifiedNumbers } from '../quality.js';
 import { streamChat, hasCredentials } from '../llm.js';
 import { tokenize, chunksOf, bm25Pick, searchTerms } from '../rag.js';
-import { CTX_KINDS, CTX_GUIDE, ctxOf, ensureContext, extraBlock, retrievalDocs, librarySuggestions, relatedByCode } from '../chatctx.js';
+import { CTX_KINDS, CTX_GUIDE, ctxOf, ensureContext, extraBlock, retrievalDocs, librarySuggestions, relatedByCode, relatedEntries } from '../chatctx.js';
+import { bindWhatsNewChips } from '../whatsnew.js';
+import { compareState, togglePin } from '../research.js';
 import { buildChatSystem, paperNotesText, CHAT_LANGS, CHAT_LENGTHS } from '../prompts.js';
 import { makeJob, trackJob } from '../bgjobs.js';
 import { readableChatMd } from '../readable.js';
@@ -167,9 +169,10 @@ function citeLinks(html, c) {
   html = html.replace(/\[(P\d+)\.([RCSN]\d{1,3})\]/g, (m, lab, code) => {
     const x = relatedByCode(items, `${lab}.${code}`);
     if (!x) return `<span class="cite missing">${lab}.${code}</span>`;
-    const tip = escapeHtml(`${x.title}${x.meta?.length ? ` (${x.meta.slice(0, 3).join(' · ')})` : ''}${x.rel ? ` · ${x.rel}` : ''}${x.lib ? ' · có trong thư viện' : ''}`);
-    if (x.lib) return `<a class="cite rel lib" href="#/paper/${x.lib.id}" title="${tip}">${lab}.${code}</a>`;
-    return x.link ? `<a class="cite rel" href="${escapeHtml(x.link)}" target="_blank" rel="noopener" title="${tip}">${lab}.${code}</a>` : `<span class="cite rel" title="${tip}">${lab}.${code}</span>`;
+    const tip = escapeHtml(`${plainTitle(x.title)}${x.meta?.length ? ` (${x.meta.slice(0, 3).join(' · ')})` : ''}${x.rel ? ` · ${x.rel}` : ''}${x.lib ? ' · có trong thư viện' : ''} · bấm để xem chi tiết`);
+    // Cùng thẻ chi tiết với Hướng nghiên cứu / Có gì mới (bindWhatsNewChips ở trang Chat).
+    const cls = { ref: 'rm-ref', cit: 'rm-cit' }[x.raw?.relation] || '';
+    return `<button type="button" class="wn-chip cite-rel ${cls} ${x.lib ? 'lib' : ''}" data-wn="${lab}.${code}" title="${tip}">${lab}.${code}</button>`;
   });
   return html.replace(/\[((?:P\d+)(?:\s*[,;]\s*P\d+)*)\]/g, (m, inner) => inner.split(/\s*[,;]\s*/).map((lab) => {
     const x = byLabel.get(lab);
@@ -635,6 +638,18 @@ export async function render(root, { params, query }) {
     ov.addEventListener('click', close);
     document.addEventListener('keydown', onEsc, true);
     document.body.appendChild(ov);
+  });
+
+  /* ---- bấm mã bài liên quan (P1.C3) trong câu trả lời: thẻ chi tiết như ở Hướng nghiên cứu ---- */
+  const mainOf = (x) => paperById(x.mainId);
+  bindWhatsNewChips($('ch-msgs'), { get papers() { return relatedEntries(papersOf(state.chat)); } }, {
+    compareOf: (x) => (mainOf(x) ? compareState(mainOf(x), x) : {}),
+    onCompare: async (x, go) => {
+      const p = mainOf(x);
+      if (!p) return;
+      if (go) { location.hash = `#/paper/${p.id}?tab=research`; return; }
+      await togglePin(p.id, x, x.relation === 'ref' ? 'ref' : x.relation === 'cit' ? 'cit' : 'other');
+    },
   });
 
   /* ---- sự kiện: khung chat ---- */
