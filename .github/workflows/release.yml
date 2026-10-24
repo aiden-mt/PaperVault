@@ -1,5 +1,6 @@
 # Đóng gói PaperVault.exe trên máy Windows của GitHub và đính kèm file zip vào Release.
-# Phát hành phiên bản mới: tạo tag dạng v1.2.0 rồi push (git tag v1.2.0 && git push origin v1.2.0).
+# Phát hành phiên bản mới: viết ghi chú vào .github/RELEASE_NOTES.md (app hiện nội dung này trong thẻ "Có bản mới"),
+# tạo tag dạng v1.2.0 rồi push (git tag v1.2.0 && git push origin v1.2.0).
 # Chạy tay ở tab Actions → Build PaperVault → Run workflow: chỉ tạo file zip trong mục Artifacts để thử.
 name: Build PaperVault
 
@@ -34,6 +35,7 @@ jobs:
           --add-data "static;static" --add-data "rankings;rankings"
           --collect-all webview --collect-all clr_loader --collect-all pythonnet
           --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms
+          --hidden-import tray --hidden-import zotero_import
           desktop.py
 
       - name: Nén thành zip
@@ -52,4 +54,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: app/PaperVault-windows.zip
+          body_path: .github/RELEASE_NOTES.md
           generate_release_notes: true

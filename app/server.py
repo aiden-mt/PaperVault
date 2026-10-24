@@ -95,7 +95,7 @@ HOST = os.environ.get("PV_HOST") or CONFIG.get("host") or "127.0.0.1"
 PORT = int(os.environ.get("PV_PORT") or CONFIG.get("port") or 8765)
 MAX_BODY = 64 * 1024 * 1024
 # Phiên bản app (so với bản mới nhất trên GitHub Releases khi kiểm tra cập nhật). Tăng cùng lúc với tag phát hành.
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 RELEASES_API = "https://api.github.com/repos/aiden-mt/PaperVault/releases/latest"
 RELEASES_PAGE = "https://github.com/aiden-mt/PaperVault/releases/latest"
 UA = "PaperVault/1.0 (local research assistant; +https://github.com)"
