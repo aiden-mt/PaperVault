@@ -94,7 +94,7 @@ export const api = {
   zoteroScan: (dir = '') => req('GET', `zotero/scan?dir=${encodeURIComponent(dir)}`),
   zoteroPdf: (path) => req('POST', 'zotero/pdf', { path }),
   litCiting: ({ doi = '', arxiv = '', title = '', year = '', limit = 8 } = {}) => req('GET', `lit-citing?doi=${encodeURIComponent(doi)}&arxiv=${encodeURIComponent(arxiv)}&title=${encodeURIComponent(title)}${year ? `&year=${encodeURIComponent(year)}` : ''}&limit=${limit}`),
-  litSearch: (q, { year = '', limit = 10 } = {}) => req('GET', `lit-search?q=${encodeURIComponent(q)}${year ? `&year=${encodeURIComponent(year)}` : ''}&limit=${limit}`),
+  litSearch: (q, { year = '', limit = 10, offset = 0 } = {}) => req('GET', `lit-search?q=${encodeURIComponent(q)}${year ? `&year=${encodeURIComponent(year)}` : ''}&limit=${limit}${offset ? `&offset=${offset}` : ''}`),
   icsFetch: (url) => req('GET', `ics-fetch?url=${encodeURIComponent(url)}`),
   chats: () => req('GET', 'chats'),
   chat: (id) => req('GET', `chats/${id}`),

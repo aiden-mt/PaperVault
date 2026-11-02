@@ -318,6 +318,73 @@ try {
     const roomy = await budgetGate({ ...base, aiBudget: { limit: 1000, mode: 'block' } }, 'chat');
     eq(roomy.models.anthropic, 'claude-sonnet-4-5');
   });
+
+  await test('Tìm paper: phân biệt link / arXiv / DOI với tên paper, từ khoá', async () => {
+    const { isPaperIdentifier } = await import('/js/papersearch.js');
+    for (const q of ['2401.12345', 'arXiv:2510.03232v2', 'https://arxiv.org/abs/2006.11239', '10.1145/3292500.3330701', 'doi:10.1109/CVPR.2016.90',
+      'cs/0601001', 'openreview.net/forum?id=abc', 'www.aclweb.org/anthology/P19-1001']) ok(isPaperIdentifier(q), `phải là định danh: ${q}`);
+    for (const q of ['LEAML', 'visual question answering hallucination', 'Attention is all you need', 'CLIP: learning transferable', '', '  ']) ok(!isPaperIdentifier(q), `phải là từ khoá: ${q}`);
+  });
+
+  await test('Tìm paper: chuẩn hoá kết quả, sắp xếp, khớp thư viện, mục hàng loạt', async () => {
+    const { searchItem, sortItems, matchLibrary, toBatchEntry } = await import('/js/papersearch.js');
+    const a = searchItem({ paperId: 's1', title: ' LEAML:  Label-Efficient ', authors: [{ name: 'Ci-Siang Lin' }, { name: 'Y.-C. F. Wang' }], year: 2025,
+      citationCount: 3, externalIds: { ArXiv: '2510.03232', DOI: '10.48550/arXiv.2510.03232' }, url: 'https://www.semanticscholar.org/paper/s1', publicationDate: '2025-10-03' });
+    eq([a.title, a.authors.length, a.year, a.cites, a.query, a.pdfUrl], ['LEAML: Label-Efficient', 2, '2025', 3, '2510.03232', 'https://arxiv.org/pdf/2510.03232']);
+    const b = searchItem({ paperId: 's2', title: 'Old', year: 2019, citationCount: 900, externalIds: { DOI: '10.1/x' }, openAccessPdf: { url: 'https://x/y.pdf' } });
+    eq([b.query, b.pdfUrl, b.arxivId], ['10.1/x', 'https://x/y.pdf', '']);
+    const c = searchItem({ paperId: 's3', title: 'No cites', year: 2024, externalIds: {} , url: 'https://site/p' });
+    eq([c.cites, c.query], [null, 'https://site/p']);
+    eq(sortItems([a, b, c], 'cites').map((x) => x.id), ['s2', 's1', 's3']);
+    eq(sortItems([b, c, a], 'newest').map((x) => x.id), ['s1', 's3', 's2']);
+    eq(sortItems([b, c, a]).map((x) => x.id), ['s2', 's3', 's1']);
+    const lib = [
+      { id: 'p1', title: 'Visual Question Answering with Large Models', authors: ['Nguyễn Văn A'], tags: ['vqa'] },
+      { id: 'p2', title: 'Detection transformers', authors: ['B'], tags: ['visual'] },
+      { id: 'p3', title: 'Question answering survey', deletedAt: '2026-01-01' },
+    ];
+    eq(matchLibrary(lib, 'question answering').map((p) => p.id), ['p1']);
+    eq(matchLibrary(lib, 'visual').map((p) => p.id), ['p1', 'p2']);
+    eq(matchLibrary(lib, 'nguyen').map((p) => p.id), ['p1']);
+    eq(matchLibrary(lib, 'a').length, 0);
+    const e = toBatchEntry(a);
+    eq([e.title, e.authors, e.arxivId, e.year], ['LEAML: Label-Efficient', ['Ci-Siang Lin', 'Y.-C. F. Wang'], '2510.03232', '2025']);
+  });
+
+  await test('Thay PDF: xoá hoặc giữ bản cũ, nét tô, chuyển lại, giới hạn số bản', async () => {
+    const { replacePdfPatch, restorePdfPatch, dropPdfVersions, MAX_PDF_VERSIONS } = await import('/js/pdfversions.js');
+    const at = '2026-11-02T00:00:00Z';
+    const marks = [{ id: 'm1', page: 1 }];
+    const p = { pdfId: 'f_old', pdfName: 'old.pdf', pdfMarks: marks };
+    const del = replacePdfPatch(p, { id: 'f_new', name: 'new.pdf' }, { deleteOld: true, at });
+    eq(del.drop, ['f_old']);
+    eq([del.patch.pdfId, del.patch.pdfName, del.patch.pdfMarks, del.patch.pdfVersions], ['f_new', 'new.pdf', [], []]);
+    const keep = replacePdfPatch(p, { id: 'f_new', name: 'new.pdf' }, { deleteOld: false, keepMarks: true, at });
+    eq(keep.drop, []);
+    eq(keep.patch.pdfMarks, marks);
+    eq(keep.patch.pdfVersions, [{ pdfId: 'f_old', pdfName: 'old.pdf', at, pdfMarks: marks }]);
+    eq(replacePdfPatch({}, { id: 'f_a', name: 'a.pdf' }).drop, []);
+    // chuyển lại bản cũ: bản đang dùng được cất vào đầu danh sách, nét tô đi theo từng bản
+    const cur = { ...p, ...keep.patch, pdfMarks: [{ id: 'm2' }] };
+    const back = restorePdfPatch(cur, 0, { at });
+    eq([back.pdfId, back.pdfMarks, back.pdfVersions.map((v) => v.pdfId), back.pdfVersions[0].pdfMarks], ['f_old', marks, ['f_new'], [{ id: 'm2' }]]);
+    eq(restorePdfPatch(cur, 5), null);
+    eq(restorePdfPatch({ pdfVersions: [{ pdfId: 'f_x', pdfName: 'x.pdf' }] }, 0).pdfVersions, []);
+    // giới hạn số bản cũ: bản cũ nhất bị xoá
+    let q = { pdfId: 'f_0', pdfName: '0.pdf' };
+    const dropped = [];
+    for (let i = 1; i <= MAX_PDF_VERSIONS + 2; i++) {
+      const r = replacePdfPatch(q, { id: `f_${i}`, name: `${i}.pdf` }, { deleteOld: false, at });
+      dropped.push(...r.drop);
+      q = { ...q, ...r.patch };
+    }
+    eq(q.pdfVersions.length, MAX_PDF_VERSIONS);
+    eq(dropped, ['f_0', 'f_1']);
+    eq(dropPdfVersions(q, 0).drop, [q.pdfVersions[0].pdfId]);
+    eq(dropPdfVersions(q, 0).patch.pdfVersions.length, MAX_PDF_VERSIONS - 1);
+    eq(dropPdfVersions(q).patch.pdfVersions, []);
+    eq(dropPdfVersions(q).drop.length, MAX_PDF_VERSIONS);
+  });
 } catch (e) {
   results.push({ name: 'nạp module', ok: false, error: String(e?.stack || e) });
 }

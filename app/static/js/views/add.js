@@ -10,11 +10,14 @@ import { parseReferences } from '../bib.js';
 import { zoteroCardHtml, bindZoteroCard } from '../zotero.js';
 import { renderBatch, addEntries } from './batch.js';
 import { runJob, getJob, jobRunning, followJob } from '../bgjobs.js';
+import { isPaperIdentifier, searchItem, sortItems, matchLibrary, toBatchEntry } from '../papersearch.js';
 
 let pendingFiles = [];
 export function setPendingFiles(files) { pendingFiles = files; }
 
 const state = { tab: 'link', source: null, pdf: null, result: null, saving: false, savedId: null, refs: [] };
+// Tìm paper theo tên / từ khoá: kết quả đã tải, vị trí trang sau, bộ lọc năm, cách xếp, bài đã tích để thêm hàng loạt.
+const search = { q: '', items: [], offset: 0, total: 0, source: '', year: '', sort: 'relevance', picked: new Set(), loading: false };
 
 export async function render(root, { query }) {
   state.tab = query.get('tab') || (pendingFiles.length ? 'pdf' : 'link');
@@ -24,7 +27,7 @@ export async function render(root, { query }) {
     ${!hasCredentials(store.settings) ? '<div class="dup-warn">Chưa có API key. <a href="#/settings">Mở Cài đặt</a> để nhập key trước khi trích xuất. Vẫn nhập được metadata từ file .bib/.ris mà không cần key.</div>' : ''}
     <div id="add-inbox"></div>
     <div class="tabs" id="add-tabs">
-      <button data-tab="link">Link / arXiv / DOI</button><button data-tab="pdf">File PDF</button><button data-tab="text">Dán text</button><button data-tab="batch">Hàng loạt (link + nhiều PDF)</button><button data-tab="bib">Zotero / .bib / .ris</button>
+      <button data-tab="link">Tìm / Link / arXiv / DOI</button><button data-tab="pdf">File PDF</button><button data-tab="text">Dán text</button><button data-tab="batch">Hàng loạt (link + nhiều PDF)</button><button data-tab="bib">Zotero / .bib / .ris</button>
     </div>
     <div id="add-body"></div>
     <div id="add-status" class="status" style="margin-top:10px"></div>
@@ -38,7 +41,7 @@ export async function render(root, { query }) {
   });
   drawInbox();
   drawTab();
-  if (query.get('q')) { $('add-q').value = query.get('q'); resolveLink(); }
+  if (query.get('q')) { $('add-q').value = query.get('q'); submitQuery(); }
   if (pendingFiles.length && state.tab === 'pdf') { const f = pendingFiles.shift(); pendingFiles = []; acceptPdf(f); }
   // Trích xuất chạy nền: đang chạy thì thanh tiến độ chạy tiếp, xong lúc người dùng ở trang khác thì hiện kết quả để lưu.
   const aj = getJob(ADD_JOB);
@@ -94,13 +97,15 @@ function drawTab() {
   setStatus('add-status', '');
   const body = $('add-body');
   if (state.tab === 'link') {
-    body.innerHTML = `<label class="field"><span class="label-text">Link paper, arXiv ID hoặc DOI</span>
-      <div class="row"><input type="text" id="add-q" placeholder="https://arxiv.org/abs/2401.12345 · 2401.12345 · 10.1145/… · link OpenReview / ACL / trang bất kỳ"><button id="add-resolve" class="primary">Tra cứu</button></div>
-      <span class="hint">App tự tải abstract + full text (arXiv HTML) hoặc file PDF nếu có; DOI/link khác tra qua Semantic Scholar & Crossref.</span></label>
-      <div id="add-preview"></div>`;
-    $('add-resolve').addEventListener('click', resolveLink);
-    $('add-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') resolveLink(); });
+    body.innerHTML = `<label class="field"><span class="label-text">Tên paper, từ khoá, link, arXiv ID hoặc DOI</span>
+      <div class="row"><input type="search" id="add-q" placeholder="visual question answering hallucination · LEAML · 2401.12345 · 10.1145/… · https://…"><button id="add-resolve" class="primary">Tìm</button></div>
+      <span class="hint">Gõ tên paper hoặc từ khoá để tìm như Google Scholar (Semantic Scholar, OpenAlex dự phòng). Dán link, arXiv ID hay DOI thì app tra cứu thẳng, tự tải abstract + full text hoặc file PDF nếu có.</span></label>
+      <div id="add-preview"></div>
+      <div id="add-search"></div>`;
+    $('add-resolve').addEventListener('click', submitQuery);
+    $('add-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitQuery(); });
     $('add-q').focus();
+    if (search.q && search.items.length) { $('add-q').value = search.q; drawSearch(); }
   } else if (state.tab === 'pdf') {
     body.innerHTML = `<div class="dropzone" id="add-drop"><b>Chọn file PDF</b>kéo thả vào đây hoặc bấm để chọn — chọn nhiều file thì chuyển sang chế độ hàng loạt</div>
       <input type="file" id="add-file" accept="application/pdf,.pdf" multiple hidden>
@@ -200,14 +205,155 @@ function parseBib(filename) {
 
 /* ---------------- Link ---------------- */
 
-async function resolveLink() {
+/** Ô nhập ở tab đầu: link / arXiv ID / DOI thì tra cứu thẳng, còn lại là tên paper / từ khoá thì tìm kiếm. */
+function submitQuery() {
+  const q = $('add-q').value.trim();
+  if (!q) return;
+  if (isPaperIdentifier(q)) { $('add-search').innerHTML = ''; search.q = ''; resolveLink(); } else runSearch(q);
+}
+
+/* ---------------- Tìm paper theo tên / từ khoá ---------------- */
+
+const THIS_YEAR = new Date().getFullYear();
+const YEAR_OPTS = [['', 'Mọi năm'], ...[0, 1, 3, 6].map((k) => [`${THIS_YEAR - k}-`, `Từ ${THIS_YEAR - k}`]), [`-${THIS_YEAR - 7}`, `Trước ${THIS_YEAR - 6}`]];
+const SORT_OPTS = [['relevance', 'Liên quan nhất'], ['cites', 'Nhiều trích dẫn'], ['newest', 'Mới nhất']];
+const PAGE = 20;
+
+async function runSearch(q, { more = false } = {}) {
+  if (search.loading) return;
+  if (!more) Object.assign(search, { q, items: [], offset: 0, total: 0, source: '', picked: new Set() });
+  search.loading = true;
+  $('add-preview').innerHTML = '';
+  $('add-result').innerHTML = '';
+  setStatus('add-status', '');
+  if (!more) drawSearch();
+  else { const b = $('as-more'); if (b) { b.disabled = true; b.textContent = 'Đang tải…'; } }
+  try {
+    const r = await api.litSearch(q, { year: search.year, limit: PAGE, offset: search.offset });
+    if (search.q !== q) return; // người dùng đã tìm câu khác
+    const seen = new Set(search.items.map((x) => x.id));
+    search.items.push(...(r.items || []).map(searchItem).filter((x) => x.title && !seen.has(x.id)));
+    search.offset += PAGE;
+    search.total = r.total || search.items.length;
+    search.source = r.source || '';
+  } catch (e) {
+    setStatus('add-status', escapeHtml(e.message), 'err');
+  } finally { search.loading = false; }
+  drawSearch();
+}
+
+const fmtAuthors = (a) => (a.length > 4 ? `${a.slice(0, 3).join(', ')}, …, ${a[a.length - 1]}` : a.join(', '));
+
+function searchRow(it) {
+  const dup = findDuplicate({ arxivId: it.arxivId, doi: it.doi, title: it.title });
+  const meta = [fmtAuthors(it.authors), [it.venue, it.year].filter(Boolean).join(' · ')].filter(Boolean).join(' — ');
+  const abs = it.tldr || it.abstract;
+  return `<div class="as-item${dup ? ' has' : ''}">
+    ${dup ? '<span class="as-check"></span>' : `<label class="as-check" title="Tích để thêm nhiều bài một lúc"><input type="checkbox" data-as-pick="${escapeHtml(it.id)}" ${search.picked.has(it.id) ? 'checked' : ''}></label>`}
+    <div class="as-body">
+      <div class="as-title">${it.url ? `<a href="${escapeHtml(it.url)}" target="_blank" rel="noopener">${escapeHtml(it.title)}</a>` : escapeHtml(it.title)}</div>
+      ${meta ? `<div class="as-meta">${escapeHtml(meta)}</div>` : ''}
+      ${abs ? `<div class="as-abs">${it.tldr ? '<b>TL;DR</b> ' : ''}${escapeHtml(abs.length > 320 ? `${abs.slice(0, 320)}…` : abs)}</div>` : ''}
+      <div class="as-facts">
+        ${it.cites != null ? `<span>↗ ${it.cites.toLocaleString('vi-VN')} trích dẫn</span>` : ''}
+        ${it.arxivId ? `<span>arXiv:${escapeHtml(it.arxivId)}</span>` : (it.doi ? `<span>DOI ${escapeHtml(it.doi)}</span>` : '')}
+        ${it.pdfUrl ? `<a href="${escapeHtml(it.pdfUrl)}" target="_blank" rel="noopener">[PDF]</a>` : ''}
+        ${dup ? `<a class="as-have" href="#/paper/${dup.id}">✓ Đã có trong thư viện</a>` : ''}
+      </div>
+    </div>
+    <div class="as-act">${dup ? `<a class="btn sm" href="#/paper/${dup.id}">Mở</a>` : `<button class="sm primary" data-as-use="${escapeHtml(it.id)}" ${it.query ? '' : 'disabled title="Bài này không có arXiv ID, DOI hay link để tra cứu"'}>Chọn</button>`}</div>
+  </div>`;
+}
+
+function drawSearch() {
+  const box = $('add-search');
+  if (!box) return;
+  if (!search.q) { box.innerHTML = ''; return; }
+  const local = matchLibrary(store.papers, search.q, 5);
+  const items = sortItems(search.items, search.sort);
+  const first = search.loading && !search.items.length;
+  const count = search.items.length
+    ? `${search.items.length}${search.total > search.items.length ? ` / khoảng ${search.total.toLocaleString('vi-VN')}` : ''} kết quả`
+    : 'không có kết quả';
+  box.innerHTML = `${local.length ? `<div class="as-local"><div class="as-head">Trong thư viện của bạn · ${local.length}</div>
+      ${local.map((p) => `<a class="as-local-item" href="#/paper/${p.id}"><b>${escapeHtml(p.title || '(không tên)')}</b><span class="hint">${escapeHtml([[].concat(p.authors || []).slice(0, 3).join(', '), p.venue, p.year].filter(Boolean).join(' · '))}</span></a>`).join('')}</div>` : ''}
+    <div class="as-bar">
+      <span class="as-head">Trên mạng · ${first ? 'đang tìm…' : count}${search.source ? ` <span class="hint">(${escapeHtml(search.source)})</span>` : ''}</span>
+      <span class="spacer"></span>
+      <select id="as-year" title="Năm xuất bản">${YEAR_OPTS.map(([v, l]) => `<option value="${v}" ${search.year === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="as-sort" title="Sắp xếp các kết quả đã tải">${SORT_OPTS.map(([v, l]) => `<option value="${v}" ${search.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    </div>
+    ${first ? spinner('Đang tìm trên Semantic Scholar…') : ''}
+    <div class="as-list">${items.map(searchRow).join('')}</div>
+    ${search.items.length && search.items.length < search.total ? '<div class="row" style="justify-content:center;margin-top:10px"><button id="as-more" class="sm">Xem thêm kết quả</button></div>' : ''}
+    <div id="as-selbar" class="as-selbar" hidden><span id="as-selinfo"></span><span class="spacer"></span><button class="sm ghost" id="as-selclear">Bỏ chọn</button><button class="sm primary" id="as-seladd">Thêm vào hàng loạt</button></div>`;
+  const selbar = () => {
+    $('as-selbar').hidden = !search.picked.size;
+    $('as-selinfo').textContent = `Đã chọn ${search.picked.size} bài`;
+  };
+  selbar();
+  $('as-year').addEventListener('change', (e) => { search.year = e.target.value; runSearch(search.q); });
+  $('as-sort').addEventListener('change', (e) => { search.sort = e.target.value; drawSearch(); });
+  $('as-more')?.addEventListener('click', () => runSearch(search.q, { more: true }));
+  $('as-selclear').addEventListener('click', () => { search.picked.clear(); drawSearch(); });
+  $('as-seladd').addEventListener('click', async () => {
+    const entries = search.items.filter((x) => search.picked.has(x.id)).map(toBatchEntry);
+    search.picked.clear();
+    state.tab = 'batch';
+    drawTab();
+    const n = await addEntries(entries);
+    toast(`Đã đưa ${n} bài vào danh sách hàng loạt. App đang tra cứu từng bài.`, 3500);
+  });
+  const list = box.querySelector('.as-list');
+  list.addEventListener('change', (e) => {
+    const c = e.target.closest('[data-as-pick]');
+    if (!c) return;
+    if (c.checked) search.picked.add(c.dataset.asPick); else search.picked.delete(c.dataset.asPick);
+    selbar();
+  });
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-as-use]');
+    if (!b) return;
+    const it = search.items.find((x) => x.id === b.dataset.asUse);
+    if (!it?.query) return;
+    list.querySelectorAll('.as-item.on').forEach((x) => x.classList.remove('on'));
+    b.closest('.as-item').classList.add('on');
+    $('add-q').value = it.query;
+    resolveLink({ fallback: it });
+    $('add-preview').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+}
+
+/** Source dựng từ chính kết quả tìm kiếm (tên, tác giả, abstract), dùng khi tra cứu theo DOI / link không lấy được nội dung. */
+function sourceFromSearch(it, why) {
+  const authors = it.authors.join(', ');
+  return {
+    url: it.url, title: it.title, authors, venue: it.venue, year: it.year, arxivId: it.arxivId, doi: it.doi, s2Id: '',
+    citationCount: it.cites, kind: it.abstract ? `abstract (${search.source || 'kết quả tìm kiếm'})` : '',
+    text: it.abstract ? `Title: ${it.title}\nAuthors: ${authors}\n\nAbstract:\n${it.abstract}` : '',
+    pdfUrl: it.pdfUrl, tldr: it.tldr, venueHints: {}, warnings: why ? [`Không tra cứu đầy đủ được từ ${it.doi ? 'DOI' : 'link'} (${why.length > 90 ? `${why.slice(0, 90)}…` : why}). App dùng tên, tác giả, abstract từ kết quả tìm kiếm.`] : [],
+  };
+}
+
+/** Tra cứu chuỗi trong ô nhập. fallback: kết quả tìm kiếm vừa chọn, dùng khi tra cứu lỗi hoặc thiếu abstract. */
+async function resolveLink({ fallback = null } = {}) {
   const q = $('add-q').value.trim();
   if (!q) return;
   $('add-resolve').disabled = true;
   $('add-preview').innerHTML = '';
   $('add-result').innerHTML = '';
   try {
-    const src = await resolveQuery(q, { onStatus: (m) => showProgress('add-status', m, { expectedMs: 8000 }) });
+    let src;
+    try {
+      src = await resolveQuery(q, { onStatus: (m) => showProgress('add-status', m, { expectedMs: 8000 }) });
+      if (fallback?.abstract && (src.text || '').length < fallback.abstract.length) {
+        src.text = sourceFromSearch(fallback, '').text;
+        src.kind = src.kind || 'abstract (kết quả tìm kiếm)';
+      }
+    } catch (e) {
+      if (!fallback) throw e;
+      src = sourceFromSearch(fallback, e.message.replace(/\.$/, ''));
+    }
     state.source = src;
     setStatus('add-status', '');
     $('add-preview').innerHTML = `<div class="source-preview">

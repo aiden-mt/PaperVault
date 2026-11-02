@@ -1,7 +1,7 @@
 // Trang chi tiết một paper: đọc ghi chú, chỉnh sửa, PDF, hỏi đáp, paper liên quan, trích dẫn, nguồn.
 import { api } from '../api.js';
 import { store, onChange, topicOf, savePaper, removePaper, paperById, topicById, saveSettings } from '../store.js';
-import { escapeHtml, fmtDate, fmtRelative, STATUS_LABEL, STATUS_ORDER, copyText, download, norm, uid } from '../util.js';
+import { escapeHtml, fmtDate, fmtRelative, fmtSize, STATUS_LABEL, STATUS_ORDER, copyText, download, norm, uid } from '../util.js';
 import { $, el, toast, confirmDialog, mdToHtml, ratingControl, topicBadge, setStatus, spinner, dialog, showProgress } from '../ui.js';
 import { renderSections } from '../render.js';
 import { paperToMarkdown, quickNoteLine, bibtexOf } from '../markdown.js';
@@ -32,6 +32,7 @@ import { apaCitation, copyRich } from '../cite.js';
 import { reExtractSection, restoreSection } from '../section-extract.js';
 import { runExtraction, savePaperFromExtraction, acceptPdfFile } from '../extract.js';
 import { findPdf, attachFromUrl, autoAttach } from '../pdffind.js';
+import { replacePdfPatch, restorePdfPatch, dropPdfVersions, MAX_PDF_VERSIONS } from '../pdfversions.js';
 import { venueBadge, venueDetailHtml, VENUE_TYPES } from '../venue.js';
 
 // Xếp từ dùng nhiều đến dùng ít: đọc hiểu (Ghi chú, PDF, Bài giảng, Hỏi đáp) -> mở rộng (Liên quan, Hướng nghiên cứu)
@@ -39,6 +40,15 @@ import { venueBadge, venueDetailHtml, VENUE_TYPES } from '../venue.js';
 const TABS = [['notes', 'Ghi chú'], ['pdf', 'PDF'], ['lecture', 'Bài giảng'], ['ask', 'Hỏi đáp'], ['related', 'Liên quan'], ['research', 'Hướng nghiên cứu'], ['cite', 'Trích dẫn'], ['edit', 'Chỉnh sửa'], ['source', 'Nguồn']];
 
 /* ---------- helpers cho form chỉnh sửa (kế thừa extension) ---------- */
+/** Mục "Bản PDF trước" trong menu Tuỳ chọn của thanh PDF (bản cũ đã thay ra nhưng chưa xoá). */
+function pdfVersionsMenu(p) {
+  const list = p.pdfVersions || [];
+  if (!list.length) return '';
+  return `<div class="menu-hint hint">Bản PDF trước</div>
+    ${list.map((v, i) => `<button data-pv-use="${i}" title="Chuyển về file này, file đang dùng được cất lại">↺ ${escapeHtml(v.pdfName || 'paper.pdf')} <span class="hint">· ${fmtRelative(v.at)}</span></button>`).join('')}
+    <button data-pv-clear="1" class="danger">Xoá ${list.length} bản cũ</button><hr>`;
+}
+
 const getPath = (obj, path) => path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
 function setPath(obj, path, value) {
   const keys = path.split('.');
@@ -701,10 +711,11 @@ export async function render(root, { params, query }) {
               <hr>
               <label class="menu-check"><input type="checkbox" id="tr-orig" ${cfg.showOriginal ? 'checked' : ''}> Hiện cả đoạn gốc</label>
               <hr>
-              <button id="pp-pdf-replace">Thay file PDF…</button>
+              ${pdfVersionsMenu(p)}
               <button id="pp-pdf-del" class="danger">Gỡ PDF</button>
             </div></span>
           <button id="pp-auto-hl" class="sm" title="AI đọc paper rồi tô các câu đáng nhớ, mỗi loại một màu, kèm lý do">✦ Tô câu đáng nhớ</button>
+          <button id="pp-pdf-replace" class="sm" title="Thay bằng file PDF khác (bản mới hơn, camera-ready…), có thể xoá hoặc giữ bản cũ">⇄ Thay PDF</button>
           <button id="pp-pdf-save" class="sm primary" hidden title="Lưu nét vẽ, chữ, chữ ký thêm bằng công cụ của PDF.js vào file PDF">Lưu nét vẽ vào PDF</button>
           <button id="pp-pdf-full" class="sm" title="Xem toàn màn hình (Esc để thoát)">Toàn màn hình</button>
           <a class="sm-link" href="${api.pdfUrl(p.pdfId)}" target="_blank" title="Mở file gốc bằng trình xem PDF mặc định">Mở file gốc</a>
@@ -765,8 +776,8 @@ export async function render(root, { params, query }) {
         } catch (err) { b.disabled = false; b.textContent = 'Lưu nét vẽ vào PDF'; toast(`Không lưu được: ${err.message}`, 5000, 'err'); }
       });
       $('pp-pdf-full').addEventListener('click', () => $('pp-reader').requestFullscreen?.().catch(() => toast('Không bật được toàn màn hình.')));
-      $('pp-pdf-replace').addEventListener('click', () => $('pp-pdf-file').click());
-      $('pp-pdf-file').addEventListener('change', (e) => attachPdf(e.target.files?.[0]));
+      $('pp-pdf-replace').addEventListener('click', replacePdfDialog);
+      bindPdfVersions(menu);
       $('pp-pdf-del').addEventListener('click', async () => {
         if (!(await confirmDialog('Gỡ file PDF khỏi paper này (file sẽ bị xoá khỏi máy chủ)?', { danger: true, okLabel: 'Gỡ' }))) return;
         await api.deletePdf(p.pdfId).catch(() => {});
@@ -782,7 +793,12 @@ export async function render(root, { params, query }) {
           <div id="pf-status" class="status"></div>
         </div>
         <div class="dropzone" id="pp-drop"><b>Hoặc chọn file PDF từ máy</b>bấm để chọn, hoặc kéo thả file vào đây</div>
+        ${(p.pdfVersions || []).length ? `<div class="card pdf-old"><h2 style="margin:0 0 6px">Bản PDF trước đây</h2>
+          <div class="pf-items">${p.pdfVersions.map((v, i) => `<div class="pf-item"><div class="pf-body"><b>${escapeHtml(v.pdfName || 'paper.pdf')}</b>
+            <div class="hint">thay ra ${fmtRelative(v.at)}${(v.pdfMarks || []).length ? ` · ${v.pdfMarks.length} nét tô` : ''}</div></div>
+            <button class="sm" data-pv-use="${i}">Dùng lại</button><button class="sm ghost danger" data-pv-drop="${i}">Xoá</button></div>`).join('')}</div></div>` : ''}
         <input type="file" id="pp-pdf-file" accept="application/pdf,.pdf" hidden>`;
+      bindPdfVersions(body.querySelector('.pdf-old'));
       $('pp-drop').addEventListener('click', () => $('pp-pdf-file').click());
       $('pp-pdf-file').addEventListener('change', (e) => attachPdf(e.target.files?.[0]));
       $('pp-drop').addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); $('pp-drop').classList.add('over'); });
@@ -837,6 +853,139 @@ export async function render(root, { params, query }) {
       toast('Đã đính kèm PDF.');
       drawPdf();
     } catch (e) { toast(e.message, 4000, 'err'); }
+  }
+
+  /** Nút "Dùng lại" / "Xoá" các bản PDF cũ (trong menu Tuỳ chọn, hoặc ở trang chưa có PDF). */
+  function bindPdfVersions(box) {
+    box?.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-pv-use],[data-pv-drop],[data-pv-clear]');
+      if (!b) return;
+      const cur = paperById(p.id) || p;
+      if (b.dataset.pvUse) {
+        const patch = restorePdfPatch(cur, Number(b.dataset.pvUse));
+        if (!patch) return;
+        await quickSave(patch);
+        toast(`Đã chuyển về ${patch.pdfName}.`);
+      } else {
+        const one = b.dataset.pvDrop;
+        const n = one ? 1 : (cur.pdfVersions || []).length;
+        if (!(await confirmDialog(one ? `Xoá hẳn bản "${cur.pdfVersions[Number(one)]?.pdfName}" khỏi máy?` : `Xoá hẳn ${n} bản PDF cũ khỏi máy?`, { danger: true, okLabel: 'Xoá' }))) return;
+        const { patch, drop } = dropPdfVersions(cur, one ? Number(one) : null);
+        await quickSave(patch);
+        drop.forEach((id) => api.deletePdf(id).catch(() => {}));
+        toast(`Đã xoá ${n} bản PDF cũ.`);
+      }
+      drawPdf();
+    });
+  }
+
+  /** Hộp thoại thay file PDF: chọn file, dán link hoặc tìm bản khác trên mạng. Có tuỳ chọn xoá bản cũ và giữ nét tô. */
+  async function replacePdfDialog() {
+    const cur = paperById(p.id) || p;
+    const nMarks = (cur.pdfMarks || []).length;
+    let file = null;
+    await dialog({
+      title: 'Thay file PDF', width: 580,
+      body: `<p class="hint" style="margin-top:0">Đang dùng <b>${escapeHtml(cur.pdfName || 'paper.pdf')}</b>. Ghi chú, hỏi đáp, trích dẫn của paper giữ nguyên.</p>
+        <div class="dropzone" id="rp-drop"><b>Chọn file PDF mới</b>bấm để chọn, hoặc kéo thả file vào đây</div>
+        <input type="file" id="rp-file" accept="application/pdf,.pdf" hidden>
+        <label class="field" style="margin-top:10px"><span class="label-text">Hoặc dán link file PDF</span><input type="text" id="rp-url" placeholder="https://arxiv.org/pdf/…"></label>
+        <button class="sm ghost" id="rp-find">Tìm bản khác trên mạng</button>
+        <div id="rp-found" style="margin-top:6px"></div>
+        <div class="rp-opts">
+          <label class="menu-check"><input type="checkbox" id="rp-del" checked> Xoá file PDF cũ khỏi máy</label>
+          <div class="hint" id="rp-del-hint"></div>
+          ${nMarks ? `<label class="menu-check"><input type="checkbox" id="rp-marks"> Chép ${nMarks} nét tô sang file mới</label>
+          <div class="hint">Nét tô lưu theo vị trí trên trang, nên sẽ lệch nếu file mới khác bố cục (thêm trang, đổi template).</div>` : ''}
+        </div>
+        <div id="rp-status" class="status"></div>`,
+      buttons: [{ label: 'Huỷ', value: false }, {
+        label: 'Thay PDF', primary: true, value: true,
+        onClick: async (box) => {
+          const url = box.querySelector('#rp-url').value.trim();
+          if (!file && !url) { setStatus('rp-status', 'Chọn file PDF hoặc dán link file PDF trước.', 'err'); return false; }
+          const deleteOld = box.querySelector('#rp-del').checked;
+          const keepMarks = !!box.querySelector('#rp-marks')?.checked;
+          box.closest('.modal-box').querySelectorAll('.modal-foot button').forEach((x) => { x.disabled = true; });
+          showProgress('rp-status', file ? 'Đang tải file lên…' : 'Đang tải PDF từ link…', { expectedMs: file ? 2000 : 8000 });
+          try {
+            let up;
+            if (file) {
+              const { pdfBytes, pdfName } = await acceptPdfFile(file);
+              up = await api.uploadPdf(pdfBytes, pdfName);
+            } else {
+              const nm = `${cur.arxivId || (cur.title || 'paper').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80)}.pdf`;
+              up = await api.pdfDownload(url, nm);
+            }
+            const { patch, drop } = replacePdfPatch(paperById(p.id) || cur, up, { deleteOld, keepMarks });
+            await quickSave(patch);
+            drop.forEach((id) => api.deletePdf(id).catch(() => {}));
+            toast(deleteOld ? 'Đã thay PDF và xoá file cũ.' : 'Đã thay PDF. Bản cũ vẫn giữ trong Tuỳ chọn ▾ của thanh PDF.', 3500);
+            startPage = 0;
+            drawPdf();
+            return true;
+          } catch (err) {
+            box.closest('.modal-box').querySelectorAll('.modal-foot button').forEach((x) => { x.disabled = false; });
+            setStatus('rp-status', escapeHtml(err.message), 'err');
+            return false;
+          }
+        },
+      }],
+      onOpen: (box) => {
+        const q = (s) => box.querySelector(s);
+        const drop = q('#rp-drop');
+        const pick = (f) => {
+          if (!f) return;
+          if (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)) { setStatus('rp-status', 'File không phải PDF.', 'err'); return; }
+          file = f;
+          q('#rp-url').value = '';
+          drop.classList.add('picked');
+          drop.innerHTML = `<b>📄 ${escapeHtml(f.name)}</b>${fmtSize(f.size)} · bấm để chọn file khác`;
+          setStatus('rp-status', '');
+        };
+        drop.addEventListener('click', () => q('#rp-file').click());
+        q('#rp-file').addEventListener('change', (e) => pick(e.target.files?.[0]));
+        drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+        drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+        drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); pick([...(e.dataTransfer.files || [])][0]); });
+        q('#rp-url').addEventListener('input', () => {
+          if (!q('#rp-url').value.trim() || !file) return;
+          file = null;
+          drop.classList.remove('picked');
+          drop.innerHTML = '<b>Chọn file PDF mới</b>bấm để chọn, hoặc kéo thả file vào đây';
+        });
+        const delHint = () => {
+          q('#rp-del-hint').textContent = q('#rp-del').checked
+            ? 'File cũ bị xoá hẳn sau khi thay xong.'
+            : `File cũ được giữ (kèm nét tô của nó), chuyển lại được trong Tuỳ chọn ▾ của thanh PDF. App giữ tối đa ${MAX_PDF_VERSIONS} bản cũ.`;
+        };
+        q('#rp-del').addEventListener('change', delHint);
+        delHint();
+        q('#rp-find').addEventListener('click', async () => {
+          const btn = q('#rp-find');
+          btn.disabled = true;
+          q('#rp-found').innerHTML = spinner('Đang tìm…');
+          try {
+            const r = await findPdf(cur);
+            const list = r.candidates || [];
+            q('#rp-found').innerHTML = list.length
+              ? `<div class="pf-items">${list.map((c, k) => `<div class="pf-item"><div class="pf-body"><b>${escapeHtml(c.source)}</b>${c.note ? ` <span class="hint">· ${escapeHtml(c.note)}</span>` : ''}
+                  <div class="hint mono" title="${escapeHtml(c.url)}">${escapeHtml(c.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 80))}</div></div>
+                  <button class="sm" data-rp-use="${k}">Dùng link này</button></div>`).join('')}</div>`
+              : '<p class="hint" style="margin:0">Không tìm thấy bản PDF công khai nào khác.</p>';
+            q('#rp-found').onclick = (e) => {
+              const b = e.target.closest('[data-rp-use]');
+              if (!b) return;
+              q('#rp-url').value = list[Number(b.dataset.rpUse)].url;
+              q('#rp-url').dispatchEvent(new Event('input'));
+              q('#rp-found').querySelectorAll('.pf-item').forEach((it, i) => it.classList.toggle('on', i === Number(b.dataset.rpUse)));
+            };
+          } catch (err) {
+            q('#rp-found').innerHTML = `<span class="status err">${escapeHtml(err.message)}</span>`;
+          } finally { btn.disabled = false; }
+        });
+      },
+    });
   }
 
   /** Câu trả lời Hỏi đáp -> HTML: Markdown, mã hình [F3] / [B2] thành ảnh gốc cắt từ PDF. */

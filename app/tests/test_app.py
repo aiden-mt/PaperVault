@@ -229,6 +229,49 @@ class IcsFetchTest(unittest.TestCase):
             self.assertFalse(r["ok"])
 
 
+
+class PdfReplaceTest(unittest.TestCase):
+    def test_permanent_delete_removes_old_versions(self):
+        cur = server.save_pdf(b"%PDF-1.4\n% moi\n", "moi.pdf")["id"]
+        old = server.save_pdf(b"%PDF-1.4\n% cu\n", "cu.pdf")["id"]
+        shared = server.save_pdf(b"%PDF-1.4\n% dung chung\n", "chung.pdf")["id"]
+        a = server.put_paper({"title": "A", "pdfId": cur, "pdfName": "moi.pdf",
+                              "pdfVersions": [{"pdfId": old, "pdfName": "cu.pdf"}, {"pdfId": shared, "pdfName": "chung.pdf"}]}, classify=False)
+        b = server.put_paper({"title": "B", "pdfId": shared, "pdfName": "chung.pdf"}, classify=False)
+        server.delete_paper(a["id"], permanent=True)
+        self.assertIsNone(server.pdf_path(cur), "file PDF đang dùng phải bị xoá")
+        self.assertIsNone(server.pdf_path(old), "bản PDF cũ đã thay phải bị xoá")
+        self.assertIsNotNone(server.pdf_path(shared), "file paper khác còn dùng phải giữ lại")
+        server.delete_paper(b["id"], permanent=True)
+        self.assertIsNone(server.pdf_path(shared))
+
+
+class LitSearchTest(unittest.TestCase):
+    def test_offset_and_total(self):
+        seen = []
+
+        def fake(url, timeout=40, max_bytes=0, headers=None):
+            seen.append(url)
+            if "semanticscholar" in url:
+                raise OSError("429")
+            body = {"meta": {"count": 57}, "results": [{"id": "https://openalex.org/W1", "title": "Paper một", "publication_year": 2024,
+                                                        "best_oa_location": {"pdf_url": "https://x/a.pdf"}, "doi": "https://doi.org/10.1/a"}]}
+            return 200, "application/json", json.dumps(body).encode(), url
+
+        orig, server.http_get = server.http_get, fake
+        try:
+            r = server.lit_search("vqa hallucination", "2024-", 20, "", 40)
+        finally:
+            server.http_get = orig
+        self.assertIn("&offset=40", seen[0])
+        self.assertIn("&page=3", seen[1])
+        self.assertEqual(r["source"], "OpenAlex")
+        self.assertEqual(r["total"], 57)
+        self.assertEqual(r["items"][0]["openAccessPdf"]["url"], "https://x/a.pdf")
+        self.assertEqual(r["items"][0]["externalIds"]["DOI"], "10.1/a")
+        st, res = call("GET", "api/lit-search?q=&limit=5")
+        self.assertEqual(res["data"], {"items": [], "source": "", "total": 0})
+
 def make_zotero_fixture(root: Path):
     """Một thư viện Zotero thu nhỏ đúng các bảng app đọc."""
     (root / "storage" / "ATT1").mkdir(parents=True)

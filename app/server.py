@@ -163,7 +163,7 @@ HOST = os.environ.get("PV_HOST") or CONFIG.get("host") or "127.0.0.1"
 PORT = int(os.environ.get("PV_PORT") or CONFIG.get("port") or 8765)
 MAX_BODY = 64 * 1024 * 1024
 # Phiên bản app (so với bản mới nhất trên GitHub Releases khi kiểm tra cập nhật). Tăng cùng lúc với tag phát hành.
-APP_VERSION = "1.3.3"
+APP_VERSION = "1.3.4"
 RELEASES_API = "https://api.github.com/repos/aiden-mt/PaperVault/releases/latest"
 RELEASES_PAGE = "https://github.com/aiden-mt/PaperVault/releases/latest"
 UA = "PaperVault/1.0 (local research assistant; +https://github.com)"
@@ -339,11 +339,13 @@ def delete_paper(pid, permanent=False):
     db_run("DELETE FROM texts WHERE paperId=?", (pid,))
     if HAS_FTS:
         db_run("DELETE FROM texts_fts WHERE paperId=?", (pid,))
-    if p and p.get("pdfId"):
-        # xoá file PDF nếu không còn paper nào dùng
-        others = db_one("SELECT COUNT(*) FROM papers WHERE json LIKE ?", (f'%"pdfId": "{p["pdfId"]}"%',))
+    # xoá file PDF (cả các bản cũ đã thay, paper.pdfVersions) nếu không còn paper nào dùng
+    for fid in [p.get("pdfId")] + [v.get("pdfId") for v in p.get("pdfVersions") or [] if isinstance(v, dict)]:
+        if not fid:
+            continue
+        others = db_one("SELECT COUNT(*) FROM papers WHERE json LIKE ?", (f'%"pdfId": "{fid}"%',))
         if not others or others[0] == 0:
-            delete_pdf(p["pdfId"])
+            delete_pdf(fid)
 
 
 def restore_paper(pid):
@@ -1957,21 +1959,25 @@ def _openalex_abstract(inv):
     return " ".join(pos[i] for i in sorted(pos))
 
 
-def lit_search(q, year="", limit=10, s2_key=""):
-    """Tra paper theo từ khoá cho Chat (bài ngoài thư viện, kể cả bài rất mới). Semantic Scholar một lần, không chờ thử lại
-    (không có key thì hạn mức dùng chung rất chặt); bị giới hạn tốc độ hay lỗi thì dùng OpenAlex (không cần key).
-    year: "2025-2026", "2025-" hoặc "-2020". Trả về {items: [dạng bài Semantic Scholar], source}."""
+def lit_search(q, year="", limit=10, s2_key="", offset=0):
+    """Tra paper theo từ khoá cho Chat và ô tìm paper ở trang Thêm paper (bài ngoài thư viện, kể cả bài rất mới).
+    Semantic Scholar một lần, không chờ thử lại (không có key thì hạn mức dùng chung rất chặt); bị giới hạn tốc độ hay lỗi
+    thì dùng OpenAlex (không cần key). year: "2025-2026", "2025-" hoặc "-2020". offset: bỏ qua bao nhiêu bài đầu (trang sau).
+    Trả về {items: [dạng bài Semantic Scholar], source, total}."""
     q = re.sub(r"\s+", " ", (q or "")).strip()[:300]
     if not q:
-        return {"items": [], "source": ""}
+        return {"items": [], "source": "", "total": 0}
     limit = max(1, min(20, int(limit or 10)))
+    offset = max(0, min(900, int(offset or 0)))
     yr = year if re.fullmatch(r"\d{4}(-\d{4})?|\d{4}-|-\d{4}", year or "") else ""
-    fields = "title,abstract,authors,year,publicationDate,venue,citationCount,externalIds,url"
+    fields = "title,abstract,authors,year,publicationDate,venue,citationCount,externalIds,url,openAccessPdf"
     try:
         _s2_pace()
-        url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={urllib.parse.quote(q)}&fields={fields}&limit={limit}" + (f"&year={yr}" if yr else "")
+        url = (f"https://api.semanticscholar.org/graph/v1/paper/search?query={urllib.parse.quote(q)}&fields={fields}&limit={limit}"
+               + (f"&offset={offset}" if offset else "") + (f"&year={yr}" if yr else ""))
         _, _, raw, _ = http_get(url, timeout=12, headers={"x-api-key": s2_key} if s2_key else {})
-        return {"items": json.loads(raw.decode("utf-8")).get("data") or [], "source": "Semantic Scholar"}
+        res = json.loads(raw.decode("utf-8"))
+        return {"items": res.get("data") or [], "source": "Semantic Scholar", "total": res.get("total") or 0}
     except Exception:
         pass
     flt = []
@@ -1982,10 +1988,11 @@ def lit_search(q, year="", limit=10, s2_key=""):
         if b:
             flt.append(f"to_publication_date:{b}-12-31")
     url = ("https://api.openalex.org/works?search=" + urllib.parse.quote(re.sub(r"[?*:,]", " ", q)) + f"&per-page={limit}&select={OPENALEX_SEL}"
-           + (f"&filter={','.join(flt)}" if flt else ""))
+           + (f"&page={offset // limit + 1}" if offset else "") + (f"&filter={','.join(flt)}" if flt else ""))
     _, _, raw, _ = http_get(url, timeout=15)
-    items = [_openalex_item(w) for w in json.loads(raw.decode("utf-8")).get("results") or []]
-    return {"items": items, "source": "OpenAlex"}
+    res = json.loads(raw.decode("utf-8"))
+    items = [_openalex_item(w) for w in res.get("results") or []]
+    return {"items": items, "source": "OpenAlex", "total": (res.get("meta") or {}).get("count") or 0}
 
 
 def _openalex_item(w):
@@ -2001,10 +2008,11 @@ def _openalex_item(w):
         "citationCount": w.get("cited_by_count"), "authors": [{"name": (a.get("author") or {}).get("display_name", "")} for a in (w.get("authorships") or [])[:6]],
         "externalIds": {"ArXiv": (m.group(1) if m else (am.group(1) if am else "")), "DOI": "" if am else doi},
         "url": page or (f"https://doi.org/{doi}" if doi else w.get("id") or ""), "abstract": _openalex_abstract(w.get("abstract_inverted_index"))[:1200],
+        "openAccessPdf": {"url": (w.get("best_oa_location") or {}).get("pdf_url") or ""},
     }
 
 
-OPENALEX_SEL = "id,title,publication_year,publication_date,primary_location,cited_by_count,authorships,doi,abstract_inverted_index"
+OPENALEX_SEL = "id,title,publication_year,publication_date,primary_location,cited_by_count,authorships,doi,abstract_inverted_index,best_oa_location"
 
 
 def lit_citing(doi="", arxiv="", title="", year="", limit=8):
@@ -3032,7 +3040,7 @@ class Handler(BaseHTTPRequestHandler):
         if head == "lit-search" and method == "GET":
             q1 = lambda k, d="": (qs.get(k) or [d])[0]
             try:
-                return self.ok(lit_search(q1("q"), q1("year"), q1("limit", "10"), get_settings().get("s2ApiKey", "")))
+                return self.ok(lit_search(q1("q"), q1("year"), q1("limit", "10"), get_settings().get("s2ApiKey", ""), q1("offset", "0")))
             except (ValueError, urllib.error.URLError, OSError) as e:
                 return self.send_json({"ok": False, "error": f"Không tra được paper: {e}"}, 502)
 

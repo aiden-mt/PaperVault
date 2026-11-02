@@ -40,9 +40,9 @@ ${step(2, 'Thêm paper đầu tiên')}
 <p>Bấm ${ui('Thêm paper')} (góc trên bên phải, hoặc phím ${k('N')}).</p>
 ${fig('add', 'Trang Thêm paper')}
 ${steps([
-    `Chọn cách thêm: link / arXiv / DOI, file PDF, dán text, hàng loạt, hoặc nhập từ Zotero (.bib / .ris).`,
-    `Dán arXiv ID (ví dụ <code>2006.11239</code>), link arXiv, DOI hoặc link trang paper.`,
-    `Bấm ${ui('Tra cứu')}. App tự lấy tiêu đề, tác giả, venue, số trích dẫn, toàn văn và PDF nếu có.`,
+    `Chọn cách thêm: tìm / link / arXiv / DOI, file PDF, dán text, hàng loạt, hoặc nhập từ Zotero (.bib / .ris).`,
+    `Gõ tên paper hoặc từ khoá rồi bấm ${ui('Tìm')}, chọn đúng bài trong danh sách kết quả. Có sẵn arXiv ID (ví dụ <code>2006.11239</code>), DOI hay link trang paper thì dán thẳng vào ô.`,
+    `App tự lấy tiêu đề, tác giả, venue, số trích dẫn, toàn văn và PDF nếu có.`,
   ])}
 ${fig('add-result', 'Kết quả tra cứu, sẵn sàng trích xuất ghi chú')}
 ${steps([
@@ -92,7 +92,12 @@ ${steps([
     html: `
 <p>Trang ${ui('Thêm paper')} có nhiều cách đưa một paper vào thư viện, tuỳ nguồn đang có (ảnh minh hoạ ở mục <a href="#/help?s=start">Bắt đầu nhanh</a>, bước 2):</p>
 <ul>
-  <li>${ui('Link / arXiv / DOI')} nhận arXiv ID, link arXiv, DOI, link OpenReview, ACL Anthology hoặc trang paper bất kỳ. Máy chủ của app tự tải abstract, toàn văn HTML của arXiv và file PDF nếu có.</li>
+  <li>${ui('Tìm / Link / arXiv / DOI')} nhận hai kiểu nhập:
+    <ul>
+      <li><b>Tên paper hoặc từ khoá</b> (ví dụ <i>visual question answering hallucination</i>): app tìm như Google Scholar trên Semantic Scholar, khi Semantic Scholar bị giới hạn tốc độ thì dùng OpenAlex. Mỗi kết quả có tác giả, venue, năm, số trích dẫn, TL;DR hoặc đoạn đầu abstract và link PDF nếu có. Lọc theo năm, xếp theo độ liên quan, số trích dẫn hoặc mới nhất, bấm ${ui('Xem thêm kết quả')} để tải trang sau.</li>
+      <li><b>arXiv ID, link arXiv, DOI, link OpenReview, ACL Anthology hoặc trang paper bất kỳ</b>: app tra cứu thẳng, tự tải abstract, toàn văn HTML của arXiv và file PDF nếu có.</li>
+    </ul>
+    Paper đã có trong thư viện được đánh dấu ${ui('✓ Đã có trong thư viện')}, kèm khung ${ui('Trong thư viện của bạn')} liệt kê các paper đã lưu khớp từ khoá. Bấm ${ui('Chọn')} ở một kết quả để tra cứu rồi trích xuất. Tick nhiều kết quả rồi bấm ${ui('Thêm vào hàng loạt')} để đưa cả nhóm sang tab ${ui('Hàng loạt')}.</li>
   <li>${ui('File PDF')} nhận một file PDF từ máy: bấm vào ô chọn file hoặc kéo PDF thả đúng vào ô đó. Chọn nhiều file cùng lúc thì app chuyển sang chế độ hàng loạt. PDF thả ở trang khác không được nhập, để tránh thêm nhầm.</li>
   <li>${ui('Dán text')} dùng khi chỉ có abstract hoặc một đoạn văn. Nút ${ui('Tạo note trống')} tạo paper để tự điền tay, không gọi mô hình.</li>
   <li>${ui('Zotero / .bib / .ris')}: ${ui('Đọc thư viện Zotero')} đọc thẳng thư viện Zotero trên máy (tên, tác giả, năm, DOI, abstract, tag, collection, ghi chú, highlight và file PDF), không cần xuất file và không gọi mô hình. Chọn mục, chọn ${ui('Theo collection')} để mỗi collection thành một chủ đề, rồi ${ui('Nhập mục đã chọn')}. Thư viện ở chỗ khác thì dán đường dẫn thư mục dữ liệu (Zotero: Edit → Settings → Advanced → Files and Folders). Zotero đang mở vẫn đọc được. Mendeley: <i>File → Export</i> ra BibTeX, RIS hoặc CSL JSON rồi chọn file ở ô bên dưới.</li>
@@ -215,7 +220,13 @@ ${steps([
   <li><b>Chấm màu</b>: vàng, xanh lá, xanh dương, hồng, đỏ, tím. ${ui('↶')} / ${ui('↷')} hoàn tác / làm lại (${k('Ctrl')}+${k('Z')}, ${k('Ctrl')}+${k('Y')}).</li>
 </ul>
 <p>Nét đánh dấu lưu trong paper (không sửa file PDF). Khi đã tắt công cụ, bấm vào một nét để ${ui('Dịch')}, ${ui('+ Ghi chú')}, ${ui('Sao chép')}, đổi màu hoặc ${ui('Xoá')}. Nét vẽ tay, chữ, chữ ký của PDF.js chỉ giữ được khi bấm ${ui('Lưu nét vẽ vào PDF')}.</p>
-<p>Paper chưa có PDF thì tab ${ui('PDF')} tự tìm bản công khai (link và DOI của paper, Semantic Scholar, OpenAlex, arXiv theo tên, CVF, NeurIPS, PMLR, ACL Anthology): bấm ${ui('Tải về')} ở một nguồn hoặc ${ui('Tự động tải bản tốt nhất')}. Tìm cho nhiều paper: tick ở Thư viện (menu cạnh ${ui('Chọn tất cả')} có ${ui('Chưa có PDF')}) rồi ${ui('Khác')} → ${ui('Tìm & tải PDF')}.</p>`,
+<p>Paper chưa có PDF thì tab ${ui('PDF')} tự tìm bản công khai (link và DOI của paper, Semantic Scholar, OpenAlex, arXiv theo tên, CVF, NeurIPS, PMLR, ACL Anthology): bấm ${ui('Tải về')} ở một nguồn hoặc ${ui('Tự động tải bản tốt nhất')}. Tìm cho nhiều paper: tick ở Thư viện (menu cạnh ${ui('Chọn tất cả')} có ${ui('Chưa có PDF')}) rồi ${ui('Khác')} → ${ui('Tìm & tải PDF')}.</p>
+<p><b>Thay file PDF</b> (ví dụ có bản camera-ready, bản arXiv mới hơn, hoặc file đính kèm nhầm): bấm ${ui('⇄ Thay PDF')} trên thanh trình đọc. Chọn file từ máy, dán link file PDF, hoặc bấm ${ui('Tìm bản khác trên mạng')} rồi ${ui('Dùng link này')}. Hai tuỳ chọn:</p>
+<ul>
+  <li>${ui('Xoá file PDF cũ khỏi máy')} bật sẵn. Tắt đi thì file cũ được giữ cùng nét tô của nó. Mở ${ui('Tuỳ chọn ▾')} của thanh PDF để chuyển lại bản cũ (↺) hoặc xoá các bản cũ. App giữ tối đa 5 bản.</li>
+  <li>${ui('Chép nét tô sang file mới')} hiện khi paper đã có nét tô. Nét tô lưu theo vị trí trên trang nên sẽ lệch nếu file mới khác bố cục.</li>
+</ul>
+<p>Ghi chú, hỏi đáp và trích dẫn của paper giữ nguyên. Hình / bảng gốc dùng trong Chat được cắt lại từ file mới. Muốn ghi chú theo nội dung file mới thì bấm ${ui('Trích xuất lại')}.</p>`,
   },
   {
     id: 'autohl', group: 'lib', title: 'Tô câu đáng nhớ bằng AI', routes: [],
