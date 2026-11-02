@@ -696,29 +696,35 @@ export async function render(root, { params, query }) {
     if (p.pdfId) {
       const cfg = translateConfig(store.settings);
       body.innerHTML = `<div class="reader-bar">
-          <span class="reader-file" title="${escapeHtml(p.pdfName || 'paper.pdf')}">📄 ${escapeHtml(p.pdfName || 'paper.pdf')}</span>
+          <div class="rb-file" title="${escapeHtml(p.pdfName || 'paper.pdf')}">
+            <svg class="i"><use href="#i-file-pdf"/></svg><span class="rb-name">${escapeHtml(p.pdfName || 'paper.pdf')}</span>
+            <a class="rb-ic" href="${api.pdfUrl(p.pdfId)}" target="_blank" title="Mở file gốc bằng trình xem PDF mặc định" aria-label="Mở file gốc"><svg class="i"><use href="#i-external"/></svg></a>
+          </div>
           <span class="reader-tip"></span>
           <span class="spacer"></span>
-          <label class="reader-opt" title="Ngôn ngữ đích">Dịch sang <select id="tr-lang">${TRANSLATE_LANGS.map(([k, l]) => `<option value="${k}" ${cfg.targetLang === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-          <label class="reader-opt" title="Gửi kèm cả câu để từ nhiều nghĩa được dịch đúng ngữ cảnh"><input type="checkbox" id="tr-ctx" ${cfg.useContext ? 'checked' : ''}> Theo ngữ cảnh câu</label>
-          <span class="sel-pick"><button id="tr-more" class="sm" aria-haspopup="menu">Tuỳ chọn ▾</button>
-            <div id="tr-menu" class="menu right" role="menu" hidden>
-              <label class="menu-check"><input type="radio" name="tr-mode" value="button" ${cfg.mode !== 'auto' ? 'checked' : ''}> Hiện nút 文 trước</label>
-              <label class="menu-check"><input type="radio" name="tr-mode" value="auto" ${cfg.mode === 'auto' ? 'checked' : ''}> Dịch ngay khi bôi đen</label>
-              <hr>
-              <label class="menu-check"><input type="radio" name="tr-open" value="hover" ${cfg.openOn !== 'click' ? 'checked' : ''}> Mở khi rê chuột vào 文</label>
-              <label class="menu-check"><input type="radio" name="tr-open" value="click" ${cfg.openOn === 'click' ? 'checked' : ''}> Mở khi bấm vào 文</label>
-              <hr>
-              <label class="menu-check"><input type="checkbox" id="tr-orig" ${cfg.showOriginal ? 'checked' : ''}> Hiện cả đoạn gốc</label>
-              <hr>
-              ${pdfVersionsMenu(p)}
-              <button id="pp-pdf-del" class="danger">Gỡ PDF</button>
-            </div></span>
-          <button id="pp-auto-hl" class="sm" title="AI đọc paper rồi tô các câu đáng nhớ, mỗi loại một màu, kèm lý do">✦ Tô câu đáng nhớ</button>
-          <button id="pp-pdf-replace" class="sm" title="Thay bằng file PDF khác (bản mới hơn, camera-ready…), có thể xoá hoặc giữ bản cũ">⇄ Thay PDF</button>
-          <button id="pp-pdf-save" class="sm primary" hidden title="Lưu nét vẽ, chữ, chữ ký thêm bằng công cụ của PDF.js vào file PDF">Lưu nét vẽ vào PDF</button>
-          <button id="pp-pdf-full" class="sm" title="Xem toàn màn hình (Esc để thoát)">Toàn màn hình</button>
-          <a class="sm-link" href="${api.pdfUrl(p.pdfId)}" target="_blank" title="Mở file gốc bằng trình xem PDF mặc định">Mở file gốc</a>
+          <label class="rb-lang" title="Ngôn ngữ đích khi bôi đen chữ để dịch"><svg class="i"><use href="#i-translate"/></svg><span class="rb-lang-l">Dịch sang</span><select id="tr-lang">${TRANSLATE_LANGS.map(([k, l]) => `<option value="${k}" ${cfg.targetLang === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <span class="rb-sep" aria-hidden="true"></span>
+          <div class="rb-acts">
+            <button id="pp-auto-hl" class="sm rb-btn" title="AI đọc paper rồi tô các câu đáng nhớ, mỗi loại một màu, kèm lý do"><svg class="i"><use href="#i-sparkle"/></svg><span class="rb-l">Tô câu đáng nhớ</span></button>
+            <button id="pp-pdf-replace" class="sm rb-btn" title="Thay bằng file PDF khác (bản mới hơn, camera-ready…), có thể xoá hoặc giữ bản cũ"><svg class="i"><use href="#i-swap"/></svg><span class="rb-l">Thay PDF</span></button>
+            <button id="pp-pdf-save" class="sm primary" hidden title="Lưu nét vẽ, chữ, chữ ký thêm bằng công cụ của PDF.js vào file PDF">Lưu nét vẽ vào PDF</button>
+            <button id="pp-pdf-full" class="sm rb-btn rb-icon" title="Xem toàn màn hình (Esc để thoát)" aria-label="Toàn màn hình"><svg class="i"><use href="#i-maximize"/></svg></button>
+            <span class="sel-pick"><button id="tr-more" class="sm rb-btn rb-icon" aria-haspopup="menu" title="Tuỳ chọn dịch và file PDF" aria-label="Tuỳ chọn"><svg class="i"><use href="#i-more"/></svg></button>
+              <div id="tr-menu" class="menu right" role="menu" hidden>
+                <div class="menu-hint hint">Khi bôi đen chữ</div>
+                <label class="menu-check"><input type="radio" name="tr-mode" value="button" ${cfg.mode !== 'auto' ? 'checked' : ''}> Hiện nút 文 trước</label>
+                <label class="menu-check"><input type="radio" name="tr-mode" value="auto" ${cfg.mode === 'auto' ? 'checked' : ''}> Dịch ngay khi bôi đen</label>
+                <hr>
+                <label class="menu-check"><input type="radio" name="tr-open" value="hover" ${cfg.openOn !== 'click' ? 'checked' : ''}> Mở khi rê chuột vào 文</label>
+                <label class="menu-check"><input type="radio" name="tr-open" value="click" ${cfg.openOn === 'click' ? 'checked' : ''}> Mở khi bấm vào 文</label>
+                <hr>
+                <label class="menu-check" title="Gửi kèm cả câu để từ nhiều nghĩa được dịch đúng ngữ cảnh"><input type="checkbox" id="tr-ctx" ${cfg.useContext ? 'checked' : ''}> Dịch theo ngữ cảnh câu</label>
+                <label class="menu-check"><input type="checkbox" id="tr-orig" ${cfg.showOriginal ? 'checked' : ''}> Hiện cả đoạn gốc</label>
+                <hr>
+                ${pdfVersionsMenu(p)}
+                <button id="pp-pdf-del" class="danger">Gỡ PDF khỏi paper</button>
+              </div></span>
+          </div>
         </div>
         <div id="pp-ah-status" class="reader-progress" hidden></div>
         <div id="pp-ah-legend"></div>
@@ -920,7 +926,7 @@ export async function render(root, { params, query }) {
             const { patch, drop } = replacePdfPatch(paperById(p.id) || cur, up, { deleteOld, keepMarks });
             await quickSave(patch);
             drop.forEach((id) => api.deletePdf(id).catch(() => {}));
-            toast(deleteOld ? 'Đã thay PDF và xoá file cũ.' : 'Đã thay PDF. Bản cũ vẫn giữ trong Tuỳ chọn ▾ của thanh PDF.', 3500);
+            toast(deleteOld ? 'Đã thay PDF và xoá file cũ.' : 'Đã thay PDF. Bản cũ vẫn giữ trong menu ⋯ của thanh PDF.', 3500);
             startPage = 0;
             drawPdf();
             return true;
@@ -957,7 +963,7 @@ export async function render(root, { params, query }) {
         const delHint = () => {
           q('#rp-del-hint').textContent = q('#rp-del').checked
             ? 'File cũ bị xoá hẳn sau khi thay xong.'
-            : `File cũ được giữ (kèm nét tô của nó), chuyển lại được trong Tuỳ chọn ▾ của thanh PDF. App giữ tối đa ${MAX_PDF_VERSIONS} bản cũ.`;
+            : `File cũ được giữ (kèm nét tô của nó), chuyển lại được trong menu ⋯ cuối thanh PDF. App giữ tối đa ${MAX_PDF_VERSIONS} bản cũ.`;
         };
         q('#rp-del').addEventListener('change', delHint);
         delHint();

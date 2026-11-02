@@ -204,10 +204,10 @@ ${steps([
 <p>Tab ${ui('PDF')} dùng trình đọc PDF.js, chữ bôi đen được như trang web. Bôi đen để dịch cũng dùng được ở mọi trang khác của app (ghi chú, bài giảng, Hỏi đáp, Chat…).</p>
 ${steps([
     `Bôi đen một từ, cụm từ hay cả đoạn.`,
-    `Rê chuột vào nút ${ui('文')} hiện cạnh đoạn đã chọn, bong bóng bản dịch mở ra. Muốn bấm thay vì rê, hoặc dịch ngay khi bôi đen, đổi ở ${ui('Tuỳ chọn')} trên thanh trình đọc hoặc nút 文 trên thanh trên cùng.`,
+    `Rê chuột vào nút ${ui('文')} hiện cạnh đoạn đã chọn, bong bóng bản dịch mở ra. Muốn bấm thay vì rê, hoặc dịch ngay khi bôi đen, đổi ở menu ${ui('⋯')} cuối thanh trình đọc hoặc nút 文 trên thanh trên cùng.`,
     `${k('Esc')} đóng bong bóng, ${k('Ctrl')}+${k('Shift')}+${k('D')} dịch ngay đoạn đang chọn.`,
   ])}
-<p>Khi bật ${ui('Theo ngữ cảnh câu')}, app gửi kèm cả câu chứa đoạn đã chọn nên từ nhiều nghĩa được dịch đúng ngữ cảnh. Câu ngữ cảnh được đóng trong dấu ⟦ ⟧ trên PDF. Nhãn trên bong bóng: ${ui('theo ngữ cảnh')} (đáng tin nhất), ${ui('dịch riêng')} (nghĩa khi đứng một mình), ${ui('cả câu')} (chỉ có bản dịch cả câu).</p>
+<p>Khi bật ${ui('Dịch theo ngữ cảnh câu')} (menu ${ui('⋯')} cuối thanh trình đọc), app gửi kèm cả câu chứa đoạn đã chọn nên từ nhiều nghĩa được dịch đúng ngữ cảnh. Câu ngữ cảnh được đóng trong dấu ⟦ ⟧ trên PDF. Nhãn trên bong bóng: ${ui('theo ngữ cảnh')} (đáng tin nhất), ${ui('dịch riêng')} (nghĩa khi đứng một mình), ${ui('cả câu')} (chỉ có bản dịch cả câu).</p>
 <p>Bản dịch nhanh dùng Google miễn phí, không cần API key. Bong bóng có ${ui('Dịch bằng AI')} (mô hình đang dùng, văn phong học thuật, giữ thuật ngữ) và ${ui('+ Ghi chú')} (lưu đoạn gốc, bản dịch, số trang vào Trích dẫn của paper, ôn lại ở <a href="#/help?s=notes">Thẻ ghi nhớ</a>).</p>`,
   },
   {
@@ -223,7 +223,7 @@ ${steps([
 <p>Paper chưa có PDF thì tab ${ui('PDF')} tự tìm bản công khai (link và DOI của paper, Semantic Scholar, OpenAlex, arXiv theo tên, CVF, NeurIPS, PMLR, ACL Anthology): bấm ${ui('Tải về')} ở một nguồn hoặc ${ui('Tự động tải bản tốt nhất')}. Tìm cho nhiều paper: tick ở Thư viện (menu cạnh ${ui('Chọn tất cả')} có ${ui('Chưa có PDF')}) rồi ${ui('Khác')} → ${ui('Tìm & tải PDF')}.</p>
 <p><b>Thay file PDF</b> (ví dụ có bản camera-ready, bản arXiv mới hơn, hoặc file đính kèm nhầm): bấm ${ui('⇄ Thay PDF')} trên thanh trình đọc. Chọn file từ máy, dán link file PDF, hoặc bấm ${ui('Tìm bản khác trên mạng')} rồi ${ui('Dùng link này')}. Hai tuỳ chọn:</p>
 <ul>
-  <li>${ui('Xoá file PDF cũ khỏi máy')} bật sẵn. Tắt đi thì file cũ được giữ cùng nét tô của nó. Mở ${ui('Tuỳ chọn ▾')} của thanh PDF để chuyển lại bản cũ (↺) hoặc xoá các bản cũ. App giữ tối đa 5 bản.</li>
+  <li>${ui('Xoá file PDF cũ khỏi máy')} bật sẵn. Tắt đi thì file cũ được giữ cùng nét tô của nó. Mở menu ${ui('⋯')} cuối thanh PDF để chuyển lại bản cũ (↺) hoặc xoá các bản cũ. App giữ tối đa 5 bản.</li>
   <li>${ui('Chép nét tô sang file mới')} hiện khi paper đã có nét tô. Nét tô lưu theo vị trí trên trang nên sẽ lệch nếu file mới khác bố cục.</li>
 </ul>
 <p>Ghi chú, hỏi đáp và trích dẫn của paper giữ nguyên. Hình / bảng gốc dùng trong Chat được cắt lại từ file mới. Muốn ghi chú theo nội dung file mới thì bấm ${ui('Trích xuất lại')}.</p>`,

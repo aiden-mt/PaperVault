@@ -3,6 +3,10 @@
 - **Tab PDF trống, không xem được PDF** ở bản cài đặt (Setup) và bản zip tải từ GitHub. Bản đóng gói thiếu phần lõi của trình đọc PDF. Bản này bổ sung đủ, nên tab PDF, cắt hình / bảng gốc cho Chat và đọc chữ từ PDF chạy lại bình thường.
 - Quy trình đóng gói giờ tự kiểm tra đủ file trước khi phát hành, để lỗi này không lặp lại.
 
+## Giao diện
+
+- **Thanh công cụ tab PDF gọn lại trên một dòng**, chia ba nhóm: tên file kèm nút mở file gốc, ô chọn ngôn ngữ dịch, và các nút Tô câu đáng nhớ, Thay PDF, toàn màn hình. Các tuỳ chọn dịch ít dùng (dịch theo ngữ cảnh câu, hiện cả đoạn gốc…) nằm trong menu **⋯**.
+
 ## Điểm mới (từ 1.3.4)
 
 - **Tìm paper theo tên hoặc từ khoá** ở trang Thêm paper, giống Google Scholar. Lọc theo năm, xếp theo độ liên quan / trích dẫn / mới nhất, bài đã có trong thư viện được đánh dấu **✓ Đã có**.
