@@ -40,6 +40,14 @@ jobs:
           --hidden-import tray --hidden-import zotero_import
           desktop.py
 
+      - name: Kiểm tra bản đóng gói đủ file
+        shell: pwsh
+        run: |
+          # Bản 1.0 → 1.3.4 thiếu lõi PDF.js vì .gitignore bỏ nhầm static/vendor/pdfjs/build, CI vẫn build xanh.
+          $need = 'pdfjs\build\pdf.mjs', 'pdfjs\build\pdf.worker.mjs', 'pdfjs\web\viewer.html', 'pdfjs\web\viewer.mjs', 'mermaid', 'katex'
+          $missing = $need | Where-Object { -not (Test-Path "dist\PaperVault\_internal\static\vendor\$_") }
+          if ($missing) { throw "Bản đóng gói thiếu: $($missing -join ', ')" }
+
       - name: Nén thành zip
         shell: pwsh
         run: |
