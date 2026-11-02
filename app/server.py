@@ -68,8 +68,76 @@ def _project_dir():
     return None
 
 
+# Bản cài bằng Setup (app/installer/PaperVault.iss): bộ cài đặt file đánh dấu này cạnh .exe. Thư mục cài (Program Files,
+# %LOCALAPPDATA%\Programs) chỉ chứa chương trình, gỡ / cài đè được thoải mái; config.json và data nằm ở thư mục người dùng.
+INSTALLED = FROZEN and _project_dir() is None and (BASE / "PaperVault.installed").exists()
+USER_HOME = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "PaperVault"
+
 # Nơi đặt config.json và thư mục data mặc định.
-HOME_DIR = _project_dir() or BASE
+HOME_DIR = _project_dir() or (USER_HOME if INSTALLED else BASE)
+
+
+def _adopt_legacy_data():
+    """Lần chạy đầu của bản cài đặt: nếu trước đây đã dùng bản giải nén zip (data cạnh .exe) hay bản build trong dự án
+    thì lấy lại thư viện cũ, không mất paper, PDF, API key. Nơi tìm: thư mục cài (cài đè lên thư mục giải nén cũ) và các
+    thư mục bộ cài phát hiện được (lối tắt, app đang chạy) ghi trong legacy-dirs.txt.
+    - data nằm trong thư mục chương trình cũ: chép sang %LOCALAPPDATA%\\PaperVault\\data (bản cũ giữ nguyên làm dự phòng);
+    - data ở chỗ khác (dataDir riêng, app/data của dự án): ghi dataDir vào config.json để dùng tiếp tại chỗ."""
+    if (HOME_DIR / "config.json").exists() or (HOME_DIR / "data" / "papervault.db").exists():
+        return
+    dirs = [BASE]
+    try:
+        dirs += [Path(s.strip()) for s in (BASE / "legacy-dirs.txt").read_text(encoding="utf-8-sig").splitlines() if s.strip()]
+    except OSError:
+        pass
+    seen = set()
+    for exe_dir in dirs:
+        try:
+            exe_dir = exe_dir.resolve()
+            # .exe build trong dự án (app/dist/PaperVault) hay pythonw desktop.py: config.json và data ở thư mục app/
+            home = exe_dir.parent.parent if exe_dir.parent.name.lower() == "dist" and (exe_dir.parent.parent / "server.py").exists() else exe_dir
+            project = (home / "server.py").exists()
+            if home in seen or home == HOME_DIR:
+                continue
+            seen.add(home)
+            cfg = {}
+            if (home / "config.json").exists():
+                try:
+                    cfg = json.loads((home / "config.json").read_text(encoding="utf-8"))
+                except Exception:
+                    cfg = {}
+            data = Path(cfg.get("dataDir") or "data").expanduser()
+            data = (data if data.is_absolute() else home / data).resolve()
+            if not (data / "papervault.db").exists():
+                continue
+            HOME_DIR.mkdir(parents=True, exist_ok=True)
+            if not project and data.is_relative_to(exe_dir):
+                part, dest = HOME_DIR / "data.part", HOME_DIR / "data"
+                shutil.rmtree(part, ignore_errors=True)
+                shutil.copytree(data, part, ignore=shutil.ignore_patterns("app.lock"))
+                if dest.exists():  # chưa có papervault.db (đã kiểm tra ở trên): để sang bên, không xoá
+                    dest.rename(HOME_DIR / f"data.old-{time.strftime('%Y%m%d-%H%M%S')}")
+                part.rename(dest)
+                cfg.pop("dataDir", None)
+                try:
+                    (data / "DA_CHUYEN_DU_LIEU.txt").write_text(
+                        f"PaperVault bản cài đặt đã chép thư mục dữ liệu này sang:\n{HOME_DIR / 'data'}\n\n"
+                        "Bản cài đặt dùng chỗ mới. Sau khi kiểm tra thư viện ở bản mới đầy đủ, có thể xoá thư mục này.\n",
+                        encoding="utf-8")
+                except OSError:
+                    pass
+                print(f"[PaperVault] Đã chép dữ liệu cũ {data} -> {HOME_DIR / 'data'}")
+            else:
+                cfg["dataDir"] = str(data)
+                print(f"[PaperVault] Dùng tiếp thư mục dữ liệu cũ: {data}")
+            (HOME_DIR / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            return
+        except Exception as e:
+            print(f"[PaperVault] Không lấy được dữ liệu cũ ở {exe_dir}:", e)
+
+
+if INSTALLED and not os.environ.get("PV_DATA"):
+    _adopt_legacy_data()
 
 
 def load_config():
@@ -95,7 +163,7 @@ HOST = os.environ.get("PV_HOST") or CONFIG.get("host") or "127.0.0.1"
 PORT = int(os.environ.get("PV_PORT") or CONFIG.get("port") or 8765)
 MAX_BODY = 64 * 1024 * 1024
 # Phiên bản app (so với bản mới nhất trên GitHub Releases khi kiểm tra cập nhật). Tăng cùng lúc với tag phát hành.
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.3.3"
 RELEASES_API = "https://api.github.com/repos/aiden-mt/PaperVault/releases/latest"
 RELEASES_PAGE = "https://github.com/aiden-mt/PaperVault/releases/latest"
 UA = "PaperVault/1.0 (local research assistant; +https://github.com)"
@@ -1258,9 +1326,13 @@ def update_check():
     _, _, raw, _ = http_get(RELEASES_API, timeout=15, max_bytes=2 * 1024 * 1024, headers={"Accept": "application/vnd.github+json"})
     rel = json.loads(raw.decode("utf-8"))
     latest = (rel.get("tag_name") or "").lstrip("vV")
+    assets = {str(x.get("name", "")).lower(): x.get("browser_download_url") for x in rel.get("assets") or []}
+    # "Tải bản mới" tải bộ cài (PaperVault-Setup-<ver>.exe, cài đè giữ nguyên dữ liệu); bản cũ chưa có bộ cài thì tải zip.
+    setup = next((u for n, u in assets.items() if n.endswith(".exe") and "setup" in n), None)
+    portable = next((u for n, u in assets.items() if n.endswith(".zip")), None)
     return {"current": APP_VERSION, "latest": latest, "newer": _ver(latest) > _ver(APP_VERSION),
             "url": rel.get("html_url") or RELEASES_PAGE, "name": rel.get("name") or latest,
-            "download": next((x.get("browser_download_url") for x in rel.get("assets") or [] if str(x.get("name", "")).lower().endswith(".zip")), None),
+            "download": setup or portable, "downloadZip": portable, "installed": INSTALLED,
             "publishedAt": rel.get("published_at"), "notes": (rel.get("body") or "")[:4000]}
 
 

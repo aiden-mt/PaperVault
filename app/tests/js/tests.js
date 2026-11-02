@@ -207,6 +207,50 @@ try {
     ok(cx.webBlock({ items: [{ code: 'T1', title: 'VIGC', date: '2023', tldr: 'x', inLib: '' }], queries: ['VIGC'] }).includes('[T1] VIGC'));
   });
 
+  await test('Hình trong câu trả lời: dò vùng hình / bảng, chèn theo mã, biểu đồ, in đậm có công thức', async () => {
+    const fg = await import('/js/figures.js');
+    const vz = await import('/js/visuals.js');
+    const { mdToHtml } = await import('/js/ui.js');
+    // Trang mẫu (toạ độ 0..1): đoạn thân bài, bảng ở trên chú thích Table 1, rồi biểu đồ ở trên chú thích Figure 2, rồi thân bài.
+    const body = (y) => ({ str: 'This is a long line of body text that spans the whole column width of the page here.', x: 0.06, y, w: 0.88, h: 0.014 });
+    const it = (str, x, y, w) => ({ str, x, y, w, h: 0.014 });
+    const page = { items: [
+      body(0.06), body(0.08),
+      it('Method', 0.2, 0.12, 0.08), it('Acc', 0.5, 0.12, 0.04), it('Ours', 0.2, 0.14, 0.05), it('85.1', 0.5, 0.14, 0.04),
+      it('Table 1: Comparison with state of the art.', 0.3, 0.30, 0.4),
+      it('80', 0.1, 0.34, 0.02), it('ViT', 0.3, 0.45, 0.03),
+      it('Figure 2: Breakdown of performance.', 0.32, 0.55, 0.36),
+      body(0.60), body(0.62),
+    ] };
+    const found = fg.findFigures(page);
+    const t1 = found.find((f) => f.kind === 'table' && f.num === '1');
+    const f2 = found.find((f) => f.kind === 'figure' && f.num === '2');
+    ok(t1 && f2, `tìm được Table 1 và Figure 2: ${JSON.stringify(found.map((f) => f.kind + f.num))}`);
+    ok(t1.box[1] < 0.12 && t1.box[1] + t1.box[3] <= 0.32, `bảng có chú thích ở dưới: vùng phía trên chú thích (${t1.box.map((v) => v.toFixed(2))})`);
+    ok(f2.box[1] >= 0.30 && f2.box[1] + f2.box[3] <= 0.58, `hình: vùng giữa chú thích bảng và chú thích hình (${f2.box.map((v) => v.toFixed(2))})`);
+    // Chọn hình gửi kèm cho model đọc
+    const figs = [{ code: 'F1', caption: 'Figure 1: Model overview of the architecture', page: 2, url: '/x1.png', label: 'Figure 1' }, { code: 'B2', caption: 'Table 2: Results on VQAv2', page: 6, url: '/x2.png', label: 'Table 2' }];
+    eq(fg.pickFigures(figs, 'Giải thích bảng 2').map((x) => x.code), ['B2']);
+    eq(fg.pickFigures(figs, 'Kiến trúc mô hình thế nào?').map((x) => x.code), ['F1']);
+    eq(fg.pickFigures(figs, 'Loss là gì?'), []);
+    ok(fg.figureListText(figs, 'P1.').startsWith('[P1.F1] Figure 1 (tr. 2): Model overview'));
+    // Chèn hình theo mã: đứng riêng thì hiện ảnh, trong câu thì thành nút và gom xuống cuối
+    const res = (code) => { const f = figs.find((x) => `P1.${x.code}` === code); return f ? { fig: f, paperId: 'p1', tag: code } : null; };
+    const h1 = vz.linkFigures('<p>Xem:</p><p>[P1.F1]</p><p>Kết quả ở [P1.B2] và [P1.F9].</p>', res);
+    ok(/<figure class="viz-fig" data-fig="P1.F1">/.test(h1) && /data-fig-go="P1.B2"/.test(h1) && /viz-gallery[\s\S]*data-fig="P1.B2"/.test(h1), 'ảnh tại chỗ + nút + gom cuối');
+    ok(h1.includes('[P1.F9]'), 'mã không có thì giữ nguyên');
+    ok(/tab=pdf&amp;page=2|tab=pdf&page=2/.test(h1), 'có link mở đúng trang PDF');
+    // Biểu đồ
+    const svg = vz.chartSvg({ type: 'bar', title: 'Acc', unit: '%', labels: ['A', 'B'], series: [{ name: 'x', data: [80, '85.5%'] }] });
+    ok(svg.startsWith('<svg') && (svg.match(/<rect /g) || []).length >= 2, 'biểu đồ cột');
+    let bad = null; try { vz.chartSvg({ labels: [], series: [] }); } catch (e) { bad = e; }
+    ok(bad, 'dữ liệu rỗng thì báo lỗi');
+    // Khối code giữ tên ngôn ngữ; in đậm bao quanh công thức
+    ok(mdToHtml('```mermaid\nflowchart LR\nA-->B\n```').includes('<pre data-lang="mermaid">'));
+    const bold = mdToHtml('chọn **top-$K$ weight trong từng row**, xong');
+    ok(/<b>top-.*(katex|\$K\$).*weight trong từng row<\/b>/.test(bold) && !bold.includes('**'), `in đậm có công thức: ${bold.slice(0, 120)}`);
+  });
+
   await test('lineDiff: so sánh theo dòng', () => {
     eq(lineDiff('a\nb\nc', 'a\nc\nd').map((x) => x.t + x.s), ['=a', '-b', '=c', '+d']);
     eq(lineDiff('', 'x').map((x) => x.t + x.s), ['-', '+x']);

@@ -172,6 +172,14 @@ const LENGTH_RULES = {
   ],
 };
 
+// Hình trong câu trả lời: hình gốc của paper (theo mã), sơ đồ Mermaid, biểu đồ JSON (visuals.js dựng).
+const visualRules = (figPrefix) => [
+  'Hình minh hoạ (chỉ khi giúp hiểu nhanh hơn chữ; câu trả lời ngắn thì không cần):',
+  `- Hình / bảng gốc của paper: nếu tài liệu có danh sách hình (mã ${figPrefix}F2 là Figure 2, ${figPrefix}B1 là Table 1), muốn cho người đọc xem hình nào thì viết mã đó trong ngoặc vuông trên MỘT DÒNG RIÊNG, ví dụ một dòng chỉ có [${figPrefix}F2]; app sẽ hiện ảnh gốc ở đó. Chỉ dùng mã có trong danh sách, mỗi hình chèn một lần. Nếu được gửi kèm ảnh hình, hãy đọc ảnh để giải thích đúng nội dung hình.`,
+  '- Sơ đồ quy trình, kiến trúc, quan hệ giữa các bài, dòng thời gian: khối ```mermaid (flowchart LR / TD, timeline, mindmap). Nhãn ngắn, đặt trong ngoặc kép khi có dấu ngoặc hoặc ký tự đặc biệt, tối đa khoảng 15 nút, không dùng LaTeX trong nhãn.',
+  '- So sánh số liệu: khối ```chart chứa đúng một JSON {"type": "bar" hoặc "line", "title": "...", "unit": "%", "labels": [...], "series": [{"name": "...", "data": [số, ...]}]}. Chỉ dùng số có trong tài liệu, cùng một metric; thiếu số thì để null.',
+];
+
 export function buildAskSystem(settings) {
   return [
     'Bạn là trợ lý nghiên cứu. Người dùng hỏi về MỘT paper cụ thể.',
@@ -181,6 +189,8 @@ export function buildAskSystem(settings) {
     'Khi trích số liệu, kèm dataset/metric tương ứng. Có thể dùng Markdown (danh sách, bảng ngắn). Công thức viết bằng LaTeX trong $...$ (cùng dòng) hoặc $$...$$ (đứng riêng).',
     '',
     ...(LENGTH_RULES[settings.chatLength || ''] || LENGTH_RULES['']),
+    '',
+    ...visualRules(''),
   ].join('\n');
 }
 
@@ -188,6 +198,13 @@ export function buildAskContext({ paper, text, settings }) {
   const parts = [];
   parts.push('## Ghi chú đã trích xuất');
   parts.push(JSON.stringify({ title: paper.title, url: paper.url, extraction: paper.extraction, userNotes: paper.userNotes || '' }, null, 1));
+  // Hình / bảng cắt từ PDF (figures.js): model chèn bằng mã [F2], [B1].
+  const figs = paper.figures?.pdfId && paper.figures.pdfId === paper.pdfId ? paper.figures.items || [] : [];
+  if (figs.length) {
+    parts.push('');
+    parts.push('## Hình và bảng trong PDF (mã để chèn hình gốc)');
+    parts.push(figs.slice(0, 30).map((x) => `[${x.code}] ${x.label} (tr. ${x.page}): ${String(x.caption || '').replace(/^(Figure|Fig\.|Table|Tab\.)\s*\S+\s*[:.|]\s*/i, '').replace(/\s+/g, ' ').slice(0, 220)}`).join('\n'));
+  }
   if (settings.myResearch?.trim()) {
     parts.push('');
     parts.push('## Đề tài của người dùng');
@@ -320,6 +337,8 @@ export function buildChatSystem(settings, { length = '', scope = 'auto' } = {}) 
     '- Đi thẳng vào câu trả lời, không nhắc lại câu hỏi, không mở đầu xã giao.',
     '',
     ...(LENGTH_RULES[length] || LENGTH_RULES['']),
+    '',
+    ...visualRules('P1.'),
     settings.myResearch?.trim() ? `\nĐề tài của người dùng (dùng khi họ hỏi về khả năng áp dụng):\n${settings.myResearch.trim()}` : '',
   ].join('\n');
 }

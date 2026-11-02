@@ -1,0 +1,2 @@
+﻿File này do bộ cài PaperVault tạo: PaperVault.exe ở thư mục này là bản đã cài đặt,
+nên config.json và thư mục data nằm ở %LOCALAPPDATA%\PaperVault thay vì cạnh file .exe.

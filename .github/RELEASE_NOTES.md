@@ -1,15 +1,18 @@
 ## Điểm mới
 
-- **Chat không còn bị giới hạn trong thư viện**: các paper đã chọn là nguồn chính (như RAG), phần thư viện không có thì AI trả lời bằng hiểu biết của nó và ghi rõ "(ngoài thư viện)". Ô **Kiến thức để trả lời** trong bảng Nguồn: Tự động, Luôn tra trên mạng, Không tra mạng, Chỉ trong thư viện. Không chọn paper nào vẫn hỏi được.
-- **Tự tra paper trên mạng** khi hỏi tìm paper, bài mới hay bài kế thừa: tra tên riêng bạn nêu, bài trích dẫn paper trong hội thoại (mới nhất trước) và từ khoá theo năm, qua Semantic Scholar hoặc OpenAlex. Bài tra được có mã T1, T2…, bấm để xem chi tiết và thêm vào thư viện.
-- **Chat dùng kết quả các công cụ khác** của từng paper: Hướng nghiên cứu, mạng trích dẫn (kèm số liệu đồ thị 3D), Có gì mới, câu tô trong PDF, trang Sổ tay; Bài giảng và Hỏi đáp trước đó lấy đoạn khớp câu hỏi. Bật / tắt từng loại ở mục **Dữ liệu kèm theo**, kèm gợi ý bài liên quan có trong thư viện để thêm vào hội thoại.
-- **Bấm mã trong câu trả lời** mở thẻ chi tiết thay vì tự chuyển trang: P1 (paper trong hội thoại, có nút Mở paper), P1.C3 / P1.R2 / P1.W4 (bài liên quan, cùng thẻ với tab Hướng nghiên cứu).
+- **Bộ cài đặt như một app thật**: tải `PaperVault-Setup-1.3.3.exe`, bấm Tiếp → Tiếp → Hoàn tất. Bộ cài tiếng Việt, không cần quyền admin. Bạn chọn được thư mục cài, lối tắt Desktop / Start Menu và mở cùng Windows (chạy ẩn ở khay). Máy chưa có WebView2 thì bộ cài tự tải về. App có mục gỡ cài đặt trong Settings → Apps.
+- **Dữ liệu tự chuyển sang bản cài**: dữ liệu nằm ở `%LOCALAPPDATA%\PaperVault`. Lần đầu mở, app tự chép thư viện, PDF và API key từ bản zip cũ; thư mục cũ được giữ lại làm dự phòng. Lần sau chỉ cần chạy Setup bản mới: bộ cài tự đóng app, cập nhật mà không động tới dữ liệu.
+- **Hình và bảng gốc trong câu trả lời** (Chat và tab Hỏi đáp): app cắt các hình / bảng có chú thích "Figure N" / "Table N" trong PDF. AI chèn hình bằng mã P1.F3, P1.B2. Bấm ảnh để phóng to, "Trang N ↗" mở PDF đúng trang. Hỏi về một hình cụ thể thì app gửi kèm ảnh hình đó để AI đọc trực tiếp.
+- **Sơ đồ và biểu đồ**: xin "vẽ sơ đồ kiến trúc / quy trình / dòng thời gian" hay "vẽ biểu đồ so sánh accuracy" thì AI vẽ ngay trong câu trả lời. Có nút phóng to và tải SVG.
+- **Thu gọn thanh menu trái** thành cột icon cho rộng chỗ làm việc: nút cạnh logo hoặc `Ctrl+Shift+M`.
 
 ## Sửa lỗi
 
-- Mã bài của "Có gì mới" trùng với Hướng nghiên cứu làm một số mã hiện xám hoặc mở nhầm bài (nay dùng mã W riêng).
-- Công thức hiện chữ đỏ vì model chèn ký tự vô hình vào LaTeX.
+- In đậm bao quanh công thức (ví dụ `**top-$K$ …**`) hiện dấu `**` thay vì chữ đậm.
+- Khung hỏi bị ẩn khi hội thoại chưa có paper, dù vẫn hỏi được.
 
 ## Cập nhật
 
-Tải `PaperVault-windows.zip` bên dưới, thoát PaperVault (chuột phải biểu tượng ở khay → Thoát), giải nén đè lên thư mục cũ. Thư mục `data` và file `config.json` không có trong file tải về nên dữ liệu được giữ nguyên.
+Tải `PaperVault-Setup-1.3.3.exe` bên dưới và chạy. Đang dùng bản zip cũ (nút **Tải bản mới** của bản cũ vẫn tải file zip, hãy tải Setup ở trang này) thì cứ để app cũ đang mở khi chạy Setup. Bộ cài nhờ đó tìm ra thư mục dữ liệu, tự đóng app cũ, và lần mở đầu tiên sau khi cài app tự lấy lại thư viện. Không cần xoá gì. Windows có thể hiện cảnh báo SmartScreen vì bộ cài chưa ký số: bấm **More info → Run anyway**.
+
+Muốn dùng bản không cài đặt (chạy từ USB, thư mục đồng bộ…) thì tải `PaperVault-windows.zip`, giải nén đè lên thư mục cũ như trước.

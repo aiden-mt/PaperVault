@@ -24,9 +24,11 @@
 
 ## Bắt đầu trong 3 bước
 
-1. **Tải app.** Vào [Releases](../../releases/latest), tải `PaperVault-windows.zip`, giải nén ra thư mục bất kỳ rồi chạy `PaperVault.exe`.
+1. **Cài app.** Vào [Releases](../../releases/latest), tải `PaperVault-Setup-<phiên bản>.exe` rồi chạy. Bấm **Tiếp theo** qua các bước: giấy phép, thư mục cài, lối tắt Desktop / Start Menu, có mở cùng Windows hay không, tới **Hoàn tất**. Mặc định app cài cho riêng bạn vào `%LOCALAPPDATA%\Programs\PaperVault`, không cần quyền admin. Gỡ trong **Settings → Apps → Installed apps**.
    - Windows có thể hiện cảnh báo SmartScreen vì app chưa ký số. Bấm **More info → Run anyway**.
-   - App cần WebView2 Runtime. Windows 11 có sẵn. Nếu Windows 10 không mở được app, cài *Microsoft Edge WebView2 Runtime* từ trang của Microsoft.
+   - App cần Microsoft Edge WebView2 Runtime. Windows 11 có sẵn; máy chưa có thì bộ cài tự tải bản chính thức của Microsoft và cài luôn.
+   - Cập nhật: tải Setup bản mới và chạy đè lên bản cũ (hoặc bấm **Tải bản mới** trong app). Thư viện và API key giữ nguyên.
+   - Không muốn cài? `PaperVault-windows.zip` là bản portable: giải nén ra thư mục bất kỳ rồi chạy `PaperVault.exe`.
 2. **Nhập API key.** Mở **Cài đặt**, chọn Claude, OpenAI hoặc Gemini rồi dán key, bấm **Kiểm tra kết nối**. Ghi thêm một câu mô tả đề tài của bạn: AI dùng nó để viết mục "liên quan tới bài của tôi". Muốn dùng model khác cho từng việc (ví dụ model rẻ cho Chat, model mạnh cho trích xuất), mở **Model riêng cho từng việc** ngay dưới đó.
 3. **Thêm paper đầu tiên.** Bấm **+ Thêm paper** (phím `N`), dán link arXiv, DOI hoặc thả file PDF. App tự tải toàn văn, PDF và viết ghi chú.
 
@@ -80,7 +82,7 @@ Extension cũng tự trích xuất và lưu thư viện riêng được, không 
 ## Câu hỏi thường gặp
 
 **Dữ liệu của tôi nằm ở đâu?**
-Trên máy bạn. Bản Windows lưu trong thư mục `data` cạnh `PaperVault.exe`. Khi chạy từ mã nguồn, dữ liệu nằm trong `app/data`. App không gửi thư viện của bạn lên máy chủ nào. Chỉ phần nội dung cần cho AI được gửi tới nhà cung cấp bạn chọn, kèm key của bạn.
+Trên máy bạn. Bản cài bằng Setup lưu ở `%LOCALAPPDATA%\PaperVault\data` (cài đè bản mới hay gỡ app đều không xoá thư mục này). Bản portable (zip) lưu trong thư mục `data` cạnh `PaperVault.exe`; chuyển sang bản cài thì lần mở đầu tiên app tự chép thư viện cũ sang. Khi chạy từ mã nguồn, dữ liệu nằm trong `app/data`. App không gửi thư viện của bạn lên máy chủ nào. Chỉ phần nội dung cần cho AI được gửi tới nhà cung cấp bạn chọn, kèm key của bạn.
 
 **Tốn bao nhiêu tiền API?**
 Một paper đọc toàn văn tốn khoảng 15–20 nghìn token đầu vào. Trang Tổng quan hiển thị số token đã dùng trong tháng. Muốn tiết kiệm, chọn mức effort thấp hoặc model nhỏ (Haiku, Flash, gpt-4o-mini) trong Cài đặt.
@@ -97,7 +99,8 @@ Cài đặt → **Sao lưu & nhập dữ liệu** → *Tải file sao lưu JSON*
 
 - `app/`: máy chủ Python (chỉ dùng thư viện chuẩn, SQLite) và giao diện JavaScript thuần trong `app/static`. Bản desktop dùng pywebview, đóng gói bằng PyInstaller qua `app/build_exe.bat`.
 - `src/`, `manifest.json`: extension Chrome / Edge (Manifest V3).
-- Mỗi tag `v*` đẩy lên GitHub sẽ chạy [workflow](.github/workflows/release.yml) build `PaperVault-windows.zip` và đăng lên Releases.
+- Bộ cài Windows: [Inno Setup](https://jrsoftware.org/isinfo.php) 6.5+, script `app/installer/PaperVault.iss` (số phiên bản lấy từ `APP_VERSION` trong `app/server.py`). Build cục bộ: `app/build_exe.bat` (tự gọi `app/installer/build_setup.bat` nếu máy có Inno Setup), kết quả `app/dist/PaperVault-Setup-<ver>.exe`.
+- Mỗi tag `v*` đẩy lên GitHub sẽ chạy [workflow](.github/workflows/release.yml) build `PaperVault-Setup-<ver>.exe` và `PaperVault-windows.zip` rồi đăng lên Releases. Tag phải khớp `APP_VERSION`.
 
 ## Giấy phép
 

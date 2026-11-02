@@ -13,9 +13,11 @@ import { researchMapMarkdown } from './research.js';
 import { whatsNewMarkdown } from './whatsnew.js';
 import { lectureMarkdown } from './lecture.js';
 import { KINDS as MARK_KINDS } from './autohighlight.js';
+import { ensureFigures, figuresOf, figureListText } from './figures.js';
 
 /** [khoá, nhãn, giải thích] của từng loại dữ liệu kèm theo (bật / tắt ở bảng Nguồn). */
 export const CTX_KINDS = [
+  ['figures', 'Hình & bảng trong PDF', 'Danh sách hình / bảng (chú thích) để AI chèn hình gốc vào câu trả lời; hình được cắt từ PDF lần đầu mở hội thoại'],
   ['network', 'Mạng trích dẫn', 'Bài nền và bài phát triển tiếp: ưu tiên bài đã phân tích ở Hướng nghiên cứu, kèm số liệu đồ thị trích dẫn'],
   ['research', 'Hướng nghiên cứu', 'Tổng quan dòng nghiên cứu, khoảng trống còn mở, hướng đi tiếp'],
   ['whatsnew', 'Có gì mới', 'Giới hạn đã được giải quyết, kết quả mới, phản biện từ các bài dẫn'],
@@ -32,13 +34,24 @@ const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1).replace('.', ',')}k` :
 
 /* ---------- dữ liệu cần tải trước (đồ thị trích dẫn đã dựng, danh sách bài dẫn / được dẫn, trang Sổ tay) ---------- */
 
+const figTried = new Set();   // paper:pdf đã thử cắt hình trong phiên này (PDF không có hình thì khỏi thử lại)
+const figRunning = new Set(); // paper đang cắt hình
+export const figuresRunning = (id) => figRunning.has(id);
 const graphs = new Map(); // id paper -> { g: đồ thị đã lưu đệm | null, at }
 const edges = new Map();  // id paper -> { refs, cits } từ Semantic Scholar (khi chưa có Hướng nghiên cứu lẫn đồ thị)
 
 /** Tải dữ liệu cho các paper trong hội thoại. Không gọi model; đồ thị chỉ dùng bản đã dựng (mở đồ thị 3D / bản đồ tài liệu). */
-export async function ensureContext(c, papers) {
+export async function ensureContext(c, papers, { onFigures = null } = {}) {
   const ctx = ctxOf(c);
   const jobs = [];
+  // Hình cắt từ PDF: chạy nền (vài giây mỗi paper), không chặn câu hỏi; xong thì onFigures() để vẽ lại bảng Nguồn.
+  if (ctx.figures) {
+    for (const p of papers.filter((x) => x.pdfId && !figuresOf(x).length && !figTried.has(`${x.id}:${x.pdfId}`)).slice(0, 6)) {
+      figTried.add(`${p.id}:${p.pdfId}`);
+      figRunning.add(p.id);
+      ensureFigures(p.id).catch(() => []).finally(() => { figRunning.delete(p.id); onFigures?.(); });
+    }
+  }
   if (ctx.notebook) jobs.push(loadPages().catch(() => null));
   if (ctx.network) {
     for (const p of papers) {
@@ -195,6 +208,10 @@ export function extraBlock(p, label, ctx, scale = 1) {
     const lines = marks.slice(0, Math.round(30 * Math.max(scale, 0.5))).map((m) => `- [${m.auto ? (MARK_KINDS[m.kind]?.label || 'AI tô') : 'người dùng tô'}${m.page ? `, tr. ${m.page}` : ''}] "${one(m.text).slice(0, 300)}"${m.why ? ` (vì: ${one(m.why)})` : ''}${m.note ? ` (ghi chú: ${one(m.note)})` : ''}`);
     if (lines.length) parts.push(`<pdf_highlights paper="${label}">\n${clamp(lines.join('\n'), lim(3000))}\n</pdf_highlights>`);
   }
+  if (ctx.figures) {
+    const figs = figuresOf(p);
+    if (figs.length) parts.push(`<figures paper="${label}">\nHình / bảng cắt từ PDF; chèn hình gốc bằng mã trên một dòng riêng:\n${figureListText(figs, `${label}.`, { captionChars: Math.round(220 * Math.max(scale, 0.5)), max: Math.round(30 * Math.max(scale, 0.4)) })}\n</figures>`);
+  }
   if (ctx.notebook) {
     const pages = pagesForPaper(p.id).slice(0, 6);
     if (pages.length) parts.push(`<notebook paper="${label}">\nTrang Sổ tay của người dùng nhắc tới paper này:\n${clamp(pages.map(({ page, snippet }) => `- "${one(page.title)}": ${one(snippet).replace(new RegExp(`\\[\\[@${p.id}[^\\]]*\\]\\]`, 'g'), `[${label}]`)}`).join('\n'), lim(2500))}\n</notebook>`);
@@ -348,4 +365,12 @@ export function webBlock(res) {
   if (!res?.items?.length) return '';
   const lines = res.items.map((x) => `[${x.code}] ${one(x.title)} (${[x.date, x.venue, x.citations != null ? `${fmtK(x.citations)} trích dẫn` : '', x.authors].filter(Boolean).join(' · ')})${x.citing ? ` · trích dẫn [${x.citing}]` : ''}${x.inLib ? ' · có trong thư viện' : ''}${x.arxiv ? ` · arXiv:${x.arxiv}` : ''}\n  ${one(x.tldr || x.abstract || '(không có tóm tắt)').slice(0, 420)}`);
   return `<web_search source="${(res.sources || ['Semantic Scholar']).join(', ')}" queries="${res.queries.join(' | ').replace(/"/g, "'")}">\n${lines.join('\n')}\n</web_search>`;
+}
+
+/** Hình theo mã trong câu trả lời Chat: "P1.F3" -> { fig, paperId, tag }. */
+export function figureByCode(papers, code) {
+  const [label, k] = String(code).split('.');
+  const hit = papers.find((x) => x.label === label);
+  const fig = hit && figuresOf(hit.p).find((x) => x.code === k);
+  return fig ? { fig, paperId: hit.p.id, tag: `${label}.${k}` } : null;
 }

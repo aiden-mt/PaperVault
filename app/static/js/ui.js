@@ -1,6 +1,6 @@
 // Thành phần giao diện nhỏ dùng chung: toast, hộp thoại, modal, render markdown đơn giản.
 import { escapeHtml } from './util.js';
-import { withMath, linkify, subSup } from './richtext.js';
+import { withMathWhole, linkify, subSup } from './richtext.js';
 
 export const $ = (id) => document.getElementById(id);
 export const el = (html) => {
@@ -123,7 +123,7 @@ export function mdToHtml(md) {
   // Link Markdown và link trần đều thành hyperlink; tách trước để dấu * hay _ trong URL không bị hiểu là in nghiêng.
   const mdInline = (s) => linkify(s, mdText);
   // Công thức tách ra trước, phần chữ mới đi qua Markdown (để * và _ trong công thức không bị hiểu là in nghiêng).
-  const inline = (s) => withMath(s, mdInline);
+  const inline = (s) => withMathWhole(s, mdInline);
   const top = () => lists[lists.length - 1];
   const closeOne = () => { out.push(`</li></${lists.pop().kind}>`); };
   const closeList = () => { while (lists.length) closeOne(); blank = false; };
@@ -135,7 +135,9 @@ export function mdToHtml(md) {
     const inItem = lists.length > 0 && indent > top().indent;
     if (line.trimStart().startsWith('```')) {
       if (!inItem && !code) closeList();
-      closeTable(); code = !code; out.push(code ? '<pre>' : '</pre>'); continue;
+      closeTable(); code = !code;
+      const lang = code ? (line.trim().slice(3).trim().match(/^[\w+-]{1,20}$/) || [''])[0].toLowerCase() : '';
+      out.push(code ? `<pre${lang ? ` data-lang="${lang}"` : ''}>` : '</pre>'); continue;
     }
     if (code) { out.push(escapeHtml(raw)); continue; }
     if (!line.trim()) { if (lists.length) blank = true; continue; }

@@ -1,7 +1,9 @@
-# Đóng gói PaperVault.exe trên máy Windows của GitHub và đính kèm file zip vào Release.
+# Đóng gói PaperVault.exe trên máy Windows của GitHub, tạo bộ cài (Inno Setup, app/installer/PaperVault.iss) và đính kèm
+# PaperVault-Setup-<ver>.exe cùng bản portable PaperVault-windows.zip vào Release.
 # Phát hành phiên bản mới: viết ghi chú vào .github/RELEASE_NOTES.md (app hiện nội dung này trong thẻ "Có bản mới"),
-# tạo tag dạng v1.2.0 rồi push (git tag v1.2.0 && git push origin v1.2.0).
-# Chạy tay ở tab Actions → Build PaperVault → Run workflow: chỉ tạo file zip trong mục Artifacts để thử.
+# tăng APP_VERSION trong app/server.py (bộ cài lấy số phiên bản từ đây, phải khớp tag), tạo tag dạng v1.2.0 rồi push
+# (git tag v1.2.0 && git push origin v1.2.0).
+# Chạy tay ở tab Actions → Build PaperVault → Run workflow: chỉ tạo bộ cài và file zip trong mục Artifacts để thử.
 name: Build PaperVault
 
 on:
@@ -44,15 +46,34 @@ jobs:
           Copy-Item ..\LICENSE dist\PaperVault\
           Compress-Archive -Path dist\PaperVault -DestinationPath PaperVault-windows.zip -Force
 
+      - name: Tạo bộ cài (Inno Setup)
+        shell: pwsh
+        run: |
+          $ver = (Select-String -Path server.py -Pattern '^APP_VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF -like 'refs/tags/v*' -and "v$ver" -ne $env:GITHUB_REF_NAME) {
+            throw "APP_VERSION trong server.py ($ver) không khớp tag $env:GITHUB_REF_NAME"
+          }
+          # Bản dịch tiếng Việt (installer/Vietnamese.isl) cần Inno Setup 6.5 trở lên: cài / nâng cấp bằng Chocolatey.
+          choco upgrade innosetup -y --no-progress
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          & $iscc /Q installer\PaperVault.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-Item dist\PaperVault-Setup-*.exe
+
       - uses: actions/upload-artifact@v4
         with:
           name: PaperVault-windows
-          path: app/PaperVault-windows.zip
+          path: |
+            app/PaperVault-windows.zip
+            app/dist/PaperVault-Setup-*.exe
 
       - name: Đính kèm vào Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/PaperVault-windows.zip
+          files: |
+            app/dist/PaperVault-Setup-*.exe
+            app/PaperVault-windows.zip
           body_path: .github/RELEASE_NOTES.md
           generate_release_notes: true

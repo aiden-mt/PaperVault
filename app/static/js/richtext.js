@@ -34,6 +34,21 @@ export function renderMath(tex, display = false) {
   }
 }
 
+/**
+ * Như withMath nhưng phần chữ đi qua plain() một lần trên cả câu (công thức thay bằng ký hiệu giữ chỗ rồi đặt lại sau),
+ * để định dạng bao quanh công thức vẫn đúng: "**top-$K$ theo từng row**" in đậm cả cụm chứ không vỡ làm hai mảnh.
+ * plain() phải giữ nguyên ký tự \uE000…\uE001 (escapeHtml, Markdown, link đều giữ).
+ */
+export function withMathWhole(raw, plain = escapeHtml) {
+  const maths = [];
+  const masked = String(raw ?? '').replace(MATH, (m, a, b, c, d) => {
+    maths.push(renderMath(a ?? b ?? c ?? d, a != null || b != null));
+    return `\uE000${maths.length - 1}\uE001`;
+  });
+  if (!maths.length) return plain(masked);
+  return plain(masked).replace(/\uE000(\d+)\uE001/g, (m, k) => maths[Number(k)] ?? '');
+}
+
 /** Tách công thức ra khỏi văn bản: phần chữ đi qua plain(text), phần công thức dựng bằng KaTeX. */
 export function withMath(raw, plain = escapeHtml) {
   const s = String(raw ?? '');

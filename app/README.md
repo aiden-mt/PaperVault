@@ -45,10 +45,11 @@ Nguồn dữ liệu xếp hạng: [CORE Conference Portal](https://portal.core.e
 
 Mở như một phần mềm bình thường: cửa sổ riêng mang logo PaperVault (file `static/icons/logo.svg`, `papervault.ico` cho .exe và taskbar), không thanh địa chỉ, hộp thoại chọn thư mục của Windows, nhớ kích thước cửa sổ, chỉ cho phép một bản chạy.
 
+- **Cài bằng Setup** (người dùng): tải `PaperVault-Setup-<ver>.exe` ở GitHub Releases, chạy và bấm Tiếp theo tới Hoàn tất. Bản cài lưu `config.json` và `data` ở `%LOCALAPPDATA%\PaperVault` (ngoài thư mục cài), nên cài đè bản mới hay gỡ cài đặt đều không mất dữ liệu. Lần mở đầu, nếu trước đó dùng bản giải nén zip (dữ liệu cạnh `.exe`, tìm theo thư mục cài, lối tắt và app đang chạy) thì app chép thư viện cũ sang; bản build trong dự án hay `dataDir` riêng thì dùng tiếp tại chỗ.
 - **Đã có file `.exe`**: bấm đúp `dist\PaperVault\PaperVault.exe`. Không cần cài Python. Khi nằm trong dự án, bản `.exe` dùng chung dữ liệu `app\data` và `app\config.json` với bản chạy bằng Python. Copy cả thư mục `dist\PaperVault` sang máy khác vẫn chạy, khi đó dữ liệu nằm trong thư mục `data` cạnh file `.exe` (Windows 10/11 có sẵn WebView2 Runtime).
 - **Chạy từ mã nguồn**: `pip install pywebview` một lần, rồi bấm đúp `PaperVault.bat` (hoặc `pythonw desktop.py`).
 - **Tạo lối tắt** ngoài Desktop và Start Menu: chuột phải `create_shortcut.ps1` → *Run with PowerShell*.
-- **Tự đóng gói `.exe`**: `pip install pywebview pyinstaller` rồi chạy `build_exe.bat` (khoảng 1 phút, kết quả trong `dist\PaperVault`).
+- **Tự đóng gói `.exe`**: `pip install pywebview pyinstaller` rồi chạy `build_exe.bat` (khoảng 1 phút, kết quả trong `dist\PaperVault`). Máy có Inno Setup 6.5+ (`winget install JRSoftware.InnoSetup`) thì tạo luôn bộ cài `dist\PaperVault-Setup-<ver>.exe`; chỉ tạo lại bộ cài: `installer\build_setup.bat`.
 
 Chưa cài pywebview thì `desktop.py` tự mở Chrome/Edge ở chế độ cửa sổ ứng dụng (`--app`, không thanh địa chỉ).
 

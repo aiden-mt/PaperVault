@@ -19,6 +19,8 @@ from pathlib import Path
 import server  # cùng thư mục
 
 APP_TITLE = "PaperVault"
+# Khởi động cùng Windows (bộ cài ghi lệnh "PaperVault.exe --tray"): mở ẩn ở khay hệ thống, bấm biểu tượng để hiện cửa sổ.
+START_IN_TRAY = "--tray" in sys.argv[1:]
 APP_ICON = server.STATIC / "icons" / "papervault.ico"
 WIN_FILE = server.DATA / "window.json"
 
@@ -150,6 +152,7 @@ class DesktopApi:
         return {
             "desktop": True,
             "frozen": server.FROZEN,
+            "installed": server.INSTALLED,
             "dataDir": str(server.DATA),
             "configFile": str(server.HOME_DIR / "config.json"),
             "platform": sys.platform,
@@ -216,6 +219,7 @@ class DesktopApi:
             if server.PDF_DIR.exists():
                 shutil.copytree(server.PDF_DIR, target / "pdfs", dirs_exist_ok=True)
         cfg_file = server.HOME_DIR / "config.json"
+        cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg = {}
         if cfg_file.exists():
             try:
@@ -390,6 +394,7 @@ def run_pywebview(url):
         min_size=(900, 600),
         text_select=True,
         zoomable=True,
+        hidden=START_IN_TRAY,
     )
     _window = window
 
@@ -449,7 +454,12 @@ def run_pywebview(url):
     window.events.closing += on_closing
     window.events.closed += on_closed
     start_tray()
-    webview.start(debug=bool(os.environ.get("PV_DEBUG")), private_mode=False, storage_path=str(WEBVIEW_DIR),
+
+    def show_if_no_tray():
+        if _tray is None or not _tray.ok:  # không có khay thì không có chỗ mở lại cửa sổ ẩn
+            show_window()
+
+    webview.start(show_if_no_tray if START_IN_TRAY else None, debug=bool(os.environ.get("PV_DEBUG")), private_mode=False, storage_path=str(WEBVIEW_DIR),
                   icon=str(APP_ICON) if APP_ICON.exists() else None)
 
 
@@ -476,6 +486,8 @@ def run_browser_app_mode(url):
 def main():
     running = instance_running()
     if running:
+        if START_IN_TRAY:
+            return
         notify("PaperVault", f"PaperVault đang chạy rồi ({running}). Hãy dùng cửa sổ đang mở.")
         webbrowser.open(running) if os.environ.get("PV_OPEN_EXISTING") else None
         return

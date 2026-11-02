@@ -82,7 +82,8 @@ ${steps([
     `<b>Hướng dẫn</b> cho đúng trang đang xem (phím ${k('?')}).`,
     `<b>Thêm paper</b> (phím ${k('N')}).`,
   ])}
-<p>Mỗi mục ở thanh bên có phím tắt hiện mờ bên cạnh: gõ ${k('G')} rồi một phím, ví dụ ${k('G')} ${k('L')} mở Thư viện, ${k('G')} ${k('B')} mở Sổ tay, ${k('G')} ${k('K')} mở Lịch. Danh sách đầy đủ ở mục <a href="#/help?s=keys">Phím tắt</a>.</p>`,
+<p>Mỗi mục ở thanh bên có phím tắt hiện mờ bên cạnh: gõ ${k('G')} rồi một phím, ví dụ ${k('G')} ${k('L')} mở Thư viện, ${k('G')} ${k('B')} mở Sổ tay, ${k('G')} ${k('K')} mở Lịch. Danh sách đầy đủ ở mục <a href="#/help?s=keys">Phím tắt</a>.</p>
+<p>Nút thu gọn cạnh logo (hoặc ${k('Ctrl')}+${k('Shift')}+${k('M')}) đưa thanh bên về một cột icon cho rộng chỗ làm việc; rê chuột lên icon để xem tên mục. App nhớ lựa chọn này cho lần mở sau.</p>`,
   },
 
   /* ============================== Thư viện ============================== */
@@ -141,7 +142,7 @@ ${steps([
   <li>${ui('Ghi chú')}: venue và hạng, ghi chú theo template, ghi chú cá nhân (${k('Ctrl')}+${k('Enter')} lưu nhanh), trích dẫn theo đoạn, câu đáng nhớ, và thẻ ${ui('📓 Trong sổ tay nghiên cứu')} liệt kê các trang nhắc tới bài này.</li>
   <li>${ui('PDF')}: đọc file ngay trong app, bôi đen để dịch, tô sáng, gạch chân, AI tô câu đáng nhớ. Paper chưa có PDF thì app tự tìm bản công khai. Xem các mục <a href="#/help?s=translate">Dịch khi đọc PDF</a>, <a href="#/help?s=marks">Tô sáng và tìm PDF</a>, <a href="#/help?s=autohl">Tô câu đáng nhớ</a>.</li>
   <li>${ui('Bài giảng')}: bản giải thích dài tám phần (xem mục <a href="#/help?s=lecture">Bài giảng</a>).</li>
-  <li>${ui('Hỏi đáp')}: hỏi mô hình về riêng paper này, dùng ghi chú và toàn văn đã lưu. Đính kèm được ảnh (hình, bảng, ảnh chụp màn hình) và file như ở Chat: nút ${ui('📎 Đính kèm')}, dán ${k('Ctrl')}+${k('V')} hoặc kéo thả. Dưới mỗi câu trả lời có ${ui('📓 Lưu vào Sổ tay')} và ${ui('Copy')}. Ô ${ui('Ngôn ngữ trả lời')} dùng chung với Chat.</li>
+  <li>${ui('Hỏi đáp')}: hỏi mô hình về riêng paper này, dùng ghi chú và toàn văn đã lưu. Đính kèm được ảnh (hình, bảng, ảnh chụp màn hình) và file như ở Chat: nút ${ui('📎 Đính kèm')}, dán ${k('Ctrl')}+${k('V')} hoặc kéo thả. Dưới mỗi câu trả lời có ${ui('📓 Lưu vào Sổ tay')} và ${ui('Copy')}. Ô ${ui('Ngôn ngữ trả lời')} dùng chung với Chat. Câu trả lời chèn được hình / bảng gốc cắt từ PDF (mã ${ui('F3')}, ${ui('B2')}), vẽ sơ đồ và biểu đồ như ở Chat (xem mục <a href="#/help?s=chat">Chat với nhiều paper</a>).</li>
   <li>${ui('Liên quan')}: Semantic Scholar, bản đồ tài liệu, đồ thị 3D, Có gì mới, Theo dõi (xem mục <a href="#/help?s=related">Liên quan, bản đồ, đồ thị</a>).</li>
   <li>${ui('Hướng nghiên cứu')}: đặt bài giữa các bài nó dẫn và các bài dẫn nó, chỉ ra phần còn bỏ ngỏ (xem mục <a href="#/help?s=research">Hướng nghiên cứu</a>).</li>
   <li>${ui('Trích dẫn')}: BibTeX và APA bản thứ 7; ${ui('Copy có định dạng')} giữ in nghiêng khi dán vào Word hay Google Docs. App chưa lưu số tập, số kỳ, số trang nên phần đó cần bổ sung tay.</li>
@@ -314,6 +315,14 @@ ${steps([
   <li><b>Bài giảng</b> và <b>các lượt Hỏi đáp trước</b>: chỉ gửi đoạn khớp câu hỏi.</li>
 </ul>
 <p>Bài liên quan hiện trong câu trả lời bằng mã như ${ui('P1.C3')}: mã xanh là bài có trong thư viện (bấm để mở), mã vàng mở link arXiv / DOI. Mục ${ui('Bài liên quan có trong thư viện')} có nút ＋ để đưa bài đó vào hội thoại. Bỏ tick từng loại để gửi ít hơn; lựa chọn lưu theo từng hội thoại.</p>
+<p><b>Hình, bảng gốc và sơ đồ trong câu trả lời</b>:</p>
+<ul>
+  <li><b>Hình / bảng gốc của paper</b>: lần đầu một paper có PDF được dùng trong Chat (hoặc mở tab Hỏi đáp), app tự dò chú thích "Figure N" / "Table N" trong PDF, cắt vùng hình và lưu thành ảnh (bảng Nguồn ghi ${ui('đang cắt hình…')}). AI chèn hình bằng mã ${ui('P1.F3')} (hình 3), ${ui('P1.B2')} (bảng 2): mã đứng riêng một dòng hiện thành ảnh, mã trong câu là nút bấm để xem; các hình được nhắc nhưng chưa hiện thì gom ở cuối câu trả lời. Bấm ảnh để phóng to, ${ui('Trang N ↗')} mở PDF đúng trang đó.</li>
+  <li><b>AI đọc được hình</b>: câu hỏi nêu số hình / bảng ("giải thích Figure 2", "bảng 3 nói gì") hoặc hỏi về kiến trúc, biểu đồ, kết quả thì app gửi kèm ảnh của tối đa 2 hình liên quan (dòng ${ui('🖼 Gửi kèm hình cho AI đọc')} dưới câu hỏi). Cần model đọc được ảnh. Bỏ tick ${ui('Hình & bảng trong PDF')} ở Dữ liệu kèm theo để tắt.</li>
+  <li><b>Sơ đồ</b>: hỏi "vẽ sơ đồ quy trình / kiến trúc / dòng thời gian" thì AI trả về sơ đồ (Mermaid) được vẽ ngay trong câu trả lời. Sơ đồ rộng thì cuộn ngang; ${ui('⤢')} phóng to, ${ui('⭳ SVG')} tải ảnh, ${ui('Xem mã sơ đồ')} để chép sang chỗ khác.</li>
+  <li><b>Biểu đồ</b>: hỏi so sánh số liệu ("vẽ biểu đồ accuracy các phương pháp") thì AI vẽ biểu đồ cột hoặc đường, chỉ dùng số có trong tài liệu.</li>
+  <li>PDF scan (không có lớp chữ) hoặc chú thích không theo dạng "Figure N" thì không cắt được hình; vẫn có thể chụp màn hình rồi đính kèm.</li>
+</ul>
 <p><b>Độ dài câu trả lời</b> (ô ${ui('Độ dài')} dưới khung hỏi): ${ui('Tự động')} co giãn theo câu hỏi (hỏi ngắn thì trả lời 1–3 câu, xin tóm tắt thì gạch đầu dòng, xin giải thích chi tiết hay phân tích thì viết đầy đủ), ${ui('Ngắn gọn')} luôn ngắn, ${ui('Chi tiết')} luôn đầy đủ. Lựa chọn dùng chung cho tab Hỏi đáp của trang paper. Trong lúc hỏi vẫn có thể nói "ngắn thôi" hoặc "nói rõ hơn".</p>
 <p><b>Bản nháp</b>: chữ và tệp đính kèm chưa gửi được giữ riêng cho từng hội thoại; sang trang khác, đổi hội thoại hay tắt app rồi quay lại vẫn còn (nháp quá 30 ngày thì tự bỏ).</p>
 `,
@@ -524,7 +533,8 @@ ${steps([
   <li><b>Sao lưu &amp; khôi phục</b>: ${ui('Sao lưu đầy đủ ngay')} tạo một file <b>.zip</b> chứa paper, toàn văn, Sổ tay, Lịch, Chat, cài đặt (trừ API key), mọi <b>file PDF</b> và <b>ảnh</b> của Sổ tay. ${ui('Khôi phục từ file .zip…')} hoặc nút ${ui('Khôi phục')} ở từng bản: chọn <b>Gộp</b> (thêm phần chưa có, giữ dữ liệu hiện tại) hoặc <b>Thay thế toàn bộ</b> (nạp lại cả cài đặt, giữ API key đang có trên máy).</li>
   <li><b>Tự sao lưu</b> mỗi ngày hoặc mỗi tuần khi app đang mở, giữ N bản tự động gần nhất (bản bạn tự tạo không bị xoá). Nên đặt <b>Thư mục sao lưu</b> ở ổ khác hoặc trong OneDrive / Google Drive để phòng hỏng ổ.</li>
   <li>Sao lưu dạng JSON (cách cũ, không kèm PDF, ảnh) vẫn còn trong mục thu gọn bên dưới; nhận cả file sao lưu của extension.</li>
-  <li><b>Phiên bản &amp; cập nhật</b>: ${ui('Kiểm tra bản mới')} hỏi trang GitHub Releases. Khi bật tự kiểm tra (mặc định), mỗi ngày app hỏi một lần; có bản mới thì góc dưới bên phải hiện thẻ kèm điểm mới, ${ui('Tải bản mới')} (bản desktop tải thẳng file .zip), ${ui('Bỏ qua bản này')} hoặc ${ui('Tắt tự kiểm tra')}. Cập nhật bản desktop: tải file .zip, đóng app, giải nén đè lên thư mục cũ; thư mục <code>data</code> và <code>config.json</code> không có trong file tải về nên được giữ nguyên. Nên sao lưu đầy đủ trước khi cập nhật.</li>
+  <li><b>Phiên bản &amp; cập nhật</b>: ${ui('Kiểm tra bản mới')} hỏi trang GitHub Releases. Khi bật tự kiểm tra (mặc định), mỗi ngày app hỏi một lần; có bản mới thì góc dưới bên phải hiện thẻ kèm điểm mới, ${ui('Tải bản mới')} (bản desktop tải thẳng bộ cài <code>PaperVault-Setup-…exe</code>), ${ui('Bỏ qua bản này')} hoặc ${ui('Tắt tự kiểm tra')}. Cập nhật bản desktop: chạy file Setup vừa tải, bấm Tiếp theo tới Hoàn tất. Bộ cài tự đóng PaperVault đang mở (kể cả khi đang ở khay) rồi cài đè; thư viện, PDF và API key giữ nguyên. Nên sao lưu đầy đủ trước khi cập nhật.</li>
+  <li><b>Cài đặt, gỡ cài đặt bản desktop</b>: bộ cài mặc định cài cho riêng bạn vào <code>%LOCALAPPDATA%\\Programs\\PaperVault</code> (không cần quyền admin), tự tải Microsoft Edge WebView2 Runtime nếu máy chưa có, cho chọn lối tắt Desktop / Start Menu và ${ui('Mở PaperVault cùng Windows')} (app chạy ẩn ở khay để nhắc việc). Dữ liệu của bản cài nằm ở <code>%LOCALAPPDATA%\\PaperVault\\data</code>, ngoài thư mục cài: gỡ app trong Settings → Apps → Installed apps không xoá thư viện. Trước đây dùng bản giải nén <code>PaperVault-windows.zip</code>? Lần mở đầu sau khi cài, app tự chép thư viện cũ (thư mục <code>data</code> cạnh file .exe cũ) sang chỗ mới; thư mục cũ được giữ lại kèm file <code>DA_CHUYEN_DU_LIEU.txt</code>, kiểm tra xong có thể xoá. File .zip vẫn có trên GitHub Releases cho ai muốn dùng bản portable, không cần cài.</li>
 </ul>
 <p>Toàn bộ dữ liệu nằm trong một thư mục. Muốn dùng trên nhiều máy qua OneDrive hoặc Google Drive, bấm ${ui('Đổi thư mục dữ liệu')} và chọn thư mục trong ổ đồng bộ. Chỉ mở app trên một máy tại một thời điểm và chờ đồng bộ xong trước khi mở trên máy khác.</p>`,
   },
@@ -547,6 +557,7 @@ ${steps([
   <tr><th>${k('G')} rồi ${k('D')} ${k('L')} ${k('T')} ${k('F')} ${k('A')} ${k('C')} ${k('B')} ${k('K')} ${k('N')} ${k('S')} ${k('H')}</th><td>Tổng quan, Thư viện, Chủ đề, Paper mới, Chat, So sánh, Sổ tay, Lịch, Thẻ ghi nhớ, Cài đặt, Hướng dẫn (phím hiện mờ cạnh mục ở thanh bên)</td></tr>
   <tr><th>${k('?')}</th><td>Mở Hướng dẫn</td></tr>
   <tr><th>${k('Ctrl')}+${k('\\')}</th><td>Bật / tắt chia đôi màn hình</td></tr>
+  <tr><th>${k('Ctrl')}+${k('Shift')}+${k('M')}</th><td>Thu gọn / mở rộng thanh menu trái</td></tr>
   <tr><th>${k('Alt')} + bấm link</th><td>Khi chia đôi: mở ở khung bên kia</td></tr>
   <tr><th>${k('Ctrl')}+${k('Shift')}+${k('D')}</th><td>Dịch ngay đoạn đang bôi đen</td></tr>
   <tr><th>${k('j')} ${k('k')} · ${k('Enter')} · ${k('x')}</th><td>Thư viện: di chuyển giữa các paper · mở · tick</td></tr>

@@ -32,6 +32,10 @@ html, body { height: 100%; }
   width: 236px; flex: 0 0 auto; background: var(--nav-bg); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; padding: 14px 12px 12px; gap: 1px; overflow-y: auto;
 }
+.nav-top { display: flex; align-items: flex-start; gap: 4px; }
+.nav-top .brand { flex: 1 1 auto; min-width: 0; }
+#nav-min { flex: 0 0 auto; width: 30px; height: 30px; margin-top: 4px; }
+#nav-min svg.i { width: 17px; height: 17px; }
 .nav .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; color: var(--text); }
 .nav .brand:hover { text-decoration: none; }
 .nav .brand img { border-radius: 8px; box-shadow: var(--shadow-sm); }
@@ -2598,3 +2602,60 @@ button.cite { border: 0; font-family: inherit; cursor: pointer; }
 
 .wn-chip.cite-web { background: color-mix(in srgb, #0891b2 14%, transparent); color: #0e7490; }
 :root[data-theme="dark"] .wn-chip.cite-web { color: #67e8f9; }
+
+/* Hình trong câu trả lời (visuals.js): hình gốc của paper, sơ đồ Mermaid, biểu đồ */
+.viz-fig { margin: 10px 0; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: #fff; max-width: min(100%, 760px); }
+.viz-fig img { display: block; max-width: 100%; max-height: 460px; margin: 0 auto; cursor: zoom-in; object-fit: contain; }
+.viz-fig figcaption { margin-top: 6px; font-size: 12.5px; color: #374151; line-height: 1.45; }
+.viz-fig figcaption .badge { margin-right: 4px; }
+.viz-fig-act { margin-left: 6px; white-space: nowrap; }
+.viz-fig-act a { font-weight: 600; }
+.viz-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.viz-gallery .viz-fig { margin: 0; max-width: none; }
+.viz-gallery .viz-fig img { max-height: 220px; }
+.wn-chip.fig-chip { background: color-mix(in srgb, #0d9488 14%, transparent); color: #0f766e; }
+:root[data-theme="dark"] .wn-chip.fig-chip { color: #5eead4; }
+.viz-mermaid, .viz-chart { position: relative; margin: 10px 0; padding: 10px 10px 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow-x: auto; }
+.viz-svg { display: flex; justify-content: safe center; }
+.viz-svg svg { max-width: 100%; height: auto; }
+.viz-chart .viz-svg svg { width: 100%; max-width: 760px; color: var(--text); }
+.viz-tools { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; opacity: .55; transition: opacity .15s; }
+.viz-mermaid:hover .viz-tools, .viz-chart:hover .viz-tools { opacity: 1; }
+.viz-src { margin-top: 4px; font-size: 12px; }
+.viz-src summary { cursor: pointer; color: var(--muted); }
+.viz-err { margin: -4px 0 8px; font-size: 12px; }
+.msg-figs { margin-top: 4px; font-size: 12px; }
+.viz-lb { position: fixed; inset: 0; z-index: 95; background: rgba(10, 12, 18, .82); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; gap: 10px; }
+.viz-lb-body { max-width: 96vw; max-height: 84vh; overflow: auto; background: #fff; border-radius: 10px; padding: 10px; }
+.viz-lb-body img { display: block; max-width: calc(96vw - 20px); max-height: calc(84vh - 20px); object-fit: contain; }
+.viz-lb-body svg { display: block; min-width: min(900px, 90vw); max-width: none; height: auto; color: #111827; }
+.viz-lb-cap { color: #e5e7eb; font-size: 13px; max-width: 900px; text-align: center; }
+.viz-lb-hint { color: #9ca3af; font-size: 12px; }
+@media (max-width: 640px) { .viz-gallery { grid-template-columns: 1fr; } .viz-fig img { max-height: 320px; } }
+
+/* ---------- Menu trái thu gọn: chỉ còn cột icon ---------- */
+.nav { transition: width .15s ease, transform .15s ease; overflow-x: hidden; }
+.nav-sec, .brand-txt { white-space: nowrap; }
+.app.nav-mini .nav { width: 60px; padding: 14px 8px 12px; overflow-x: hidden; }
+.app.nav-mini .nav-top { flex-direction: column; align-items: center; gap: 6px; padding-bottom: 8px; }
+.app.nav-mini .nav .brand { padding: 4px 0; flex: 0 0 auto; }
+.app.nav-mini #nav-min { margin-top: 0; }
+.app.nav-mini #nav-min svg.i { transform: scaleX(-1); }
+.app.nav-mini .brand-txt, .app.nav-mini .nav-l, .app.nav-mini .nav-kbd, .app.nav-mini #theme-label { display: none; }
+.app.nav-mini .nav-sec { font-size: 0; padding: 0; margin: 9px 6px; border-top: 1px solid var(--border); }
+.app.nav-mini .nav a[data-route], .app.nav-mini .nav .nav-btn { justify-content: center; padding: 8px 0; gap: 0; }
+.app.nav-mini .nav a[data-route].active::before { left: -8px; }
+.app.nav-mini .nav .nav-badge { position: absolute; top: 2px; right: 4px; margin: 0; padding: 0 5px; font-size: 10px; line-height: 15px; }
+.app.nav-mini .conn { justify-content: center; padding: 8px 0; }
+.app.nav-mini .conn > span { display: none; }
+@media (max-width: 860px) {
+  /* Màn hẹp: menu là ngăn kéo, luôn hiện đủ chữ. */
+  #nav-min { display: none; }
+  .app.nav-mini .nav { width: 236px; padding: 14px 12px 12px; }
+  .app.nav-mini .nav-top { flex-direction: row; }
+  .app.nav-mini .brand-txt { display: flex; }
+  .app.nav-mini .nav-l, .app.nav-mini #theme-label { display: revert; }
+  .app.nav-mini .nav-sec { font-size: 11px; padding: 14px 10px 6px; margin: 0; border: 0; }
+  .app.nav-mini .nav a[data-route], .app.nav-mini .nav .nav-btn { justify-content: flex-start; padding: 7px 10px; gap: 11px; }
+  .app.nav-mini .conn > span { display: revert; }
+}

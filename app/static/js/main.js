@@ -107,6 +107,21 @@ $('theme-toggle').addEventListener('click', async () => {
 
 $('btn-quick-add').addEventListener('click', () => navigate('#/add'));
 $('nav-toggle').addEventListener('click', () => $('nav').classList.toggle('open'));
+
+// Thu gọn menu trái thành một cột icon (rê chuột hiện tên mục); nhớ lựa chọn cho lần mở sau.
+function setNavMini(on) {
+  document.querySelector('.app').classList.toggle('nav-mini', on);
+  const b = $('nav-min');
+  b.title = on ? 'Mở rộng menu (Ctrl+Shift+M)' : 'Thu gọn menu (Ctrl+Shift+M)';
+  b.setAttribute('aria-label', on ? 'Mở rộng menu' : 'Thu gọn menu');
+  try { localStorage.setItem('pv-nav-mini', on ? '1' : ''); } catch (_) { /* bỏ qua */ }
+}
+const toggleNavMini = () => setNavMini(!document.querySelector('.app').classList.contains('nav-mini'));
+$('nav-min').addEventListener('click', toggleNavMini);
+try { if (localStorage.getItem('pv-nav-mini')) setNavMini(true); } catch (_) { /* bỏ qua */ }
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && !e.altKey && (e.key === 'M' || e.key === 'm')) { e.preventDefault(); toggleNavMini(); }
+});
 window.addEventListener('pv:pane-pointerdown', () => $('nav').classList.remove('open'));
 $('btn-split').addEventListener('click', (e) => openSplitPanel(e.currentTarget));
 

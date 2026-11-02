@@ -8,7 +8,9 @@ import { $, toast, confirmDialog, mdToHtml, topicBadge, selectAllHtml, syncSelec
 import { unverifiedNumbers } from '../quality.js';
 import { streamChat, hasCredentials, englishKeywords } from '../llm.js';
 import { tokenize, chunksOf, bm25Pick, searchTerms } from '../rag.js';
-import { CTX_KINDS, CTX_GUIDE, ctxOf, ensureContext, extraBlock, retrievalDocs, librarySuggestions, relatedByCode, relatedEntries, wantsSearch, webSearch, webBlock } from '../chatctx.js';
+import { CTX_KINDS, CTX_GUIDE, ctxOf, ensureContext, extraBlock, retrievalDocs, librarySuggestions, relatedByCode, relatedEntries, wantsSearch, webSearch, webBlock, figureByCode, figuresRunning } from '../chatctx.js';
+import { linkFigures, enhanceVisuals } from '../visuals.js';
+import { figuresOf, pickFigures, isFigureQuestion } from '../figures.js';
 import { bindWhatsNewChips } from '../whatsnew.js';
 import { compareState, togglePin } from '../research.js';
 import { openPaperPop } from '../paperpop.js';
@@ -166,6 +168,8 @@ const estTokens = (chars) => Math.round(chars / 3.6);
 
 function citeLinks(html, c, i = -1) {
   const items = papersOf(c);
+  // Hình / bảng gốc: [P1.F3] (hội thoại một paper thì [F3] cũng được).
+  html = linkFigures(html, (code) => figureByCode(items, code.includes('.') ? code : (items.length === 1 ? `${items[0].label}.${code}` : code)));
   // Bài tra Semantic Scholar của lượt hỏi ngay trước câu trả lời này: [T3] -> thẻ chi tiết (mã thẻ m<lượt hỏi>.T3).
   const q = i > 0 ? c.messages[i - 1] : null;
   if (q?.web?.length) {
@@ -195,7 +199,7 @@ const imgsHtml = msgImgsHtml;
 
 function messageHtml(m, i, c) {
   if (m.role === 'user') {
-    return `<div class="msg q" data-i="${i}">${imgsHtml(m.images)}${filesHtml(m.files)}${m.imageOnly ? '' : escapeHtml(m.content).replace(/\n/g, '<br>')}${m.web?.length ? `<details class="refs"><summary>Đã tra ${escapeHtml(m.webSource || 'Semantic Scholar')}: ${m.web.length} bài</summary>${m.web.map((x) => `<div><b>${x.code}</b> ${escapeHtml(x.title)} <span class="hint">${escapeHtml([x.date, x.venue].filter(Boolean).join(' · '))}${x.inLib ? ' · có trong thư viện' : ''}</span></div>`).join('')}</details>` : ''}${m.refs?.length ? `<details class="refs"><summary>Đã gửi kèm ${m.refs.length} đoạn trích liên quan</summary>${m.refs.map((r) => `<div><b>${r.label} · ${escapeHtml(r.src || 'toàn văn')} đoạn ${r.n}</b> <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}</div>`;
+    return `<div class="msg q" data-i="${i}">${imgsHtml(m.images)}${filesHtml(m.files)}${m.figs?.length ? `<div class="hint msg-figs">🖼 Gửi kèm hình cho AI đọc: ${m.figs.map((f) => escapeHtml(f.name)).join(', ')}</div>` : ''}${m.imageOnly ? '' : escapeHtml(m.content).replace(/\n/g, '<br>')}${m.web?.length ? `<details class="refs"><summary>Đã tra ${escapeHtml(m.webSource || 'Semantic Scholar')}: ${m.web.length} bài</summary>${m.web.map((x) => `<div><b>${x.code}</b> ${escapeHtml(x.title)} <span class="hint">${escapeHtml([x.date, x.venue].filter(Boolean).join(' · '))}${x.inLib ? ' · có trong thư viện' : ''}</span></div>`).join('')}</details>` : ''}${m.refs?.length ? `<details class="refs"><summary>Đã gửi kèm ${m.refs.length} đoạn trích liên quan</summary>${m.refs.map((r) => `<div><b>${r.label} · ${escapeHtml(r.src || 'toàn văn')} đoạn ${r.n}</b> <span class="hint">${escapeHtml(r.preview)}…</span></div>`).join('')}</details>` : ''}</div>`;
   }
   const u = m.usage || {};
   const inT = (u.input_tokens ?? u.prompt_tokens ?? u.promptTokenCount ?? 0);
@@ -295,6 +299,7 @@ function panelHtml() {
 function ctxPanelHtml(c, items) {
   const ctx = ctxOf(c);
   const has = {
+    figures: items.filter(({ p }) => figuresOf(p).length).length,
     network: items.filter(({ p }) => p.researchMap?.papers?.length || p.s2Id || p.arxivId || p.doi).length,
     research: items.filter(({ p }) => p.researchMap?.data).length,
     whatsnew: items.filter(({ p }) => p.whatsNew?.data).length,
@@ -305,7 +310,7 @@ function ctxPanelHtml(c, items) {
   };
   const sug = ctx.network ? librarySuggestions(c, items) : [];
   return `<details class="src-ctx" ${state.ctxOpen ? 'open' : ''}><summary>Dữ liệu kèm theo <span class="hint">(${CTX_KINDS.filter(([k]) => ctx[k] && has[k]).length} loại đang dùng)</span></summary>
-    <div class="src-ctx-list">${CTX_KINDS.map(([k, label, tip]) => `<label class="check ${has[k] ? '' : 'none'}" title="${escapeHtml(tip)}"><input type="checkbox" data-ctx="${k}" ${ctx[k] ? 'checked' : ''}> ${escapeHtml(label)} <span class="hint">${has[k] ? `${has[k]}/${items.length} paper` : 'chưa có'}</span></label>`).join('')}</div>
+    <div class="src-ctx-list">${CTX_KINDS.map(([k, label, tip]) => `<label class="check ${has[k] ? '' : 'none'}" title="${escapeHtml(tip)}"><input type="checkbox" data-ctx="${k}" ${ctx[k] ? 'checked' : ''}> ${escapeHtml(label)} <span class="hint">${k === 'figures' && items.some(({ p }) => figuresRunning(p.id)) ? 'đang cắt hình…' : has[k] ? `${has[k]}/${items.length} paper` : 'chưa có'}</span></label>`).join('')}</div>
     <div class="hint">Chỉ dùng kết quả đã có (Hướng nghiên cứu, Có gì mới, Bài giảng… đã tạo ở trang paper), không gọi thêm model. Bài giảng và Hỏi đáp chỉ gửi đoạn khớp câu hỏi.</div>
     ${sug.length ? `<div class="src-sug"><b>Bài liên quan có trong thư viện</b>${sug.map((s) => `<div class="src-sug-i"><span title="${escapeHtml(plainTitle(s.p.title))}">${escapeHtml(plainTitle(s.p.title).slice(0, 70))}</span><span class="hint">${escapeHtml(s.via)}${s.rel ? ` · ${escapeHtml(s.rel)}` : ''}</span><button class="sm ghost" data-add-rel="${s.p.id}" title="Đưa paper này vào hội thoại">＋</button></div>`).join('')}</div>` : ''}
   </details>`;
@@ -404,7 +409,8 @@ export async function render(root, { params, query }) {
     const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
     if (!c.paperIds.length && !c.messages.length) {
       box.innerHTML = startHtml();
-      $('ch-compose').hidden = true;
+      // Hỏi thẳng được khi chưa chọn paper (AI dùng hiểu biết của nó, tra mạng khi cần), trừ chế độ "Chỉ trong thư viện".
+      $('ch-compose').hidden = scopeOf(c) === 'strict';
       return;
     }
     $('ch-compose').hidden = false;
@@ -420,6 +426,8 @@ export async function render(root, { params, query }) {
     if ($('ch-send')) { $('ch-send').hidden = busy; $('ch-stop').hidden = !busy; }
     $('ch-suggest').innerHTML = c.messages.length ? '' : SUGGESTIONS.map(([label, q]) => `<button data-q="${escapeHtml(q)}" title="${escapeHtml(q)}">${escapeHtml(label)}</button>`).join('');
     if (!keepScroll || nearBottom) box.scrollTop = box.scrollHeight;
+    // Sơ đồ / biểu đồ trong các câu trả lời đã xong (câu đang viết dở thì chờ xong mới dựng).
+    enhanceVisuals(box).then(() => { if (!keepScroll || nearBottom) box.scrollTop = box.scrollHeight; }).catch(() => {});
   };
 
   // c: hội thoại cần lưu (mặc định hội thoại đang mở; câu trả lời viết xong có thể thuộc hội thoại người dùng đã rời).
@@ -440,7 +448,7 @@ export async function render(root, { params, query }) {
     $('ch-title').value = state.chat.title || '';
     page.classList.toggle('no-panel', !state.panelOpen);
     if (state.chat.mode !== 'notes') ensureTexts(state.chat.paperIds).then(() => { drawPanel(); });
-    ensureContext(state.chat, papersOf(state.chat).map((x) => x.p)).then(() => { drawPanel(); }).catch(() => {});
+    ensureContext(state.chat, papersOf(state.chat).map((x) => x.p), { onFigures: () => { drawPanel(); drawMsgs(true); } }).then(() => { drawPanel(); }).catch(() => {});
     drawPanel();
     drawMsgs();
     drawList();
@@ -455,7 +463,7 @@ export async function render(root, { params, query }) {
     drawMsgs(true);
     persistSoon();
     if (c.mode !== 'notes') ensureTexts(c.paperIds).then(drawPanel);
-    ensureContext(c, papersOf(c).map((x) => x.p)).then(drawPanel).catch(() => {});
+    ensureContext(c, papersOf(c).map((x) => x.p), { onFigures: drawPanel }).then(drawPanel).catch(() => {});
   };
 
   /* ---- gửi câu hỏi ---- */
@@ -521,6 +529,17 @@ export async function render(root, { params, query }) {
         if (web?.items?.length) { userMsg.web = web.items; userMsg.webSource = (web.sources || []).join(', '); sent = `${webBlock(web)}\n\n${sent}`; }
         pendingBar('Đang chuẩn bị ngữ cảnh…', 4000);
       }
+      // Hình gốc liên quan tới câu hỏi (nêu số hình / hỏi về kiến trúc, biểu đồ…): gửi ảnh để model đọc trực tiếp.
+      if (ctxOf(c).figures) {
+        const pool = papersOf(c);
+        const picks = (pool.length === 1
+          ? pickFigures(figuresOf(pool[0].p), question).map((f) => ({ f, label: pool[0].label }))
+          : pool.flatMap(({ p, label }) => (isFigureQuestion(question) ? pickFigures(figuresOf(p), question, { max: 1 }) : []).map((f) => ({ f, label })))).slice(0, 2);
+        if (picks.length) {
+          userMsg.figs = picks.map(({ f, label }) => ({ url: f.url, name: `${label}.${f.code}`, mime: 'image/png' }));
+          sent = `(Gửi kèm ảnh của ${userMsg.figs.map((f) => `[${f.name}]`).join(', ')} theo đúng thứ tự, để bạn đọc trực tiếp nội dung hình.)\n\n${sent}`;
+        }
+      }
       // Nội dung file chữ đính kèm đi trước câu hỏi (lưu trong lượt hỏi để các câu hỏi tiếp theo vẫn có).
       const textFiles = files.filter((f) => f.text);
       userMsg.sent = textFiles.length
@@ -529,7 +548,7 @@ export async function render(root, { params, query }) {
       userMsg.refs = refs;
       drawMsgs(true);
       pendingBar('Đang chờ mô hình trả lời…', 12000);
-      const history = c.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.role === 'user' ? (m.sent || m.content) : m.content, imgs: m.role === 'user' ? [...(m.images || []), ...(m.files || []).filter((f) => f.kind === 'pdf-scan')] : null })).filter((m) => m.content);
+      const history = c.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.role === 'user' ? (m.sent || m.content) : m.content, imgs: m.role === 'user' ? [...(m.images || []), ...(m.files || []).filter((f) => f.kind === 'pdf-scan'), ...(m.figs || [])] : null })).filter((m) => m.content);
       // Ảnh của các lượt hỏi gửi lại kèm lượt đó (model không nhớ ảnh giữa các lượt); tối đa 12 ảnh gần nhất cho đỡ tốn token.
       let budget = 12;
       for (let k = history.length - 1; k >= 0; k--) {
@@ -786,6 +805,7 @@ export async function render(root, { params, query }) {
       state.chat.scope = e.target.value;
       persistSoon();
       drawPanel();
+      drawMsgs(true);
       toast({ auto: 'AI dùng thư viện làm nguồn chính, thêm hiểu biết của nó, tự tra paper trên mạng khi bạn hỏi tìm paper.', web: 'Mỗi câu hỏi sẽ tra thêm paper trên mạng.', open: 'AI dùng thư viện và hiểu biết của nó, không tra mạng.', strict: 'AI chỉ trả lời trong phạm vi thư viện.' }[e.target.value], 3500);
     }
     else if (e.target.id === 'ch-mode') {

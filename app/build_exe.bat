@@ -23,6 +23,8 @@ if %errorlevel% neq 0 (
   pause
   exit /b 1
 )
+rem Co Inno Setup thi tao luon bo cai dist\PaperVault-Setup-<phien ban>.exe (installer\build_setup.bat)
+call installer\build_setup.bat
 echo.
 echo Xong: dist\PaperVault\PaperVault.exe
 echo Ban .exe nam trong du an dung chung du lieu app\data va app\config.json voi ban chay bang Python.

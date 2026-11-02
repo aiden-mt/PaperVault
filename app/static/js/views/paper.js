@@ -11,6 +11,8 @@ import { saveAnswerToNotebook } from '../notebook-save.js';
 import { askPaper, NATIVE_PDF_PROVIDERS, hasCredentials, translateText, translateNotesAI, settingsFor, modelLabel } from '../llm.js';
 import { CHAT_LANGS } from '../prompts.js';
 import { s2Ident, pubTime, citeVelocity, fmtPub, citeRole, ROLE_LABELS, ROLE_HINTS, s2Key, ctxQuotes } from '../s2util.js';
+import { linkFigures, enhanceVisuals } from '../visuals.js';
+import { ensureFigures, figuresOf, pickFigures } from '../figures.js';
 import { buildWhatsNew, whatsNewJob, removeWhatsNew, whatsNewHtml, whatsNewMarkdown, addQueryOf, bindWhatsNewChips } from '../whatsnew.js';
 import { timelineHtml, bindTimeline, timelineTime } from '../timeline.js';
 import { loadWatches, addWatch, removeWatchWhere } from '../watches.js';
@@ -837,9 +839,17 @@ export async function render(root, { params, query }) {
     } catch (e) { toast(e.message, 4000, 'err'); }
   }
 
+  /** Câu trả lời Hỏi đáp -> HTML: Markdown, mã hình [F3] / [B2] thành ảnh gốc cắt từ PDF. */
+  const askHtml = (md) => linkFigures(mdToHtml(readableChatMd(md)), (code) => {
+    const fig = figuresOf(paperById(p.id) || p).find((x) => x.code === code.replace(/^P\d+\./, ''));
+    return fig ? { fig, paperId: p.id, tag: fig.code } : null;
+  });
+
   function drawAsk() {
     const body = $('pp-body');
     const qa = p.qa || [];
+    // Cắt sẵn hình / bảng từ PDF (chạy nền, lần đầu) để model chèn được hình gốc vào câu trả lời.
+    if (p.pdfId && !figuresOf(p).length) ensureFigures(p.id).then(() => { p = paperById(p.id) || p; }).catch(() => {});
     const suggestions = [
       'Giải thích key idea bằng ngôn ngữ đơn giản, kèm ví dụ.',
       'Kết quả nào là quan trọng nhất và có đáng tin không?',
@@ -849,7 +859,7 @@ export async function render(root, { params, query }) {
     ];
     body.innerHTML = `<div class="row" style="gap:8px;margin-bottom:6px"><span class="lang-label">Ngôn ngữ trả lời</span><select id="pp-ask-lang" style="width:auto" title="Dùng chung với trang Chat với paper">${CHAT_LANGS.map(([k, l]) => `<option value="${k}" ${(store.settings.chatLang || '') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="hint" style="margin-bottom:8px">Hỏi model về paper này. Ngữ cảnh gồm ghi chú đã trích xuất${p.pdfId && NATIVE_PDF_PROVIDERS.has(settingsFor(store.settings, 'ask').provider) ? ', và file PDF gửi kèm' : ''}, cùng nội dung nguồn đã lưu (nếu có). Lịch sử được lưu cùng paper.</div>
-      <div class="chat" id="pp-chat">${qa.map((x, k) => `${qaQuestionHtml(x)}<div class="msg a">${mdToHtml(readableChatMd(x.a))}${qaFoot(k)}</div>`).join('')}</div>
+      <div class="chat" id="pp-chat">${qa.map((x, k) => `${qaQuestionHtml(x)}<div class="msg a">${askHtml(x.a)}${qaFoot(k)}</div>`).join('')}</div>
       <div class="suggest-q">${suggestions.map((s) => `<button data-q="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')}</div>
       <div class="pp-compose" id="pp-compose">
         <div class="chat-input"><textarea id="pp-q" placeholder="Câu hỏi của bạn… (Enter để gửi, Shift+Enter xuống dòng; dán hoặc kéo thả ảnh, file vào đây)"></textarea><button id="pp-ask" class="primary">Hỏi</button>${qa.length ? '<button id="pp-clear-chat" class="sm ghost">Xoá lịch sử</button>' : ''}</div>
@@ -886,8 +896,11 @@ export async function render(root, { params, query }) {
           pdfBase64 = (await api.pdfBase64(cur.pdfId)).base64;
         }
         if (items.length) update('Đang đọc tệp đính kèm…');
-        const { images, textPrefix } = await attachmentParts(items);
-        const a = await askPaper({ paper: cur, text, settings: store.settings, question: `${textPrefix}${q}`, history, pdfBase64, images });
+        // Hình gốc liên quan (nêu số hình / hỏi về kiến trúc, biểu đồ…): gửi ảnh để model đọc trực tiếp.
+        const figs = pdfBase64 ? [] : pickFigures(figuresOf(cur), q).map((f) => ({ kind: 'image', url: f.url, name: f.code, mime: 'image/png' }));
+        const { images, textPrefix } = await attachmentParts([...items, ...figs]);
+        const figNote = figs.length ? `(Gửi kèm ảnh của ${figs.map((f) => `[${f.name}]`).join(', ')} theo đúng thứ tự, để bạn đọc trực tiếp nội dung hình.)\n\n` : '';
+        const a = await askPaper({ paper: cur, text, settings: store.settings, question: `${figNote}${textPrefix}${q}`, history, pdfBase64, images });
         const next = [...(paperById(pid).qa || []), { q, a, at: new Date().toISOString(), ...shown }].slice(-30);
         await savePaper({ ...paperById(pid), qa: next });
         return a;
@@ -906,10 +919,12 @@ export async function render(root, { params, query }) {
       followJob(job, node, { expectedMs: 20000, onDone: (j) => {
         if ($('pp-ask')) $('pp-ask').disabled = false;
         p = paperById(p.id) || p;
-        node.innerHTML = j.error ? `<span class="status err">${escapeHtml(j.error)}</span>` : `${mdToHtml(readableChatMd(j.result))}${qaFoot((p.qa || []).length - 1)}`;
+        node.innerHTML = j.error ? `<span class="status err">${escapeHtml(j.error)}</span>` : `${askHtml(j.result)}${qaFoot((p.qa || []).length - 1)}`;
+        enhanceVisuals($('pp-chat')).catch(() => {});
       } });
     };
     { const j = getJob(`ask:${p.id}`); if (j && !j.done) followAsk(j); }
+    enhanceVisuals($('pp-chat')).catch(() => {});
     $('pp-ask-lang').addEventListener('change', async (ev) => { await saveSettings({ chatLang: ev.target.value }); toast('Đã đổi ngôn ngữ trả lời, áp dụng từ câu hỏi tới.'); });
     $('pp-ask').addEventListener('click', () => ask($('pp-q').value));
     $('pp-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask($('pp-q').value); } });

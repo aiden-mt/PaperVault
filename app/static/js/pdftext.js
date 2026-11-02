@@ -8,7 +8,7 @@ import { api } from './api.js';
 let lib = null;
 const cache = new Map(); // pdfId -> pages
 
-async function pdfjs() {
+export async function pdfjs() {
   if (!lib) {
     lib = await import('../vendor/pdfjs/build/pdf.mjs');
     lib.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdfjs/build/pdf.worker.mjs', import.meta.url).href;
