@@ -272,6 +272,36 @@ class LitSearchTest(unittest.TestCase):
         st, res = call("GET", "api/lit-search?q=&limit=5")
         self.assertEqual(res["data"], {"items": [], "source": "", "total": 0})
 
+
+class ResolveTest(unittest.TestCase):
+    def test_arxiv_comment_only_kept_when_it_names_a_venue(self):
+        for c in ("Accepted at ICLR 2022", "CVPR'23 oral", "NeurIPS 2023", "To appear in TPAMI", "Published in Findings of ACL"):
+            self.assertTrue(server.arxiv_comment_is_venue(c), c)
+        for c in ("15 pages, 5 figures", "Draft V2 includes better baselines, experiments on GLUE", "v2: fixed typos", "Code at https://github.com/x/y", ""):
+            self.assertFalse(server.arxiv_comment_is_venue(c), c)
+
+    def test_s2_quick_mode_gives_up_after_one_retry(self):
+        calls, slept = [], []
+
+        def limited(url, timeout=40, max_bytes=0, headers=None):
+            calls.append(url)
+            raise urllib.error.HTTPError(url, 429, "Too Many Requests", None, None)
+
+        orig_get, orig_sleep, orig_pace = server.http_get, server.time.sleep, server._s2_pace
+        server.http_get, server.time.sleep, server._s2_pace = limited, slept.append, lambda: None
+        try:
+            with self.assertRaises(ValueError):
+                server.s2_get("https://api.semanticscholar.org/x", patient=False)
+            quick = (len(calls), sum(slept))
+            calls.clear(); slept.clear()
+            with self.assertRaises(ValueError):
+                server.s2_get("https://api.semanticscholar.org/x")
+            patient = (len(calls), sum(slept))
+        finally:
+            server.http_get, server.time.sleep, server._s2_pace = orig_get, orig_sleep, orig_pace
+        self.assertEqual(quick, (2, 1.5), "chế độ nhanh: thử lại một lần sau 1,5 giây")
+        self.assertEqual(patient, (4, 17.0), "mặc định: thử lại ba lần")
+
 def make_zotero_fixture(root: Path):
     """Một thư viện Zotero thu nhỏ đúng các bảng app đọc."""
     (root / "storage" / "ATT1").mkdir(parents=True)

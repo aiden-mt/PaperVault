@@ -163,7 +163,7 @@ HOST = os.environ.get("PV_HOST") or CONFIG.get("host") or "127.0.0.1"
 PORT = int(os.environ.get("PV_PORT") or CONFIG.get("port") or 8765)
 MAX_BODY = 64 * 1024 * 1024
 # Phiên bản app (so với bản mới nhất trên GitHub Releases khi kiểm tra cập nhật). Tăng cùng lúc với tag phát hành.
-APP_VERSION = "1.3.5"
+APP_VERSION = "1.3.6"
 RELEASES_API = "https://api.github.com/repos/aiden-mt/PaperVault/releases/latest"
 RELEASES_PAGE = "https://github.com/aiden-mt/PaperVault/releases/latest"
 UA = "PaperVault/1.0 (local research assistant; +https://github.com)"
@@ -1833,6 +1833,17 @@ def openalex_venue(title):
 ARXIV_RE = re.compile(r"(\d{4}\.\d{4,5}(?:v\d+)?|[a-z-]+(?:\.[A-Z]{2})?/\d{7}(?:v\d+)?)", re.I)
 
 
+_VENUE_WORDS_RE = re.compile(r"\b(accept|publish|appear|proceeding|camera[- ]ready|oral|spotlight|poster|workshop|conference|journal|transactions|findings)", re.I)
+_VENUE_YEAR_RE = re.compile(r"\b[A-Z][A-Za-z]{2,}[ ']?(?:(?:19|20)\d{2}|'\d{2})\b")
+
+
+def arxiv_comment_is_venue(comment):
+    """Comment của arXiv có nói về nơi công bố không ("Accepted at ICLR 2022", "CVPR'23 oral")?
+    Comment kiểu "15 pages, 5 figures" hay "Draft V2 includes better baselines" thì không."""
+    c = comment or ""
+    return bool(_VENUE_WORDS_RE.search(c) or _VENUE_YEAR_RE.search(c))
+
+
 def parse_arxiv_id(s):
     s = s.strip()
     m = re.search(r"arxiv\.org/(?:abs|pdf|html)/([^\s?#]+)", s, re.I)
@@ -1868,7 +1879,7 @@ def fetch_arxiv(arxiv_id):
             comment = entry.findtext("ar:comment", "", ns)
             if jref:
                 out["venue"] = jref
-            elif comment:
+            elif comment and arxiv_comment_is_venue(comment):
                 out["venue"] = f"arXiv preprint ({comment[:80]})"
     except Exception as e:
         out["warnings"].append(f"arXiv API: {e}")
@@ -1933,9 +1944,10 @@ def _s2_pace():
         _S2_LAST[0] = time.time()
 
 
-def s2_get(url, headers=None, timeout=25):
-    """Gọi Semantic Scholar, chờ rồi thử lại khi bị giới hạn tốc độ (429). Không có API key thì giới hạn dùng chung rất chặt."""
-    delays = [2.0, 5.0, 10.0]
+def s2_get(url, headers=None, timeout=25, patient=True):
+    """Gọi Semantic Scholar, chờ rồi thử lại khi bị giới hạn tốc độ (429). Không có API key thì giới hạn dùng chung rất chặt.
+    patient=False: chỉ thử lại một lần sau 1,5 giây, dùng khi dữ liệu S2 là phần bổ sung và người dùng đang chờ."""
+    delays = [2.0, 5.0, 10.0] if patient else [1.5]
     for attempt in range(len(delays) + 1):
         _s2_pace()
         try:
@@ -2591,11 +2603,11 @@ def find_pdf_candidates(title="", doi="", arxiv_id="", url="", s2_id="", s2_key=
     return {"candidates": out, "links": links, "errors": errors}
 
 
-def fetch_semantic_scholar(ident, s2_key=""):
+def fetch_semantic_scholar(ident, s2_key="", patient=True):
     fields = "title,abstract,authors,year,venue,citationCount,openAccessPdf,externalIds,tldr,url,publicationVenue,publicationTypes,journal"
     url = f"https://api.semanticscholar.org/graph/v1/paper/{urllib.parse.quote(ident, safe=':/')}?fields={fields}"
     headers = {"x-api-key": s2_key} if s2_key else {}
-    _, ctype, raw, _ = s2_get(url, headers=headers)
+    _, ctype, raw, _ = s2_get(url, headers=headers, patient=patient)
     d = json.loads(raw.decode("utf-8", errors="replace"))
     ext = d.get("externalIds") or {}
     return {
@@ -2659,7 +2671,8 @@ def resolve_source(query, s2_key=""):
     if arxiv_id:
         src = fetch_arxiv(arxiv_id)
         try:
-            s2 = fetch_semantic_scholar(f"arXiv:{re.sub(r'v\\d+$', '', arxiv_id)}", s2_key)
+            # có key thì hiếm khi bị 429 nên chờ được; không key thì thử nhanh rồi thôi, paper vẫn thêm được
+            s2 = fetch_semantic_scholar(f"arXiv:{re.sub(r'v\\d+$', '', arxiv_id)}", s2_key, patient=bool(s2_key))
             src["citationCount"] = s2.get("citationCount")
             src["s2Id"] = s2.get("s2Id")
             src["tldr"] = s2.get("tldr")

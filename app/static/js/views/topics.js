@@ -68,7 +68,7 @@ export async function render(root) {
       for (const id of topicIdsOf(p)) counts.set(id, (counts.get(id) || 0) + 1);
       primary.set(p.topicId || 't_inbox', (primary.get(p.topicId || 't_inbox') || 0) + 1);
     }
-    $('tp-table').innerHTML = `<thead><tr><th></th><th>Tên</th><th>Mô tả</th><th>Từ khoá</th><th>Paper (chính + phụ)</th><th></th></tr></thead><tbody>
+    $('tp-table').innerHTML = `<thead><tr><th></th><th>Tên</th><th>Mô tả</th><th>Từ khoá</th><th title="Số paper có chủ đề chính là chủ đề này, kèm số paper gắn nó làm nhãn phụ">Paper</th><th></th></tr></thead><tbody>
       ${store.topics.map((t) => `<tr><td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${escapeHtml(t.color || '#888')}"></span></td>
         <td><a href="#/library/${t.id}"><b>${escapeHtml(t.name)}</b></a></td><td>${escapeHtml(t.description || '')}</td>
         <td class="hint">${escapeHtml((t.keywords || []).slice(0, 12).join(', '))}${(t.keywords || []).length > 12 ? '…' : ''}</td>

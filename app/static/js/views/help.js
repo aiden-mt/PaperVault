@@ -41,8 +41,8 @@ ${step(2, 'Thêm paper đầu tiên')}
 ${fig('add', 'Trang Thêm paper')}
 ${steps([
     `Chọn cách thêm: tìm / link / arXiv / DOI, file PDF, dán text, hàng loạt, hoặc nhập từ Zotero (.bib / .ris).`,
-    `Gõ tên paper hoặc từ khoá rồi bấm ${ui('Tìm')}, chọn đúng bài trong danh sách kết quả. Có sẵn arXiv ID (ví dụ <code>2006.11239</code>), DOI hay link trang paper thì dán thẳng vào ô.`,
-    `App tự lấy tiêu đề, tác giả, venue, số trích dẫn, toàn văn và PDF nếu có.`,
+    `Gõ tên paper hoặc từ khoá rồi bấm ${ui('Tìm')}. Có sẵn arXiv ID (ví dụ <code>2006.11239</code>), DOI hay link trang paper thì dán thẳng vào ô.`,
+    `Bấm ${ui('Chọn')} ở đúng bài trong danh sách. App tự lấy tiêu đề, tác giả, venue, số trích dẫn, toàn văn và PDF nếu có. Bài đã có trong thư viện được đánh dấu ${ui('✓ Đã có trong thư viện')}.`,
   ])}
 ${fig('add-result', 'Kết quả tra cứu, sẵn sàng trích xuất ghi chú')}
 ${steps([
@@ -121,9 +121,9 @@ ${steps([
     html: `
 ${fig('library', 'Trang Thư viện')}
 ${steps([
-    `<b>Chủ đề</b>: bấm để lọc. Kéo một paper thả vào tên chủ đề để chuyển thư mục. Cuối danh sách là ${ui('Thùng rác')} (giữ 30 ngày).`,
+    `<b>Chủ đề</b>: bấm để lọc. Kéo một paper thả vào tên chủ đề để chuyển thư mục. Cuối danh sách là ${ui('Thùng rác')} (giữ 30 ngày). Khi cửa sổ hẹp, danh sách chủ đề thành một dải nút cuộn ngang phía trên, chỉ hiện các chủ đề đang có paper.`,
     `<b>Lọc và tìm</b>: ô lọc tìm cả trong ghi chú, ghi chú cá nhân, tag và <b>toàn văn đã lưu</b> (đoạn khớp được tô sáng). Các ô bên cạnh lọc theo trạng thái, loại venue, hạng, đánh giá; ô sắp xếp có ${ui('Hạng venue')} và ${ui('Trích dẫn nhiều')}.`,
-    `<b>Kiểu xem</b>: danh sách, kanban theo trạng thái đọc (kéo thẻ giữa các cột để đổi trạng thái) và bảng.`,
+    `<b>Kiểu xem</b>: danh sách, kanban theo trạng thái đọc (kéo thẻ giữa các cột để đổi trạng thái) và bảng. Bảng có nhiều cột nên cuộn ngang trong khung bảng.`,
     `<b>Chọn tất cả</b> kiểu Gmail. Mũi tên bên cạnh chọn nhanh theo điều kiện: ${ui('Chưa đọc')}, ${ui('Có PDF')}, ${ui('Chưa trích xuất')}, ${ui('Đảo lựa chọn')}…`,
     `<b>Thẻ paper</b>: bấm để mở; ô vuông để tick. Phím ${k('j')} ${k('k')} di chuyển, ${k('Enter')} mở, ${k('x')} tick.`,
   ])}

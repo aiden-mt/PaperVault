@@ -1,20 +1,22 @@
-## Sửa lỗi
-
-- **Tab PDF trống, không xem được PDF** ở bản cài đặt (Setup) và bản zip tải từ GitHub. Bản đóng gói thiếu phần lõi của trình đọc PDF. Bản này bổ sung đủ, nên tab PDF, cắt hình / bảng gốc cho Chat và đọc chữ từ PDF chạy lại bình thường.
-- Quy trình đóng gói giờ tự kiểm tra đủ file trước khi phát hành, để lỗi này không lặp lại.
-
 ## Giao diện
 
-- **Thanh công cụ tab PDF gọn lại trên một dòng**, chia ba nhóm: tên file kèm nút mở file gốc, ô chọn ngôn ngữ dịch, và các nút Tô câu đáng nhớ, Thay PDF, toàn màn hình. Các tuỳ chọn dịch ít dùng (dịch theo ngữ cảnh câu, hiện cả đoạn gốc…) nằm trong menu **⋯**.
+- **Thư viện dùng được trên màn hình hẹp.** Cột chủ đề thành một dải nút cuộn ngang phía trên, danh sách paper không còn bị đẩy ra ngoài.
+- **Kanban và Bảng không còn làm tràn trang.** Bảng cuộn ngang trong khung của nó, cột tên paper không bị bẻ thành từng chữ.
+- **Tên paper dài hiện đủ** ở đầu trang paper. Bấm Enter để lưu, Esc để huỷ thay đổi.
+- **Công thức hiện đúng** ở câu tóm tắt, thẻ Kanban, bảng Thư viện và mục Kiểm tra ghi chú, thay cho mã thô `$...$`.
+- Tag và venue dài được cắt gọn bằng dấu "…". Hàng nút xuất ở trang So sánh tự xuống dòng. Bảng Chủ đề ẩn cột Từ khoá khi cửa sổ hẹp.
+- Thẻ paper chưa trích xuất hiện câu tóm tắt hoặc lời nhắc bấm **Trích xuất lại**, thay cho các dòng "—".
 
-## Điểm mới (từ 1.3.4)
+## Sửa lỗi
 
-- **Tìm paper theo tên hoặc từ khoá** ở trang Thêm paper, giống Google Scholar. Lọc theo năm, xếp theo độ liên quan / trích dẫn / mới nhất, bài đã có trong thư viện được đánh dấu **✓ Đã có**.
-- **Thay file PDF** bằng nút **⇄ Thay PDF** trên thanh trình đọc, chọn xoá file cũ hoặc giữ lại để chuyển về sau.
+- **Thêm paper bằng arXiv ID nhanh hơn**, khoảng 5 giây thay vì 17 giây, khi Semantic Scholar đang giới hạn tốc độ và bạn chưa nhập S2 key.
+- **Venue không còn bị ghi nhầm** thành ghi chú của tác giả trên arXiv (ví dụ "Draft V2 includes better baselines…"). Với paper thêm mới, app chỉ lấy ghi chú làm venue khi nó nói về nơi công bố, như "Accepted at ICLR 2022".
+- Ảnh và các bước trong Hướng dẫn trang Thêm paper khớp với giao diện tìm kiếm mới.
+- Các ô chọn có thêm nhãn cho trình đọc màn hình.
 
 ## Cập nhật
 
-Tải `PaperVault-Setup-1.3.5.exe` bên dưới và chạy. Bộ cài tự đóng app đang mở và cập nhật mà không động tới dữ liệu. Windows có thể hiện cảnh báo SmartScreen vì bộ cài chưa ký số: bấm **More info → Run anyway**.
+Tải `PaperVault-Setup-1.3.6.exe` bên dưới và chạy. Bộ cài tự đóng app đang mở và cập nhật mà không động tới dữ liệu. Windows có thể hiện cảnh báo SmartScreen vì bộ cài chưa ký số: bấm **More info → Run anyway**.
 
 Đang dùng bản zip 1.3.2 trở về trước thì nút **Tải bản mới** vẫn tải file zip. Hãy tải Setup ở trang này và chạy khi app cũ còn đang mở, để bộ cài tìm ra thư mục dữ liệu và lần mở đầu tiên app tự lấy lại thư viện.
 

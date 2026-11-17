@@ -169,18 +169,18 @@ export async function render(root, { params, query }) {
   const compact = headPref ? headPref === 'compact' : smallBox;
   root.innerHTML = `<div class="paper-page">
     <div class="paper-head ${compact ? 'compact' : ''}" id="pp-head">
-      <div class="row"><a href="#/library/${p.topicId || 't_inbox'}" class="hint">← ${escapeHtml(topicOf(p)?.name || 'Thư viện')}</a><span class="spacer"></span>
+      <div class="row pp-top"><a href="#/library/${p.topicId || 't_inbox'}" class="hint pp-back" title="Về chủ đề ${escapeHtml(topicOf(p)?.name || 'Thư viện')}">← ${escapeHtml(topicOf(p)?.name || 'Thư viện')}</a><span class="spacer"></span>
         <button id="pp-headt" class="sm ghost" title="Thu gọn / mở rộng phần đầu trang (tác giả, tag, venue)">${compact ? '▾ Chi tiết' : '▴ Thu gọn'}</button>
         <button id="pp-copy" class="sm">Copy Markdown</button>
         <button id="pp-reextract" class="sm" title="Chạy lại trích xuất từ nguồn đã lưu / PDF">Trích xuất lại</button>
         <button id="pp-del" class="sm danger">Xoá</button></div>
-      <input id="pp-title" class="title-input" value="${escapeHtml(p.title)}" title="Bấm để sửa tên">
+      <textarea id="pp-title" class="title-input" rows="1" title="Bấm để sửa tên" aria-label="Tên paper">${escapeHtml(p.title)}</textarea>
       <div id="pp-meta" class="meta-row"></div>
       ${p.needsExtraction ? '<div class="dup-warn" style="margin-top:8px">Paper này mới có metadata (nhập từ .bib/.ris hoặc lưu nhanh), chưa trích xuất ghi chú. Bấm <b>Trích xuất lại</b> ở trên khi cần.</div>' : ''}
       <div class="meta-row">
-        <select id="pp-topic">${store.topics.map((t) => `<option value="${t.id}" ${t.id === (p.topicId || 't_inbox') ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}</select>
+        <select id="pp-topic" aria-label="Chủ đề chính" title="Chủ đề chính">${store.topics.map((t) => `<option value="${t.id}" ${t.id === (p.topicId || 't_inbox') ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}</select>
         <span id="pp-labels" class="topic-chips"></span>
-        <select id="pp-status">${STATUS_ORDER.map((s) => `<option value="${s}" ${(p.status || 'to-read') === s ? 'selected' : ''}>${STATUS_LABEL[s]}</option>`).join('')}</select>
+        <select id="pp-status" aria-label="Trạng thái đọc" title="Trạng thái đọc">${STATUS_ORDER.map((s) => `<option value="${s}" ${(p.status || 'to-read') === s ? 'selected' : ''}>${STATUS_LABEL[s]}</option>`).join('')}</select>
         <span id="pp-rating"></span>
         <span class="spacer"></span><span id="pp-save-status" class="status"></span>
       </div>
@@ -247,7 +247,25 @@ export async function render(root, { params, query }) {
   drawLabels();
   $('pp-topic').addEventListener('change', (e) => quickSave({ topicId: e.target.value }));
   $('pp-status').addEventListener('change', (e) => quickSave({ status: e.target.value }));
-  $('pp-title').addEventListener('change', (e) => { const t = e.target.value.trim(); if (t) quickSave({ title: t }); });
+  // Tên paper: textarea một dòng tự giãn theo nội dung (tên dài hiện đủ), Enter là lưu chứ không xuống dòng.
+  const fitTitle = () => { const t = $('pp-title'); if (!t) return; t.style.height = 'auto'; t.style.height = `${t.scrollHeight + 2}px`; };
+  const setTitle = (v) => { if ($('pp-title')) { $('pp-title').value = v; fitTitle(); } };
+  $('pp-title').addEventListener('input', fitTitle);
+  const saveTitle = () => {
+    const el = $('pp-title');
+    const t = el.value.replace(/\s+/g, ' ').trim();
+    if (!t) { setTitle(p.title); return; }
+    if (el.value !== t) setTitle(t);
+    if (t !== p.title) quickSave({ title: t });
+  };
+  $('pp-title').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveTitle(); e.target.blur(); }
+    else if (e.key === 'Escape') { setTitle(p.title); e.target.blur(); }
+  });
+  $('pp-title').addEventListener('change', saveTitle);
+  fitTitle();
+  let titleW = 0; // chỉ tính lại khi bề ngang đổi, tránh vòng lặp ResizeObserver
+  if (window.ResizeObserver) new ResizeObserver(([en]) => { const w = Math.round(en.contentRect.width); if (w !== titleW) { titleW = w; fitTitle(); } }).observe($('pp-head'));
   $('pp-copy').addEventListener('click', async () => {
     // Copy theo ngôn ngữ đang hiển thị ở tab Ghi chú.
     const opts = shown && tab === 'notes' ? shown : { lang: sourceLang(p.extraction || {}) };
@@ -384,10 +402,10 @@ export async function render(root, { params, query }) {
         ${coverNote ? `<p class="hint">${coverNote}</p>` : ''}
         ${num.missing.length ? `<h4>Con số không thấy trong toàn văn đã lưu</h4>
           <p class="hint">Có thể model ghi nhầm, tự tính, hoặc con số nằm trong bảng mà bộ bóc text bỏ sót. Nên mở PDF đối chiếu trước khi trích dẫn.</p>
-          <ul>${num.missing.map((m) => `<li><span class="q-label">${escapeHtml(m.label)}</span> <b class="q-num">${escapeHtml(m.number)}</b> <span class="hint">${escapeHtml(m.excerpt)}</span></li>`).join('')}</ul>` : ''}
+          <ul>${num.missing.map((m) => `<li><span class="q-label">${escapeHtml(m.label)}</span> <b class="q-num">${escapeHtml(m.number)}</b> <span class="hint">${titleHtml(m.excerpt)}</span></li>`).join('')}</ul>` : ''}
         ${shallow.length ? `<h4>Câu chung chung, chưa mang thông tin</h4>
           <p class="hint">Câu đúng nhưng thay tên phương pháp bằng từ khác vẫn "đúng". Nên sửa tay ở tab Chỉnh sửa hoặc trích xuất lại.</p>
-          <ul>${shallow.map((s) => `<li><span class="q-label">${escapeHtml(s.label)}</span> ${escapeHtml(s.text)} <span class="hint">· ${escapeHtml(s.reason)}</span></li>`).join('')}</ul>` : ''}
+          <ul>${shallow.map((s) => `<li><span class="q-label">${escapeHtml(s.label)}</span> ${titleHtml(s.text)} <span class="hint">· ${escapeHtml(s.reason)}</span></li>`).join('')}</ul>` : ''}
         ${!issues && !coverNote ? '<p class="hint" style="margin:0">Mọi con số trong ghi chú đều có trong toàn văn đã lưu, và không thấy câu chung chung. Đây là kiểm tra cơ học, không thay cho việc đọc lại.</p>' : ''}
       </div></details>`;
   }
@@ -417,7 +435,7 @@ export async function render(root, { params, query }) {
       <div class="card"><h2>Dòng note rút gọn</h2><div class="mono hint" style="user-select:all">${escapeHtml(quickNoteLine(p))}</div></div>`;
     const paint = (ex, lang) => {
       shown = { extraction: ex, lang };
-      $('pp-oneliner').innerHTML = ex.one_liner ? `<div class="oneliner">${escapeHtml(ex.one_liner)}</div>` : '';
+      $('pp-oneliner').innerHTML = ex.one_liner ? `<div class="oneliner">${titleHtml(ex.one_liner)}</div>` : '';
       $('pp-sections').innerHTML = renderSections(ex, { openFirst: true, paper: p, lang, redo: true });
       $('pp-sections').querySelectorAll('details').forEach((d) => { d.open = true; });
       markRedoBusy();
@@ -437,7 +455,7 @@ export async function render(root, { params, query }) {
       followJob(j, box.querySelector('.sec-status'), { expectedMs: 35000, onDone: (x) => {
         if (p.id !== pid) return;
         if (x.error) toast(x.error, 7000, 'err');
-        else { p = x.result.paper; metaRow(); $('pp-title').value = p.title; toast(`Đã trích xuất lại mục ${x.info.label}.`); }
+        else { p = x.result.paper; metaRow(); setTitle(p.title); toast(`Đã trích xuất lại mục ${x.info.label}.`); }
         if (tab === 'notes') redraw();
       } });
     }
@@ -496,7 +514,7 @@ export async function render(root, { params, query }) {
     const redraw = () => { const view = body.closest('.view'); const y = view?.scrollTop || 0; drawTab(); if (view) view.scrollTop = y; };
     if (lastRedo && lastRedo.id === p.id) {
       $('pp-redo-bar').innerHTML = `<div class="redo-bar">Đã trích xuất lại mục <b>${escapeHtml(lastRedo.label)}</b>. Các mục khác giữ nguyên.<span class="spacer"></span><button class="sm" id="pp-redo-undo">Hoàn tác</button><button class="sm ghost" id="pp-redo-close">Đóng</button></div>`;
-      $('pp-redo-undo').addEventListener('click', async () => { const r = lastRedo; lastRedo = null; p = await restoreSection(p.id, r.key, r.previous); metaRow(); $('pp-title').value = p.title; redraw(); toast('Đã hoàn tác, mục trở về bản trước.'); });
+      $('pp-redo-undo').addEventListener('click', async () => { const r = lastRedo; lastRedo = null; p = await restoreSection(p.id, r.key, r.previous); metaRow(); setTitle(p.title); redraw(); toast('Đã hoàn tác, mục trở về bản trước.'); });
       $('pp-redo-close').addEventListener('click', () => { lastRedo = null; $('pp-redo-bar').innerHTML = ''; });
     }
     $('pp-sections').addEventListener('click', async (ev) => {
@@ -1268,7 +1286,7 @@ export async function render(root, { params, query }) {
         ${ident ? `<div class="seg" id="pp-s2-kind"><button data-k="recommend" class="active">Gợi ý</button><button data-k="references" title="Paper này dẫn những bài nào và nói gì về chúng">Tài liệu tham khảo</button><button data-k="citations" title="Những paper khác dẫn bài này và nói gì về nó">Paper dẫn bài này</button></div>
         <div class="s2-tools">
           <select id="s2-range" title="Chỉ hiện bài đăng trong khoảng thời gian này"><option value="0">Mọi thời gian</option><option value="6">6 tháng gần đây</option><option value="12">1 năm gần đây</option><option value="24">2 năm gần đây</option></select>
-          <select id="s2-sort"><option value="default">Thứ tự mặc định</option><option value="new">Mới nhất</option><option value="cites">Nhiều trích dẫn nhất</option><option value="hot" title="Số trích dẫn chia số tháng từ lúc đăng">Đang được chú ý</option></select>
+          <select id="s2-sort" aria-label="Sắp xếp" title="Sắp xếp"><option value="default">Thứ tự mặc định</option><option value="new">Mới nhất</option><option value="cites">Nhiều trích dẫn nhất</option><option value="hot" title="Số trích dẫn chia số tháng từ lúc đăng">Đang được chú ý</option></select>
           <label class="row" style="gap:6px"><input type="checkbox" id="s2-hide"> Ẩn bài đã có hoặc đã xem</label>
           <span class="spacer"></span><span id="s2-count" class="hint"></span>
         </div>
@@ -1870,5 +1888,5 @@ export async function render(root, { params, query }) {
   }
   drawTab();
 
-  return onChange(() => { const np = paperById(p.id); if (np) { p = np; $('pp-title').value = p.title; } });
+  return onChange(() => { const np = paperById(p.id); if (np) { p = np; if (document.activeElement !== $('pp-title')) setTitle(p.title); } });
 }

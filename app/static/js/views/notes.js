@@ -94,8 +94,8 @@ export async function render(root, { query } = {}) {
     <div class="notes-bar">
       <div class="seg" id="nt-mode"><button data-m="list">Danh sách</button><button data-m="cards">Ôn thẻ${(() => { const n = dueCards(allNotes()).length; return n ? ` <span class="nt-count" title="Thẻ cần ôn hôm nay">${n}</span>` : ''; })()}</button></div>
       <input type="search" id="nt-q" placeholder="Tìm trong đoạn gốc, bản dịch, nhận xét, tên paper…">
-      <select id="nt-paper"></select>
-      <select id="nt-sort" class="nt-list-only"><option value="new">Mới nhất</option><option value="old">Cũ nhất</option><option value="paper">Theo paper</option></select>
+      <select id="nt-paper" aria-label="Lọc theo paper" title="Lọc theo paper"></select>
+      <select id="nt-sort" class="nt-list-only" aria-label="Sắp xếp" title="Sắp xếp"><option value="new">Mới nhất</option><option value="old">Cũ nhất</option><option value="paper">Theo paper</option></select>
       <label class="row" style="gap:6px"><input type="checkbox" id="nt-tr"> Chỉ đoạn có bản dịch</label>
       <span class="spacer"></span>
       <button class="sm nt-list-only" id="nt-csv" title="Hai cột Mặt trước (đoạn gốc) và Mặt sau (bản dịch, nhận xét), nhập được vào Anki hoặc Quizlet">Tải CSV (Anki)</button>

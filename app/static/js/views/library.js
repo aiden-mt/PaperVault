@@ -7,6 +7,7 @@ import { compareTableMarkdown, libraryToMarkdown, bibtexAll } from '../markdown.
 import { venueBadge, VENUE_TYPES, RANK_FILTERS, matchesRankFilter, rankSortKey } from '../venue.js';
 import { reextractPapers, hasTemplateNotes } from '../reextract.js';
 import { findPdfsBulk } from '../pdffind.js';
+import { titleHtml } from '../richtext.js';
 
 const ALL = '__all__';
 const TRASH = '__trash__';
@@ -65,9 +66,9 @@ function sidebarHtml() {
   for (const p of store.papers) for (const id of topicIdsOf(p)) counts.set(id, (counts.get(id) || 0) + 1);
   return `
     <li data-id="${ALL}" class="${state.topicId === ALL ? 'active' : ''}"><span class="dot" style="background:var(--muted)"></span><span class="name">Tất cả</span><span class="count">${store.papers.length}</span></li>
-    ${store.topics.map((t) => `<li data-id="${t.id}" class="${state.topicId === t.id ? 'active' : ''}" title="${escapeHtml(t.description || '')}">
+    ${store.topics.map((t) => `<li data-id="${t.id}" class="${state.topicId === t.id ? 'active' : ''}${counts.get(t.id) ? '' : ' no-papers'}" title="${escapeHtml(t.description || '')}">
       <span class="dot" style="background:${escapeHtml(t.color || '#888')}"></span><span class="name">${escapeHtml(t.name)}</span><span class="count">${counts.get(t.id) || 0}</span></li>`).join('')}
-    <li data-id="${TRASH}" class="${state.topicId === TRASH ? 'active' : ''}" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px"><span class="dot" style="background:var(--danger)"></span><span class="name">🗑 Thùng rác</span><span class="count">${store.trashCount}</span></li>`;
+    <li data-id="${TRASH}" class="trash${state.topicId === TRASH ? ' active' : ''}${store.trashCount ? '' : ' no-papers'}"><span class="dot" style="background:var(--danger)"></span><span class="name">🗑 Thùng rác</span><span class="count">${store.trashCount}</span></li>`;
 }
 
 function snippetHtml(id) {
@@ -100,9 +101,8 @@ function cardHtml(p, i) {
         <span class="badge">${inTrash ? `xoá ${fmtDate(p.deletedAt)}` : fmtDate(p.createdAt)}</span>
       </div>
       ${inTrash ? `<div class="row" style="margin-top:4px"><button class="sm" data-restore="${p.id}">Khôi phục</button><button class="sm danger" data-purge="${p.id}">Xoá vĩnh viễn</button></div>` : `
-      <div class="line"><b>Điểm mới:</b> ${escapeHtml(e.novelty || '—')}</div>
-      <div class="line"><b>Dataset/Metric:</b> ${escapeHtml(e.dataset_metric_note || '—')}</div>
-      <div class="line"><b>Áp dụng được:</b> ${escapeHtml(ideas || '—')}</div>${snippetHtml(p.id)}`}
+      ${[['Điểm mới', e.novelty], ['Dataset/Metric', e.dataset_metric_note], ['Áp dụng được', ideas]].filter(([, v]) => v).map(([k, v]) => `<div class="line"><b>${k}:</b> ${titleHtml(v)}</div>`).join('')
+        || `<div class="line hint">${titleHtml(e.one_liner || 'Chưa có ghi chú. Mở paper rồi bấm "Trích xuất lại" để AI đọc và điền.')}</div>`}${snippetHtml(p.id)}`}
     </div>
   </div>`;
 }
@@ -115,7 +115,7 @@ function kanbanHtml(list) {
         const e = p.extraction || {};
         return `<div class="kan-card" draggable="true" data-id="${p.id}"><div class="t">${escapeHtml(p.title)}</div>
           <div class="meta">${topicBadge(topicOf(p))}${e.year ? `<span class="badge">${escapeHtml(e.year)}</span>` : ''}${p.rating ? `<span class="stars">${'★'.repeat(p.rating)}</span>` : ''}</div>
-          <div class="hint">${escapeHtml((e.one_liner || e.novelty || '').slice(0, 140))}</div></div>`;
+          <div class="hint kan-sum">${titleHtml(e.one_liner || e.novelty || '')}</div></div>`;
       }).join('') || '<div class="hint">Trống.</div>'}</div>`;
   }).join('')}</div>`;
 }
@@ -128,7 +128,7 @@ function tableHtml(list) {
       return `<tr data-id="${p.id}" class="${store.selected.has(p.id) ? 'selected' : ''}"><td class="pick-col"><input type="checkbox" class="pick" data-id="${p.id}" ${store.selected.has(p.id) ? 'checked' : ''}></td>
         <td><b>${escapeHtml(p.title)}</b></td><td>${topicBadge(topicOf(p))}</td><td>${escapeHtml(e.year || '')}</td><td>${venueBadge(p.venueInfo) || escapeHtml((e.venue || '').slice(0, 30))}</td>
         <td><span class="badge st-${p.status || 'to-read'}">${STATUS_LABEL[p.status || 'to-read']}</span></td><td class="stars">${'★'.repeat(p.rating || 0)}</td><td>${p.citationCount ?? ''}</td>
-        <td>${escapeHtml(e.novelty || '')}</td><td>${escapeHtml(e.dataset_metric_note || '')}</td></tr>`;
+        <td>${titleHtml(e.novelty || '')}</td><td>${titleHtml(e.dataset_metric_note || '')}</td></tr>`;
     }).join('')}</tbody></table></div>`;
 }
 
@@ -194,12 +194,12 @@ export async function render(root, { params, query }) {
             </div>
           </div>
           <div class="controls">
-            <input type="search" id="lib-q" placeholder="Lọc… (tìm cả trong toàn văn đã lưu)" value="${escapeHtml(state.q)}" style="max-width:280px">
-            <select id="lib-status"><option value="">Mọi trạng thái</option>${STATUS_ORDER.map((s) => `<option value="${s}" ${state.status === s ? 'selected' : ''}>${STATUS_LABEL[s]}</option>`).join('')}</select>
-            <select id="lib-vtype" title="Loại venue"><option value="">Mọi loại venue</option>${Object.entries(VENUE_TYPES).map(([k, l]) => `<option value="${k}" ${state.vtype === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+            <input type="search" id="lib-q" placeholder="Lọc… (tìm cả trong toàn văn đã lưu)" aria-label="Lọc paper" value="${escapeHtml(state.q)}">
+            <select id="lib-status" aria-label="Trạng thái đọc"><option value="">Mọi trạng thái</option>${STATUS_ORDER.map((s) => `<option value="${s}" ${state.status === s ? 'selected' : ''}>${STATUS_LABEL[s]}</option>`).join('')}</select>
+            <select id="lib-vtype" title="Loại venue" aria-label="Loại venue"><option value="">Mọi loại venue</option>${Object.entries(VENUE_TYPES).map(([k, l]) => `<option value="${k}" ${state.vtype === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
             <select id="lib-rank" title="Hạng venue (CORE cho hội nghị, SJR cho tạp chí)"><option value="">Mọi hạng</option>${RANK_FILTERS.map(([k, l]) => `<option value="${k}" ${state.rank === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-            <select id="lib-rating"><option value="0">Mọi đánh giá</option>${[5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${state.rating === n ? 'selected' : ''}>≥ ${'★'.repeat(n)}</option>`).join('')}</select>
-            <select id="lib-sort">
+            <select id="lib-rating" aria-label="Đánh giá"><option value="0">Mọi đánh giá</option>${[5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${state.rating === n ? 'selected' : ''}>≥ ${'★'.repeat(n)}</option>`).join('')}</select>
+            <select id="lib-sort" aria-label="Sắp xếp" title="Sắp xếp">
               <option value="updated">Mới cập nhật</option><option value="created">Mới thêm</option><option value="title">Tên A→Z</option>
               <option value="year">Năm giảm dần</option><option value="rating">Đánh giá cao</option><option value="cites">Trích dẫn nhiều</option><option value="rank">Hạng venue</option>
             </select>

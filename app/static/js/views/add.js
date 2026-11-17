@@ -11,6 +11,7 @@ import { zoteroCardHtml, bindZoteroCard } from '../zotero.js';
 import { renderBatch, addEntries } from './batch.js';
 import { runJob, getJob, jobRunning, followJob } from '../bgjobs.js';
 import { isPaperIdentifier, searchItem, sortItems, matchLibrary, toBatchEntry } from '../papersearch.js';
+import { titleHtml } from '../richtext.js';
 
 let pendingFiles = [];
 export function setPendingFiles(files) { pendingFiles = files; }
@@ -434,7 +435,7 @@ function renderConfirm(r) {
   const box = $('add-result');
   box.innerHTML = `<div class="card" style="margin-top:12px">
     <div class="row wrap"><b style="font-size:14px">${escapeHtml(extraction.title || r.source.title || '(chưa có tên)')}</b></div>
-    <div class="hint">${escapeHtml(extraction.one_liner || '')}</div>
+    <div class="hint">${titleHtml(extraction.one_liner || '')}</div>
     <div class="row wrap" style="margin:6px 0 10px"><span class="badge conf-${escapeHtml(extraction.confidence)}">độ tin cậy: ${escapeHtml(extraction.confidence || '?')}</span>
       <span class="badge">${escapeHtml(meta.provider)}${meta.model ? `/${escapeHtml(meta.model)}` : ''}${meta.elapsedMs ? ` · ${(meta.elapsedMs / 1000).toFixed(1)}s` : ''}</span>${meta.pdfMode ? `<span class="badge accent">${escapeHtml(meta.pdfMode)}</span>` : ''}
       ${meta.usage ? `<span class="badge" title="token vào/ra">${meta.usage.input_tokens ?? meta.usage.prompt_tokens ?? meta.usage.promptTokenCount ?? '?'} → ${meta.usage.output_tokens ?? meta.usage.completion_tokens ?? meta.usage.candidatesTokenCount ?? '?'} token</span>` : ''}</div>
